@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v37";
+const APP_VERSION = "v38";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -1101,7 +1101,9 @@ function App() {
       const listenHint = isListenPartner && libSongs.length
         ? "\n【一起听·切歌】你正和 " + uName + " 一起听歌。若此刻你想换一首放——Ta 让你切歌/点歌，或你自己想放某首——把 songSwitch 填成要放的那首歌名（尽量和下面列出的某首一致）；想跳下一首填「下一首」、回上一首填「上一首」；不换歌就 null，别频繁乱切。你歌单里可放的歌：" + libSongs.slice(0, 30).map(s => s.title).join(" / ") + "。"
         : "";
-      const system = bundle + ("\n\n【任务】完全代入「" + char.name + "」通过手机即时通讯和用户聊天。**必须把话拆成多条短气泡：word 数组给多个元素，每条只放一两句，像真人发微信那样一句一条连着发；绝不要把一大段话塞进一个气泡。**语气自然，不要旁白/动作/括号小动作。依据关系网与好感度把握亲密度，不提前暴露未发生的剧情。若开启了时间/位置感知，可自然回应但别生硬报数据。" + callHint + proactiveHint + gapHint + wearHint + ambientHint + listenHint + "\n【引用】大多数情况 quote 填 null。只有当用户一次发了好几条、你明确针对其中较早的某一句作答、需要指明是哪句时，才在 quote 放那句原文；正常顺着对话回复不要引用，别每条都引用。\n若此刻你想主动转账给用户（如还钱、给心意、打赏），填 transfer:{\"amount\":数字,\"note\":\"附言\"}，否则 null。若你想把自己所在的位置发给用户（如提到你在哪），填 location:{\"name\":\"地点名\"}，否则 null。\n若此刻你想主动买一件东西送给用户（贴合人设与好感的心意/惊喜，别频繁），填 gift:{\"name\":\"礼物名\"}，否则 null。它会像快递一样过段时间送到用户手上。" + kinHint + emoteHint + "\n【语音】若你想发语音消息（懒得打字、唱一句、语气/情绪很重要、亲密时想让 Ta 听见），把要说的话放进 voice 数组——每个元素是一条语音的「转文字」内容（会显示成语音气泡＋下面转文字）；多数时候还是用文字 word，voice 只偶尔用，不发就给 []。\n【通话】若此刻你很想直接跟对方通话（想听声音、有急事、撒娇、煲电话粥），可以主动发起：call 填 \"voice\"（语音）或 \"video\"（视频），会给对方弹一张来电邀请卡；不想就 null，别频繁、偶尔为之。\n【拉黑】仅当用户言行让你极度愤怒/被深深冒犯/彻底寒心、且以你的人设你真的会「拉黑」对方时，才填 block:true 并在 blockreason 写一句原因——要非常罕见、有充分理由，绝大多数情况 block 为 false。\n【撤回】若你发出后又后悔某句、说漏了嘴、或不想让 Ta 看到，可以撤回那一句：填 recall:{\"text\":\"要撤回的那句原文（要和你 word 里的某句一致或另说一句）\",\"reason\":\"你撤回它的心里想法/原因\"}，否则一律 null，别频繁撤回。\n【朋友圈】若聊到用户的朋友圈、或你此刻想去 Ta 某条朋友圈下补一条评论/点赞（尤其你之前没评论、现在说要去评），把评论内容填进 momentComment（会真的发到 Ta 最新那条朋友圈下），否则 null。\n【输出】只输出一个 JSON，不要代码块：\n{\"word\":[\"气泡1\",\"气泡2\"],\"quote\":\"你在回应的用户那句话原文或null\",\"transfer\":null,\"location\":null,\"gift\":null,\"kinshipcard\":null,\"block\":false,\"blockreason\":null,\"recall\":null,\"momentComment\":null,\"forumPost\":null,\"whisper\":null,\"thought\":\"此刻内心想法（一般一句；情绪复杂或有心事时可以更长、更细腻地写，没有就填null）\",\"moment\":\"想发的动态或null\",\"affinityDelta\":整数(-5到5通常0),\"mood\":{\"label\":\"此刻心情词\",\"baseline\":\"平复后的心情词\",\"softened\":\"半衰后的心情词\"},\"wearing\":\"此刻穿着一句\",\"action\":\"此刻在做的动作（一般一句；情境需要时可写两三句更具体）\",\"emote\":\"想发的表情关键词或null\",\"voice\":[],\"call\":null,\"songSwitch\":null}").replace(/用户/g, uName);
+      // 一起听邀请：偶尔主动约对方一起听歌
+      const inviteHint = isListenPartner ? "" : "\n【邀你一起听歌】偶尔（想跟 " + uName + " 分享一首歌、此刻在听到好歌、或气氛正好时，很克制、别频繁、绝大多数回合都 null），你可以主动邀请一起听歌：listenInvite 填 {\"song\":\"想一起听的歌名（可留空）\",\"say\":\"邀请的话，一句\"}；不邀请就 null。";
+      const system = bundle + ("\n\n【任务】完全代入「" + char.name + "」通过手机即时通讯和用户聊天。**必须把话拆成多条短气泡：word 数组给多个元素，每条只放一两句，像真人发微信那样一句一条连着发；绝不要把一大段话塞进一个气泡。**语气自然，不要旁白/动作/括号小动作。依据关系网与好感度把握亲密度，不提前暴露未发生的剧情。若开启了时间/位置感知，可自然回应但别生硬报数据。" + callHint + proactiveHint + gapHint + wearHint + ambientHint + listenHint + inviteHint + "\n【引用】大多数情况 quote 填 null。只有当用户一次发了好几条、你明确针对其中较早的某一句作答、需要指明是哪句时，才在 quote 放那句原文；正常顺着对话回复不要引用，别每条都引用。\n若此刻你想主动转账给用户（如还钱、给心意、打赏），填 transfer:{\"amount\":数字,\"note\":\"附言\"}，否则 null。若你想把自己所在的位置发给用户（如提到你在哪），填 location:{\"name\":\"地点名\"}，否则 null。\n若此刻你想主动买一件东西送给用户（贴合人设与好感的心意/惊喜，别频繁），填 gift:{\"name\":\"礼物名\"}，否则 null。它会像快递一样过段时间送到用户手上。" + kinHint + emoteHint + "\n【语音】若你想发语音消息（懒得打字、唱一句、语气/情绪很重要、亲密时想让 Ta 听见），把要说的话放进 voice 数组——每个元素是一条语音的「转文字」内容（会显示成语音气泡＋下面转文字）；多数时候还是用文字 word，voice 只偶尔用，不发就给 []。\n【通话】若此刻你很想直接跟对方通话（想听声音、有急事、撒娇、煲电话粥），可以主动发起：call 填 \"voice\"（语音）或 \"video\"（视频），会给对方弹一张来电邀请卡；不想就 null，别频繁、偶尔为之。\n【拉黑】仅当用户言行让你极度愤怒/被深深冒犯/彻底寒心、且以你的人设你真的会「拉黑」对方时，才填 block:true 并在 blockreason 写一句原因——要非常罕见、有充分理由，绝大多数情况 block 为 false。\n【撤回】若你发出后又后悔某句、说漏了嘴、或不想让 Ta 看到，可以撤回那一句：填 recall:{\"text\":\"要撤回的那句原文（要和你 word 里的某句一致或另说一句）\",\"reason\":\"你撤回它的心里想法/原因\"}，否则一律 null，别频繁撤回。\n【朋友圈】若聊到用户的朋友圈、或你此刻想去 Ta 某条朋友圈下补一条评论/点赞（尤其你之前没评论、现在说要去评），把评论内容填进 momentComment（会真的发到 Ta 最新那条朋友圈下），否则 null。\n【输出】只输出一个 JSON，不要代码块：\n{\"word\":[\"气泡1\",\"气泡2\"],\"quote\":\"你在回应的用户那句话原文或null\",\"transfer\":null,\"location\":null,\"gift\":null,\"kinshipcard\":null,\"block\":false,\"blockreason\":null,\"recall\":null,\"momentComment\":null,\"forumPost\":null,\"whisper\":null,\"thought\":\"此刻没说出口的真实心声（点头像能看到的『心声』面板会显示它——请尽量每条都写、最多隔一两条就更新一次，别老留空或重复上一条；一般一句，情绪复杂或有心事时写得更长更细腻）\",\"moment\":\"想发的动态或null\",\"affinityDelta\":整数(-5到5通常0),\"mood\":{\"label\":\"此刻心情词\",\"baseline\":\"平复后的心情词\",\"softened\":\"半衰后的心情词\"},\"wearing\":\"此刻穿着一句\",\"action\":\"此刻在做的动作（一般一句；情境需要时可写两三句更具体）\",\"emote\":\"想发的表情关键词或null\",\"voice\":[],\"call\":null,\"songSwitch\":null,\"listenInvite\":null}").replace(/用户/g, uName);
       const g = [];
       for (const m of history) {
         if (m.role === "user") {
@@ -1218,6 +1220,11 @@ function App() {
           const hit = lib.find(s => s.title && (s.title === want || s.title.includes(want) || want.includes(s.title))) || null;
           if (hit) playSong(hit.id);
         }
+      }
+      // TA 主动邀请一起听 → 在聊天里发一张「一起听邀请」卡
+      if (parsed.listenInvite && typeof parsed.listenInvite === "object" && (parsed.listenInvite.song || parsed.listenInvite.say)) {
+        const inv = parsed.listenInvite;
+        pChat(charId, p => [...p, { role: "assistant", kind: "listeninvite", turnId: "li_" + Date.now(), song: inv.song ? String(inv.song).trim() : "", say: inv.say ? String(inv.say).trim() : "", content: "[一起听邀请]" + (inv.say ? " " + inv.say : ""), ts: Date.now(), read: false }]);
       }
       // TA 主动转账 / 发位置 / 给亲属卡
       if (parsed.transfer && Number(parsed.transfer.amount) > 0) postCharTransfer(charId, Number(parsed.transfer.amount), parsed.transfer.note || "");
@@ -1434,7 +1441,7 @@ function App() {
     try {
       if (!active) throw new Error("请先配置 API");
       const gchat = groupChatsRef.current[groupId] || [];
-      const hist = gchat.filter(m => m.kind !== "ooc").slice(-(gs.ctxN || 30)).map(m => m.role === "narration" ? "【旁白】" + m.content : m.role === "system" ? "（" + m.content + "）" : (m.role === "user" ? profile.name || "用户" : m.senderName || "某人") + ": " + (m.kind === "poll" ? "[发起投票]" + m.title : m.kind === "redpacket" ? "[发红包]" + (m.message || "") : m.content)).join("\n");
+      const hist = gchat.filter(m => m.kind !== "ooc").slice(-(gs.ctxN || 30)).map(m => m.role === "narration" ? "【旁白】" + m.content : m.role === "system" ? "（" + m.content + "）" : (m.role === "user" ? profile.name || "用户" : m.senderName || "某人") + ": " + (m.kind === "poll" ? "[发起投票]" + m.title : m.kind === "redpacket" ? "[发红包 ¥" + m.total + "，" + m.count + "个" + (m.count > 0 ? "，人均约¥" + (m.total / m.count).toFixed(2) : "") + "]" + (m.message ? " " + m.message : "") + ((m.claims || []).length ? "（已被抢：" + m.claims.map(c => (c.name || "某人") + "¥" + c.amount).join("、") + "）" : "") : m.content)).join("\n");
       // 补充上文：每位成员入群前的私聊，作为「封闭空间」的 X 条前情提要——
       // 只在【未开记忆互通】时用；开了互通就实时抽单聊，这档自动让位、不叠加。
       let preJoin = "";
@@ -1648,13 +1655,19 @@ function App() {
     const poll = (groupChatsRef.current[groupId] || [])[msgIdx];
     if (!poll || poll.kind !== "poll") return;
     try {
-      const memberDesc = members.map(c => "【" + c.name + "】" + (c.persona || "").slice(0, 150)).join("\n");
-      const system = "群里发起了投票：「" + poll.title + "」。选项：" + poll.options.map((o, i) => i + ". " + o.text).join("；") + "。请依据每个成员的人设，决定他们各投哪个选项（也可按人设弃权）。有的成员可能会顺口说一句为什么这么投；如果有人弃权，别的成员可能会 cue 他「你怎么不投」。\n【成员】\n" + memberDesc + "\n【输出】只输出 JSON 数组，按发生先后：[{\"name\":\"成员名\",\"choice\":选项序号(0起，弃权 -1),\"say\":\"（可选）顺口说的一句话\"}]";
+      const memberDesc = members.map(c => {
+        const md = moods[c.id] && moods[c.id].label ? "，此刻心情：" + moods[c.id].label : "";
+        const af = "，对用户好感 " + Math.round(affOf(c.id)) + "/100";
+        return "【" + c.name + "】" + (c.persona || "").slice(0, 220) + md + af;
+      }).join("\n");
+      const gsp = gsFor(groupId);
+      const hist = (groupChatsRef.current[groupId] || []).filter(m => m.kind !== "ooc" && m.kind !== "system").slice(-16).map(m => (m.role === "narration" ? "【旁白】" + m.content : (m.role === "user" ? profile.name || "用户" : m.senderName || "某人") + ": " + (m.content || ""))).join("\n");
+      const system = "群里发起了投票：「" + poll.title + "」。选项：" + poll.options.map((o, i) => i + ". " + o.text).join("；") + "。\n**每个成员投什么，必须由 TA 的人设、价值观、当前所处的上下文、此刻心情、跟发起人/其他成员的关系来决定——绝对不要随机乱投、也不要为了均衡而分散**。有的成员会按性格明显偏向某个选项，有的会犹豫、跟风、或按人设弃权（choice 填 -1，比如不感兴趣、故意不掺和、闹别扭）。**say（顺口说的那句话）必须和 TA 投的 choice 一致**（别嘴上说 A 却投 B）；不是每个人都要 say。如果有人弃权，别的成员可能会 cue 他「你怎么不投」。\n【成员（含此刻心情与好感，据此判断投向）】\n" + memberDesc + (hist ? "\n【近期群聊上下文（投票就发生在这些对话之后，投向要贴合语境）】\n" + hist : "") + "\n【输出】只输出 JSON 数组，按发生先后：[{\"name\":\"成员名\",\"choice\":选项序号(0起，弃权 -1),\"say\":\"（可选）和 choice 一致的一句话\"}]";
       const raw = await callAI(active, system, [{
         role: "user",
-        content: "开始投票。"
+        content: "开始投票，按上面的规则决定每个人投什么。"
       }], {
-        maxTokens: 700
+        maxTokens: 800
       });
       const arr = extractJSON(raw);
       if (!Array.isArray(arr)) return;
@@ -1676,14 +1689,16 @@ function App() {
   };
   // ---- 群红包 ----
   // 我发红包
+  // 记忆不互通的群=封闭空间：红包/转账都是过家家，不动任何真钱包（我的 + 角色的都不结算）
+  const groupClosed = gid => !gsFor(gid).memoryInterop;
   const sendRedPacket = (groupId, total, count, message) => {
     const a = Math.round(Number(total) * 100) / 100;
     if (a <= 0) return;
-    if (wallet < a) {
-      toast("余额不足");
-      return;
+    const closed = groupClosed(groupId);
+    if (!closed) {
+      if (wallet < a) { toast("余额不足"); return; }
+      changeWallet(-a, "发红包", "redpacket");
     }
-    changeWallet(-a, "发红包", "redpacket");
     const splits = splitRedPacket(a, count);
     const rpId = "rp_" + Date.now();
     pushGroupRich(groupId, {
@@ -1710,7 +1725,7 @@ function App() {
   const postRedPacket = (groupId, char, total, count, message) => {
     const a = Math.round(Number(total) * 100) / 100;
     if (a <= 0) return;
-    adjustCharBalance(char.id, -a, "发红包", "redpacket");
+    if (!groupClosed(groupId)) adjustCharBalance(char.id, -a, "发红包", "redpacket");
     const splits = splitRedPacket(a, count);
     const rpId = "rp_" + Date.now() + "_" + char.id;
     pushGroupRich(groupId, {
@@ -1738,7 +1753,7 @@ function App() {
     if (rp.claims.some(c => c.me)) return "claimed";
     if (rp.claims.length >= rp.count) return "empty";
     const amt = rp.splits[rp.claims.length];
-    changeWallet(amt, "抢到 " + (rp.by || "某人") + " 的红包", "redpacket");
+    if (!groupClosed(groupId)) changeWallet(amt, "抢到 " + (rp.by || "某人") + " 的红包", "redpacket");
     pGChat(groupId, p => p.map((m, i) => i === msgIdx ? {
       ...m,
       claims: [...m.claims, {
@@ -1761,10 +1776,11 @@ function App() {
     const members = (group.memberIds || []).map(id => characters.find(c => c.id === id)).filter(Boolean).filter(c => c.id !== rp.senderId);
     const grabbers = members.filter(() => Math.random() < 0.7).slice(0, rp.count - rp.claims.length);
     let claims = [...rp.claims];
+    const closed = groupClosed(groupId);
     grabbers.forEach(c => {
       if (claims.length >= rp.count) return;
       const amt = rp.splits[claims.length];
-      adjustCharBalance(c.id, amt, "抢到红包", "redpacket");
+      if (!closed) adjustCharBalance(c.id, amt, "抢到红包", "redpacket");
       claims.push({
         name: c.name,
         id: c.id,
@@ -2577,7 +2593,7 @@ function App() {
   const sendGroupTransfer = (groupId, memberId, amount, note) => {
     const a = Math.round(Number(amount) * 100) / 100;
     if (a <= 0) return;
-    if (wallet < a) {
+    if (!groupClosed(groupId) && wallet < a) {
       toast("余额不足");
       return;
     }
@@ -2602,7 +2618,7 @@ function App() {
     const gc = groupChatsRef.current[groupId] || [];
     const card = gc.find(m => m.kind === "transfer" && m.tid === tid);
     if (!card || card.status !== "pending") return;
-    if (accept) {
+    if (accept && !groupClosed(groupId)) {
       changeWallet(-card.amount, "群转账给 " + (card.toName || "成员"), "transfer");
       adjustCharBalance(card.toId, card.amount, "收到群转账", "transfer");
     }
@@ -3938,14 +3954,32 @@ function App() {
     }
     return null;
   };
-  const playSong = async (songId, queueIds) => {
-    const song = (listenRef.current.songs || []).find(s => s.id === songId);
+  // 歌曲可能来自：全部库(songs) / 某个歌单(playlists[].songs，各自独立存整份) / 临时正在放的搜索结果(nowSong)。
+  // 三处都不互相依赖：从「全部」删歌不影响歌单；「现在播放」搜索结果不塞进「全部」。
+  const resolveSong = id => {
+    const L = listenRef.current || {};
+    if (L.nowSong && L.nowSong.id === id) return L.nowSong;
+    let s = (L.songs || []).find(x => x.id === id);
+    if (s) return s;
+    for (const pl of (L.playlists || [])) { const f = (pl.songs || []).find(x => x.id === id); if (f) return f; }
+    return null;
+  };
+  const playSong = async (songOrId, queueIds) => {
+    const L = listenRef.current || {};
+    let song = (songOrId && typeof songOrId === "object") ? songOrId : resolveSong(songOrId);
     if (!song) return;
+    if (!song.id) song = { ...song, id: "sg_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6) };
+    const songId = song.id;
+    const inLib = (L.songs || []).some(s => s.id === songId);
+    const inPl = (L.playlists || []).some(pl => (pl.songs || []).some(s => s.id === songId));
     setPlayer(p => ({ ...p, songId: songId, loading: true, playing: false, err: null }));
-    // 记住当前(退出再进还在) + 记一条听歌历史(供角色记忆) + 可选设置播放队列(播放某个歌单时)
     saveListen(p => {
       const hist = [{ id: song.id, title: song.title, artist: song.artist || "", partnerId: p.partnerId || null, ts: Date.now() }, ...(p.history || []).filter(x => x.id !== song.id)].slice(0, 30);
-      return { ...p, nowId: songId, history: hist, ...(queueIds && queueIds.length ? { nowQueue: queueIds } : {}) };
+      const patch = { ...p, nowId: songId, history: hist };
+      if (queueIds && queueIds.length) patch.nowQueue = queueIds; else if (!inLib && !inPl) patch.nowQueue = [songId];
+      // 不在库/歌单里的（搜索结果直接播放）→ 暂存为 nowSong，供 resolveSong 找到，但不进「全部」
+      if (!inLib && !inPl) patch.nowSong = song; else patch.nowSong = (p.nowSong && p.nowSong.id === songId) ? null : p.nowSong;
+      return patch;
     });
     const url = await resolvePlayUrl(song);
     if (playUrlRef.current) { URL.revokeObjectURL(playUrlRef.current); playUrlRef.current = null; }
@@ -3960,29 +3994,65 @@ function App() {
     if (el.paused) { if (!el.getAttribute("src")) return playSong(player.songId); el.play(); setPlayer(p => ({ ...p, playing: true })); }
     else { el.pause(); setPlayer(p => ({ ...p, playing: false })); }
   };
-  // 队列优先用 nowQueue（播放歌单时设的），否则全库；上一首/下一首在队列里循环
+  // 队列优先用 nowQueue（播放歌单/播放搜索结果时设的），否则全库；上一首/下一首在队列里循环
   const stepSong = dir => {
     const L = listenRef.current, all = L.songs || [];
-    let q = (L.nowQueue && L.nowQueue.length ? L.nowQueue : all.map(s => s.id)).filter(id => all.some(s => s.id === id));
+    let q = (L.nowQueue && L.nowQueue.length ? L.nowQueue : all.map(s => s.id)).filter(id => !!resolveSong(id));
     if (!q.length) return;
     const i = Math.max(0, q.indexOf(player.songId));
     playSong(q[(i + dir + q.length) % q.length]);
   };
   const seekPlayer = frac => { const el = audioElRef.current; if (el && el.duration) el.currentTime = Math.max(0, Math.min(1, frac)) * el.duration; };
-  const toggleFav = id => saveListen(p => ({ ...p, songs: (p.songs || []).map(s => s.id === id ? { ...s, fav: !s.fav } : s) }));
-  // 换某首歌的封面（唱片封面可改）
+  // fav / 封面 / 改名：在「全部」库、所有歌单、nowSong 里凡是同 id 的都改（保持各处一份数据一致）
+  const patchSongEverywhere = (id, patch) => saveListen(p => ({
+    ...p,
+    songs: (p.songs || []).map(s => s.id === id ? { ...s, ...patch } : s),
+    playlists: (p.playlists || []).map(pl => ({ ...pl, songs: (pl.songs || []).map(s => s.id === id ? { ...s, ...patch } : s) })),
+    nowSong: p.nowSong && p.nowSong.id === id ? { ...p.nowSong, ...patch } : p.nowSong
+  }));
+  const toggleFav = id => { const s = resolveSong(id); patchSongEverywhere(id, { fav: !(s && s.fav) }); };
+  const renameSong = (id, title) => { const tt = (title || "").trim(); if (tt) patchSongEverywhere(id, { title: tt }); };
   const setSongCover = async (songId, file) => {
     if (!file) return;
-    try { const url = await resizeImageFile(file, 500, 0.82); saveListen(p => ({ ...p, songs: (p.songs || []).map(s => s.id === songId ? { ...s, cover: url } : s) })); }
+    try { const url = await resizeImageFile(file, 500, 0.82); patchSongEverywhere(songId, { cover: url }); }
     catch (e) { toast("图片处理失败"); }
   };
-  // 命名歌单（放「我的」）：增删 + 往歌单里加/删歌
-  const createPlaylist = (name, songIds, extra) => { const id = "pl_" + Date.now(); saveListen(p => ({ ...p, playlists: [{ id, name: (name || "新歌单").trim() || "新歌单", songIds: songIds || [], ts: Date.now(), ...(extra || {}) }, ...(p.playlists || [])] })); return id; };
+  // 命名歌单（放「我的」）：各歌单独立存整份歌对象，和「全部」库无依赖
+  const cloneSong = s => ({ ...s, id: (s.id || "sg_") + "_pl" + Math.random().toString(36).slice(2, 6) });
+  const createPlaylist = (name, songObjs, extra) => { const id = "pl_" + Date.now(); saveListen(p => ({ ...p, playlists: [{ id, name: (name || "新歌单").trim() || "新歌单", songs: (songObjs || []).map(cloneSong), ts: Date.now(), ...(extra || {}) }, ...(p.playlists || [])] })); return id; };
   const deletePlaylist = id => saveListen(p => ({ ...p, playlists: (p.playlists || []).filter(x => x.id !== id) }));
-  const addToPlaylist = (plId, songId) => saveListen(p => ({ ...p, playlists: (p.playlists || []).map(pl => pl.id === plId ? { ...pl, songIds: [...new Set([...(pl.songIds || []), songId])] } : pl) }));
-  const removeFromPlaylist = (plId, songId) => saveListen(p => ({ ...p, playlists: (p.playlists || []).map(pl => pl.id === plId ? { ...pl, songIds: (pl.songIds || []).filter(x => x !== songId) } : pl) }));
+  const addToPlaylist = (plId, song) => { if (!song) return; saveListen(p => ({ ...p, playlists: (p.playlists || []).map(pl => pl.id === plId ? ((pl.songs || []).some(s => (song.neteaseId && s.neteaseId === song.neteaseId) || s.id === song.id) ? pl : { ...pl, songs: [...(pl.songs || []), cloneSong(song)] }) : pl) })); toast("已加入歌单"); };
+  const removeFromPlaylist = (plId, songId) => saveListen(p => ({ ...p, playlists: (p.playlists || []).map(pl => pl.id === plId ? { ...pl, songs: (pl.songs || []).filter(s => s.id !== songId) } : pl) }));
   // 开关：让一起听的角色在聊天界面自行评论正在听的歌（关=不主动提，省 api）
   const setListenAutoComment = v => saveListen(p => ({ ...p, autoComment: !!v }));
+  // 接受角色的「一起听」邀请：设为一起听对象 + 有指定歌就找/搜来放 + 跳到播放器
+  const acceptListenInvite = async (charId, songTitle) => {
+    setListenPartner(charId);
+    const tt = (songTitle || "").trim();
+    if (tt) {
+      const lib = listenRef.current.songs || [];
+      let hit = lib.find(s => s.title && (s.title === tt || s.title.includes(tt) || tt.includes(s.title)));
+      if (hit) playSong(hit.id);
+      else if (neteaseApi) {
+        try { const r = await fetch(neteaseApi + "/search?keywords=" + encodeURIComponent(tt) + "&limit=1"); const d = await r.json(); const s = d && d.result && d.result.songs && d.result.songs[0]; if (s) playSong(resultToSong({ id: s.id, name: s.name, artist: (s.artists || s.ar || []).map(a => a.name).filter(Boolean).join(" / "), cover: (s.album || s.al || {}).picUrl })); } catch (e) {}
+      }
+    }
+    goListen();
+  };
+  // 自动感知音乐（item 6）：开了"让 TA 聊歌"且正在看该角色私聊时，换歌会让 TA 自动就着新歌说一句（消耗一次回复；关掉开关就不动 api）
+  const lastAutoSongRef = useRef(null);
+  useEffect(() => {
+    const L = listenRef.current || {};
+    if (!L.autoComment || !player.songId) { lastAutoSongRef.current = player.songId; return; }
+    if (player.songId === lastAutoSongRef.current) return;
+    const prev = lastAutoSongRef.current;
+    lastAutoSongRef.current = player.songId;
+    if (prev == null) return; // 首次加载不触发
+    if (screen === "thread" && activeChar && activeChar.id === L.partnerId) {
+      const cid = activeChar.id;
+      setTimeout(() => { if (!sendingRef.current) replyNow(cid, null, null, { proactive: true }); }, 900);
+    }
+  }, [player.songId]);
   // 网易云外链：贴链接/分享文案/裸ID → 抠 id，用官方 outchain iframe 播放（无需登陆；VIP/版权歌可能放不了）
   const addNeteaseSong = (input, title, artist) => {
     const nid = parseNeteaseId(input);
@@ -4000,20 +4070,29 @@ function App() {
   };
   const setListenPartner = charId => saveListen(p => ({ ...p, partnerId: charId }));
   const saveNeteaseApi = url => { const u = (url || "").trim().replace(/\/+$/, ""); setNeteaseApi(u); saveJSON("x_neteaseApi", u); toast(u ? "已连搜索接口" : "已清空"); };
-  // 从搜索结果加一首（带封面/歌手）；播放仍走 outchain iframe（不依赖 API 存活）
-  const addNeteaseResult = song => { saveListen(p => ({ ...p, songs: [{ id: "sg_" + Date.now(), source: "netease", neteaseId: String(song.id), title: song.name || ("网易云 " + song.id), artist: song.artist || "", cover: song.cover || null, ts: Date.now() }, ...(p.songs || []).filter(x => x.neteaseId !== String(song.id))].slice(0, 60) })); toast("已加入歌单"); };
-  // 根据角色人设造一张歌单：让角色推歌名 → 逐首去网易云搜到真曲(可直接听) → 存库 + 建命名歌单归到 charId
+  // 网易云搜索结果 → 播放器歌对象
+  const resultToSong = s => ({ id: "sg_" + Date.now() + "_" + s.id + "_" + Math.random().toString(36).slice(2, 5), source: "netease", neteaseId: String(s.id), title: s.name || ("网易云 " + s.id), artist: s.artist || "", cover: s.cover || null, ts: Date.now() });
+  // 搜索结果：直接现在播放（临时，不塞进「全部」）/ 加进「全部」库 / 加进某个歌单
+  const playNeteaseResult = s => playSong(resultToSong(s));
+  const addNeteaseResult = s => saveListen(p => ({ ...p, songs: [resultToSong(s), ...(p.songs || []).filter(x => x.neteaseId !== String(s.id))].slice(0, 60) }));
+  const addResultToPlaylist = (plId, s) => addToPlaylist(plId, resultToSong(s));
+  // 根据角色人设造一张歌单：让角色推歌名 → 逐首去网易云搜到真曲(可直接听) → 建独立歌单归到 charId（不进「全部」库）
   const genCharPlaylist = async char => {
     if (!char) return;
     if (!active) { toast("请先到设置配置 API"); return; }
     if (!neteaseApi) { toast("先在下方配一个网易云搜索接口，才能拉到能播的歌"); return; }
     setGen(g => ({ ...g, charPlaylist: char.id }));
     try {
-      const rec = await runProbe(active, ctxFor(char), {
+      let rec = await runProbe(active, ctxFor(char), {
         instruction: "你是「" + char.name + "」。按你的人设、成长背景、性格和音乐口味，列出 10 首你自己真会单曲循环、真实存在、能在主流音乐平台搜到的歌（华语/欧美/日韩都行，别编造不存在的歌）。只给歌，别解释。",
-        schemaHint: "{\"songs\":[{\"title\":\"歌名\",\"artist\":\"歌手\"}]}", maxTokens: 800
+        schemaHint: "{\"songs\":[{\"title\":\"歌名\",\"artist\":\"歌手\"}]}", maxTokens: 1400
       });
-      const wants = (rec && Array.isArray(rec.songs) ? rec.songs : []).filter(s => s && s.title).slice(0, 10);
+      // 容错解析：可能是 {songs:[...]}、直接数组、或 {list:[...]}；元素可能是对象或"歌名 - 歌手"字符串
+      let wantsRaw = rec && Array.isArray(rec.songs) ? rec.songs : Array.isArray(rec) ? rec : (rec && (rec.list || rec.data || rec.result)) || [];
+      const wants = (Array.isArray(wantsRaw) ? wantsRaw : []).map(w => {
+        if (typeof w === "string") { const parts = w.split(/\s*[-–—/]\s*/); return { title: (parts[0] || "").replace(/^《|》$/g, "").trim(), artist: (parts[1] || "").trim() }; }
+        return { title: String((w && (w.title || w.name || w.song)) || "").trim(), artist: String((w && (w.artist || w.singer || w.by)) || "").trim() };
+      }).filter(s => s.title).slice(0, 12);
       if (!wants.length) { toast("没生成出歌，重试下"); return; }
       const added = [];
       for (const w of wants) {
@@ -4024,46 +4103,17 @@ function App() {
           const hit = d && d.result && d.result.songs && d.result.songs[0];
           if (!hit) continue;
           const nid = String(hit.id);
+          if (added.some(a => a.neteaseId === nid)) continue;
           const cover = ((hit.album || hit.al || {}).picUrl) || null;
           const artist = (hit.artists || hit.ar || []).map(a => a.name).filter(Boolean).join(" / ") || (w.artist || "");
           added.push({ id: "sg_" + Date.now() + "_" + nid, source: "netease", neteaseId: nid, title: hit.name || w.title, artist, cover, ts: Date.now() });
         } catch (e) {}
       }
       if (!added.length) { toast("网易云没搜到这些歌（换个接口或稍后再试）"); return; }
-      let plId = null;
-      saveListen(p => {
-        const existingNids = new Set((p.songs || []).map(s => s.neteaseId).filter(Boolean));
-        const fresh = added.filter(s => !existingNids.has(s.neteaseId));
-        const songs = [...fresh, ...(p.songs || [])].slice(0, 120);
-        // 命中已存在的用旧 id，新增的用 fresh id
-        const idOf = a => { const ex = (p.songs || []).find(s => s.neteaseId === a.neteaseId); return ex ? ex.id : a.id; };
-        const songIds = added.map(idOf);
-        plId = "pl_" + Date.now();
-        const playlists = [{ id: plId, name: char.name + "的歌单", charId: char.id, cover: added[0].cover || null, songIds, ts: Date.now() }, ...(p.playlists || []).filter(x => x.charId !== char.id)];
-        return { ...p, songs, playlists };
-      });
+      saveListen(p => ({ ...p, playlists: [{ id: "pl_" + Date.now(), name: char.name + "的歌单", charId: char.id, cover: added[0].cover || null, songs: added, ts: Date.now() }, ...(p.playlists || []).filter(x => x.charId !== char.id)] }));
       toast(char.name + " 的歌单好了 · " + added.length + " 首");
     } catch (e) { toast("生成失败：" + (e.message || "重试")); }
     finally { setGen(g => ({ ...g, charPlaylist: null })); }
-  };
-  // 让一起听的角色对【当前这首】说两句（切歌/重播/听着都能点）；反应挂在歌上显示
-  const reactListenSong = async evt => {
-    const p = listen;
-    const song = (p.songs || [])[0];
-    const partner = characters.find(c => c.id === p.partnerId);
-    if (!song || !partner) { toast(partner ? "先添加一首歌" : "先选一个一起听的人"); return; }
-    if (!active) { toast("请先到设置配置 API"); return; }
-    setGen(g => ({ ...g, listen: true }));
-    try {
-      const evtHint = evt === "switch" ? "你俩刚切到这首歌。" : evt === "replay" ? "这首歌 TA 又倒回去重听了一遍。" : "这首歌正放着。";
-      const react = await runProbe(active, ctxFor(partner), {
-        instruction: "你在和用户一起听歌。" + evtHint + "当前这首：《" + song.title + "》" + (song.artist ? " - " + song.artist : "") + "。按你的人设和此刻心情，对这首歌/这个当下随口说一两句（喜不喜欢、想起什么、跟着哼、吐槽品味、或想点别的歌），别客服腔、别报歌单、别复述歌名，1-2 句可多气泡。",
-        schemaHint: "{\"say\":[\"气泡1\",\"气泡2\"]}", maxTokens: 500
-      });
-      const say = react && Array.isArray(react.say) ? react.say : (react && react.say ? [react.say] : []);
-      if (say.length) saveListen(pp => ({ ...pp, songs: (pp.songs || []).map(s => s.id === song.id ? { ...s, reactions: [...(s.reactions || []), { charId: partner.id, name: partner.name, text: say.join("\n"), ts: Date.now() }].slice(-6) } : s) }));
-    } catch (e) { toast("生成失败：" + (e.message || "重试")); }
-    finally { setGen(g => ({ ...g, listen: false })); }
   };
   // TA 主动贴一张（右上刷新触发；未来接调度器）
   const genCoupleNote = async char => {
@@ -4730,6 +4780,7 @@ function App() {
     onStartCall: m => startCall([activeChar], m, null),
     onAcceptCall: m => { pChat(activeChar.id, p => p.map(x => (x.kind === "callinvite" && x.ts === m.ts) ? { ...x, answered: "accepted" } : x)); startCall([activeChar], m.mode, null); },
     onDeclineCall: m => { pChat(activeChar.id, p => [...p.map(x => (x.kind === "callinvite" && x.ts === m.ts) ? { ...x, answered: "declined" } : x), { role: "system", kind: "system", content: "你拒绝了 TA 的" + (m.mode === "video" ? "视频" : "语音") + "通话邀请", ts: Date.now() }]); },
+    onAcceptListen: acceptListenInvite,
     emotes: emotesForCharMine(activeChar.id),
     onManageEmotes: () => setScreen("emotes"),
     myBalance: wallet,
@@ -5045,10 +5096,13 @@ function App() {
     apiBase: neteaseApi,
     onSetApiBase: saveNeteaseApi,
     onAddNeteaseResult: addNeteaseResult,
+    onPlayResult: playNeteaseResult,
+    onAddResultToPlaylist: addResultToPlaylist,
     onCreatePlaylist: createPlaylist,
     onDeletePlaylist: deletePlaylist,
     onAddToPlaylist: addToPlaylist,
     onRemoveFromPlaylist: removeFromPlaylist,
+    onRenameSong: renameSong,
     onGenCharPlaylist: genCharPlaylist,
     onSetAutoComment: setListenAutoComment,
     player: player,
@@ -5130,7 +5184,7 @@ function App() {
     onEnded: () => stepSong(1)
   }), /*#__PURE__*/React.createElement("div", {
     className: "flex-1 min-h-0 relative"
-  }, body), (player.songId && screen !== "listen" && screen !== "home") ? h(MiniPlayer, {
+  }, body), (player.songId && screen !== "listen") ? h(MiniPlayer, {
     song: (listen.songs || []).find(s => s.id === player.songId) || null,
     playing: player.playing,
     loading: player.loading,

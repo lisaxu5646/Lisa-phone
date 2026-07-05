@@ -517,24 +517,44 @@ function MusicWidget({ listen, player, onOpen }) {
         ? h("div", { style: { display: "flex", gap: 2 } }, h("div", { style: { width: 3, height: 12, borderRadius: 2, background: t.ink } }), h("div", { style: { width: 3, height: 12, borderRadius: 2, background: t.ink } }))
         : h("div", { style: { width: 0, height: 0, borderTop: "6px solid transparent", borderBottom: "6px solid transparent", borderLeft: "10px solid " + t.ink, marginLeft: 2 } })));
 }
-// 全局悬浮迷你播放器：一起听退出后仍浮在别的界面上，点开跳回播放器、就地播放/暂停/下一首
+// 全局悬浮迷你播放器：所有界面（含主屏）都浮着；可拖动换位置（存 x_miniPos）；点一下跳回播放器
 function MiniPlayer({ song, playing, loading, onOpen, onToggle, onNext }) {
   const t = useTheme();
+  const [pos, setPos] = useState(function () { try { const s = JSON.parse(localStorage.getItem("x_miniPos")); if (s && typeof s.x === "number") return s; } catch (e) {} return null; });
+  const elRef = useRef(null);
+  const drag = useRef(null);
+  const didDrag = useRef(false);
   if (!song) return null;
   const cover = song.cover || null;
-  const stop = (e, fn) => { e.stopPropagation(); fn(); };
-  return h("div", { onClick: onOpen, className: "active:opacity-90",
-    style: { position: "fixed", right: 12, bottom: 84, zIndex: 60, display: "flex", alignItems: "center", gap: 9, maxWidth: "78vw",
-      background: "rgba(28,26,24,0.92)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderRadius: 999, padding: "6px 8px 6px 6px", boxShadow: "0 8px 26px rgba(0,0,0,0.35)" } },
+  const btnStop = (e, fn) => { e.stopPropagation(); fn(); };
+  const onDown = e => { const el = elRef.current; if (!el) return; try { el.setPointerCapture(e.pointerId); } catch (x) {} const r = el.getBoundingClientRect(); drag.current = { sx: e.clientX, sy: e.clientY, ox: r.left, oy: r.top, moved: false }; };
+  const onMove = e => {
+    if (!drag.current) return;
+    const dx = e.clientX - drag.current.sx, dy = e.clientY - drag.current.sy;
+    if (Math.abs(dx) + Math.abs(dy) > 6) drag.current.moved = true;
+    if (!drag.current.moved) return;
+    if (e.cancelable) e.preventDefault();
+    const el = elRef.current, w = el.offsetWidth, hh = el.offsetHeight;
+    const nx = Math.max(6, Math.min(window.innerWidth - w - 6, drag.current.ox + dx));
+    const ny = Math.max(44, Math.min(window.innerHeight - hh - 8, drag.current.oy + dy));
+    setPos({ x: nx, y: ny });
+  };
+  const onUp = e => { if (drag.current && drag.current.moved) { didDrag.current = true; try { localStorage.setItem("x_miniPos", JSON.stringify(pos)); } catch (x) {} setTimeout(() => { didDrag.current = false; }, 60); } drag.current = null; };
+  // 点一下(没拖动)=跳回播放器；拖过就不触发跳转
+  const onClick = () => { if (!didDrag.current) onOpen(); };
+  const place = pos ? { left: pos.x, top: pos.y, right: "auto", bottom: "auto" } : { right: 12, bottom: 84 };
+  return h("div", { ref: elRef, onClick: onClick, onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onUp,
+    style: Object.assign({ position: "fixed", zIndex: 60, display: "flex", alignItems: "center", gap: 9, maxWidth: "78vw", touchAction: "none", cursor: "grab",
+      background: "rgba(28,26,24,0.92)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderRadius: 999, padding: "6px 8px 6px 6px", boxShadow: "0 8px 26px rgba(0,0,0,0.35)" }, place) },
     h("div", { style: { flexShrink: 0, width: 38, height: 38, borderRadius: 999, background: cover ? "center/cover no-repeat url(" + cover + ")" : "radial-gradient(circle at 50% 50%, #55555c 0 36%, #2b2b30 37%)", animation: playing ? "wk-spin 9s linear infinite" : "none" } }),
     h("div", { style: { minWidth: 0, maxWidth: 118 } },
       h("div", { style: { fontFamily: F_DISPLAY, fontSize: 13, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, song.title),
       h("div", { style: { fontFamily: F_BODY, fontSize: 10, color: "rgba(255,255,255,0.6)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, song.artist || "")),
-    h("button", { onClick: e => stop(e, onToggle), className: "active:opacity-60 shrink-0 flex items-center justify-center", style: { width: 30, height: 30 } },
+    h("button", { onPointerDown: e => e.stopPropagation(), onClick: e => btnStop(e, onToggle), className: "active:opacity-60 shrink-0 flex items-center justify-center", style: { width: 30, height: 30 } },
       loading ? h("span", { style: { color: "#fff", fontSize: 12 } }, "…")
       : playing ? h("svg", { width: 18, height: 18, viewBox: "0 0 24 24" }, h("rect", { x: 6, y: 5, width: 4, height: 14, rx: 1, fill: "#fff" }), h("rect", { x: 14, y: 5, width: 4, height: 14, rx: 1, fill: "#fff" }))
       : h("svg", { width: 18, height: 18, viewBox: "0 0 24 24" }, h("path", { d: "M8 5v14l11-7z", fill: "#fff" }))),
-    h("button", { onClick: e => stop(e, onNext), className: "active:opacity-60 shrink-0 flex items-center justify-center", style: { width: 28, height: 30, marginRight: 2 } },
+    h("button", { onPointerDown: e => e.stopPropagation(), onClick: e => btnStop(e, onNext), className: "active:opacity-60 shrink-0 flex items-center justify-center", style: { width: 28, height: 30, marginRight: 2 } },
       h("svg", { width: 16, height: 16, viewBox: "0 0 24 24" }, h("path", { d: "M5 5v14l10-7z", fill: "#fff" }), h("rect", { x: 15.6, y: 5, width: 2.4, height: 14, rx: 1, fill: "#fff" }))));
 }
 // 全屏月历
@@ -2091,6 +2111,7 @@ function ChatThread({
   onStartCall,
   onAcceptCall,
   onDeclineCall,
+  onAcceptListen,
   onSendTransfer,
   onRespondTransfer,
   makeCoords,
@@ -2469,6 +2490,15 @@ function ChatThread({
       m.role !== "user" && h(Avatar, { character: character, size: 40, radius: 10 }),
       h(CallInviteCard, { m: m, isU: m.role === "user", onAccept: onAcceptCall, onDecline: onDeclineCall }),
       m.role === "user" && dsp.myAvatar && h(Avatar, { character: meAv, size: 40, radius: 10 }));
+    if (m.kind === "listeninvite") return h("div", { key: i, className: "py-1 flex items-start gap-2 justify-start" },
+      h(Avatar, { character: character, size: 40, radius: 10 }),
+      h("div", { style: { maxWidth: "72%", background: "linear-gradient(135deg,#2b2b30,#17171b)", borderRadius: 16, padding: "12px 14px", boxShadow: "0 6px 18px rgba(0,0,0,0.22)" } },
+        h("div", { className: "flex items-center gap-1.5", style: { marginBottom: 6 } },
+          h("span", { style: { fontSize: 13 } }, "🎧"),
+          h("span", { style: { fontFamily: F_BODY, fontSize: 11, letterSpacing: 1, color: "rgba(255,255,255,0.7)" } }, "一起听邀请")),
+        m.say ? h("div", { style: { fontFamily: F_BODY, fontSize: 14, color: "#fff", lineHeight: 1.5, marginBottom: m.song ? 4 : 8 } }, m.say) : null,
+        m.song ? h("div", { style: { fontFamily: F_DISPLAY, fontSize: 13.5, color: "#f0d9a8", marginBottom: 8 } }, "《" + m.song + "》") : null,
+        h("button", { onClick: () => onAcceptListen && onAcceptListen(character.id, m.song || ""), className: "w-full active:opacity-80", style: { background: "#fff", color: "#17171b", fontFamily: F_DISPLAY, fontSize: 14, padding: "8px", borderRadius: 10 } }, "和 TA 一起听 →")));
     const isU = m.role === "user";
     return /*#__PURE__*/React.createElement("div", {
       key: i,
@@ -4948,9 +4978,7 @@ function GroupThread({
         WebkitUserSelect: "none",
         WebkitTouchCallout: "none"
       }
-    }, m.content), !m.recalled && m.thought && h("div", { className: "mt-1 pl-2.5", style: { borderLeft: "2px solid " + t.line, maxWidth: "100%" } },
-      h("span", { style: { fontFamily: F_BODY, fontSize: 9.5, letterSpacing: 1, color: t.fog } }, "心声 "),
-      h("span", { style: { fontFamily: F_BODY, fontSize: 12, fontStyle: "italic", lineHeight: 1.5, color: t.fog } }, m.thought)), !m.recalled && subLine(m) && h("span", { style: { fontFamily: F_BODY, fontSize: 9.5, color: t.fog, marginTop: 2 } }, subLine(m))), isU && gsp.showMyAvatar && h(Avatar, { character: meAv, size: 34, radius: 8 }));
+    }, m.content), !m.recalled && subLine(m) && h("span", { style: { fontFamily: F_BODY, fontSize: 9.5, color: t.fog, marginTop: 2 } }, subLine(m))), isU && gsp.showMyAvatar && h(Avatar, { character: meAv, size: 34, radius: 8 }));
   }), sending && h("div", {
     className: "flex items-center gap-2"
   }, h("div", {

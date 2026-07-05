@@ -2172,7 +2172,7 @@ function Us({ characters, couples, whispers, onBack, onInvite, onUnlink, onGenWh
 // CONFIG
 // ============================================================
 // 一起听（展示型）：自定义唱片封面 + 添加"正在听"的歌（歌名/歌手/封面）+ 歌单，不真放声音
-function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onAddNetease, onAddLocal, onPlaySong, onRemoveSong, onSetPartner, apiBase, onSetApiBase, onAddNeteaseResult, onCreatePlaylist, onDeletePlaylist, onAddToPlaylist, onRemoveFromPlaylist, onGenCharPlaylist, onSetAutoComment, player, onTogglePlay, onStep, onSeek, onToggleFav, gen, genCharPl }) {
+function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onAddNetease, onAddLocal, onPlaySong, onRemoveSong, onSetPartner, apiBase, onSetApiBase, onAddNeteaseResult, onPlayResult, onAddResultToPlaylist, onCreatePlaylist, onDeletePlaylist, onAddToPlaylist, onRemoveFromPlaylist, onRenameSong, onGenCharPlaylist, onSetAutoComment, player, onTogglePlay, onStep, onSeek, onToggleFav, gen, genCharPl }) {
   const t = useTheme();
   const data = listen || {};
   const songs = data.songs || [];
@@ -2201,6 +2201,9 @@ function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onA
   const [openPl, setOpenPl] = useState(null); // 展开的歌单 id
   const [plName, setPlName] = useState("");
   const [plCharPick, setPlCharPick] = useState(false); // 选角色生成歌单
+  const [pickFor, setPickFor] = useState(null); // 待"加到歌单"的歌：{song, kind:'lib'|'result'}
+  const [renameId, setRenameId] = useState(null); // 正在改名的歌 id
+  const [renameText, setRenameText] = useState("");
   const audioFileRef = useRef(null);
   const coverRef = useRef(null);
 
@@ -2226,17 +2229,34 @@ function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onA
     return h("svg", { width: size, height: size, viewBox: "0 0 24 24" }, h("path", { d: "M5 5v14l10-7z", fill: c }), h("rect", { x: 15.6, y: 5, width: 2.4, height: 14, rx: 1, fill: c }));
   };
   const cbtn = (child, onClick, o) => h("button", { onClick: onClick, className: "active:opacity-60 flex items-center justify-center shrink-0", style: Object.assign({ borderRadius: 999, background: (o && o.bg) || "transparent", width: (o && o.size) || 46, height: (o && o.size) || 46 }, o && o.style) }, child);
-  // 歌曲行（列表用）
-  const songRow = (s, opts) => { opts = opts || {}; return h("div", { key: s.id, className: "flex items-center gap-2", style: { background: s.id === nowId ? (t.accent || "#8a6d3b") + "14" : t.bg2, border: "1px solid " + (s.id === nowId ? (t.accent || "#8a6d3b") : t.line), borderRadius: 14, padding: "8px 10px" } },
-    h("button", { onClick: () => onPlaySong(s.id, opts.queue), className: "flex items-center gap-3 flex-1 min-w-0 active:opacity-70", style: { textAlign: "left" } },
-      h("div", { style: { flexShrink: 0, width: 42, height: 42, borderRadius: 8, background: s.cover ? "center/cover no-repeat url(" + s.cover + ")" : "linear-gradient(135deg,#cfc9bd,#a8a294)", display: "flex", alignItems: "center", justifyContent: "center" } }, s.cover ? null : h("span", { style: { color: "rgba(255,255,255,0.9)", fontSize: 15 } }, s.source === "netease" ? "☁" : "♪")),
-      h("div", { className: "flex-1 min-w-0" },
-        h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14.5, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, (s.id === nowId && playing ? "▶ " : "") + s.title),
-        h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.artist || (s.source === "netease" ? "网易云" : "本地")))),
-    h("button", { onClick: () => onToggleFav(s.id), className: "active:opacity-60 shrink-0", style: { fontSize: 15, color: s.fav ? "#e0576b" : t.fog, padding: "0 3px" } }, s.fav ? "♥" : "♡"),
-    opts.inPlaylist
-      ? h("button", { onClick: () => onRemoveFromPlaylist(opts.inPlaylist, s.id), className: "active:opacity-60 shrink-0", style: { fontFamily: F_BODY, fontSize: 15, color: t.fog } }, "×")
-      : h("button", { onClick: () => onRemoveSong(s.id), className: "active:opacity-60 shrink-0", style: { fontFamily: F_BODY, fontSize: 15, color: t.fog } }, "×")); };
+  // 歌曲行（列表用）。opts: {queue, inPlaylist(plId), canRename}
+  const songRow = (s, opts) => { opts = opts || {}; const editing = renameId === s.id;
+    return h("div", { key: s.id, className: "flex items-center gap-1.5", style: { background: s.id === nowId ? (t.accent || "#8a6d3b") + "14" : t.bg2, border: "1px solid " + (s.id === nowId ? (t.accent || "#8a6d3b") : t.line), borderRadius: 14, padding: "8px 10px" } },
+      editing
+        ? h("input", { value: renameText, onChange: e => setRenameText(e.target.value), onKeyDown: e => { if (e.key === "Enter") { onRenameSong(s.id, renameText); setRenameId(null); } }, style: Object.assign({ flex: 1, minWidth: 0 }, field) })
+        : h("button", { onClick: () => onPlaySong(s.id, opts.queue), className: "flex items-center gap-3 flex-1 min-w-0 active:opacity-70", style: { textAlign: "left" } },
+            h("div", { style: { flexShrink: 0, width: 42, height: 42, borderRadius: 8, background: s.cover ? "center/cover no-repeat url(" + s.cover + ")" : "linear-gradient(135deg,#cfc9bd,#a8a294)", display: "flex", alignItems: "center", justifyContent: "center" } }, s.cover ? null : h("span", { style: { color: "rgba(255,255,255,0.9)", fontSize: 15 } }, s.source === "netease" ? "☁" : "♪")),
+            h("div", { className: "flex-1 min-w-0" },
+              h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14.5, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, (s.id === nowId && playing ? "▶ " : "") + s.title),
+              h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.artist || (s.source === "netease" ? "网易云" : "本地")))),
+      editing
+        ? h("button", { onClick: () => { onRenameSong(s.id, renameText); setRenameId(null); }, className: "shrink-0 active:opacity-70", style: { background: t.ink, color: t.bg2, fontFamily: F_BODY, fontSize: 12, padding: "6px 12px", borderRadius: 8 } }, "存")
+        : null,
+      !editing && opts.canRename ? h("button", { onClick: () => { setRenameId(s.id); setRenameText(s.title); }, className: "shrink-0 active:opacity-60", style: { fontSize: 12.5, color: t.fog, padding: "0 2px" } }, "✎") : null,
+      !editing ? h("button", { onClick: () => setPickFor({ song: s }), className: "shrink-0 active:opacity-60", style: { fontSize: 17, color: t.fog, padding: "0 2px" } }, "＋") : null,
+      !editing ? h("button", { onClick: () => onToggleFav(s.id), className: "shrink-0 active:opacity-60", style: { fontSize: 15, color: s.fav ? "#e0576b" : t.fog, padding: "0 2px" } }, s.fav ? "♥" : "♡") : null,
+      !editing ? h("button", { onClick: () => opts.inPlaylist ? onRemoveFromPlaylist(opts.inPlaylist, s.id) : onRemoveSong(s.id), className: "shrink-0 active:opacity-60", style: { fontFamily: F_BODY, fontSize: 15, color: t.fog, padding: "0 2px" } }, "×") : null); };
+  // "加到歌单"选择层：从搜索结果 / 全部 / 歌单里点＋后弹出
+  const addSong = (plId, isNew) => { const it = pickFor; if (!it) return; let id = plId; if (isNew) id = onCreatePlaylist("新歌单 " + ((playlists.length || 0) + 1), []); if (it.isResult) onAddResultToPlaylist(id, it.song); else onAddToPlaylist(id, it.song); setPickFor(null); };
+  const pickerOverlay = pickFor ? h("div", { onClick: () => setPickFor(null), style: { position: "absolute", inset: 0, zIndex: 40, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end" } },
+    h("div", { onClick: e => e.stopPropagation(), style: { width: "100%", background: t.bg, borderRadius: "20px 20px 0 0", padding: "16px 18px 26px", maxHeight: "70%", overflowY: "auto" } },
+      h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink, marginBottom: 3 } }, "加到歌单"),
+      h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, "《" + (pickFor.song.title || pickFor.song.name || "") + "》"),
+      h("button", { onClick: () => addSong(null, true), className: "w-full text-left active:opacity-70", style: { padding: "11px 6px", borderBottom: "1px solid " + t.line, fontFamily: F_BODY, fontSize: 14, color: t.tint } }, "＋ 新建一个歌单"),
+      playlists.length ? playlists.map(pl => h("button", { key: pl.id, onClick: () => addSong(pl.id), className: "w-full flex items-center justify-between text-left active:opacity-70", style: { padding: "11px 6px", borderBottom: "1px solid " + t.line } },
+        h("span", { style: { fontFamily: F_BODY, fontSize: 14, color: t.ink } }, pl.name),
+        h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, (pl.songs || []).length + " 首")))
+        : h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, padding: "10px 6px" } }, "还没有歌单，点上面新建一个"))) : null;
 
   // ============ 播放 tab ============
   const playTab = now ? h("div", { className: "flex flex-col items-center px-6 pb-6" },
@@ -2283,16 +2303,18 @@ function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onA
     apiBase && (searching || results != null) ? h("div", { style: { marginTop: 10 } },
       searching ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, padding: "6px 2px" } }, "搜索中…")
       : results && results.length === 0 ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, padding: "6px 2px" } }, "没搜到（或接口没响应）")
-      : h("div", { className: "space-y-1.5" }, (results || []).map(s => h("button", { key: s.id, onClick: () => onAddNeteaseResult(s), className: "w-full flex items-center gap-2.5 active:opacity-70", style: { textAlign: "left", padding: "5px 4px" } },
-          h("div", { style: { flexShrink: 0, width: 40, height: 40, borderRadius: 8, background: s.cover ? "center/cover no-repeat url(" + s.cover + ")" : "linear-gradient(135deg,#cfc9bd,#a8a294)" } }),
-          h("div", { className: "flex-1 min-w-0" },
-            h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.name),
-            h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.artist || "未知歌手")),
-          h("span", { style: { fontFamily: F_BODY, fontSize: 16, color: t.tint, flexShrink: 0 } }, "＋"))))) : null,
-    // 全部歌曲
+      : h("div", { className: "space-y-1.5" }, (results || []).map(s => h("div", { key: s.id, className: "w-full flex items-center gap-2.5", style: { padding: "4px 2px" } },
+          h("button", { onClick: () => onPlayResult(s), className: "flex items-center gap-2.5 flex-1 min-w-0 active:opacity-70", style: { textAlign: "left" } },
+            h("div", { style: { flexShrink: 0, width: 40, height: 40, borderRadius: 8, background: s.cover ? "center/cover no-repeat url(" + s.cover + ")" : "linear-gradient(135deg,#cfc9bd,#a8a294)" } }),
+            h("div", { className: "flex-1 min-w-0" },
+              h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.name),
+              h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.artist || "未知歌手"))),
+          h("button", { onClick: () => onPlayResult(s), className: "shrink-0 active:opacity-60 flex items-center justify-center", style: { width: 30, height: 30, borderRadius: 999, background: t.ink }, title: "现在播放" }, ic("play", t.bg2, 15)),
+          h("button", { onClick: () => setPickFor({ song: s, isResult: true }), className: "shrink-0 active:opacity-60", style: { fontSize: 18, color: t.tint, padding: "0 3px" }, title: "加到歌单" }, "＋")))) ) : null,
+    // 全部歌曲（这里删歌只影响「全部」，不动歌单）
     songs.length ? h("div", { style: { marginTop: 16 } },
       h(Eyebrow, { style: { marginBottom: 8 } }, "全部 · " + songs.length),
-      h("div", { className: "space-y-2" }, songs.map(s => songRow(s, {})))) : null,
+      h("div", { className: "space-y-2" }, songs.map(s => songRow(s, { canRename: true })))) : null,
     // 添加：链接ID / 本地 + 接口设置（折叠在下方）
     h("div", { style: { background: t.bg2, border: "1px solid " + t.line, borderRadius: 16, padding: "12px 14px", marginTop: 18 } },
       h(Eyebrow, { style: { marginBottom: 10 } }, "添加歌曲"),
@@ -2333,13 +2355,13 @@ function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onA
             h("button", { onClick: () => setOpenPl(null), className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 13, color: t.fog } }, "‹ 歌单"),
             h("div", { style: { fontFamily: F_DISPLAY, fontSize: 18, color: t.ink, flex: 1, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, openPlObj.name),
             h("button", { onClick: () => { onDeletePlaylist(openPlObj.id); setOpenPl(null); }, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 12, color: t.fog } }, "删除")),
-          (openPlObj.songIds || []).length
-            ? h("div", { className: "space-y-2" }, (openPlObj.songIds || []).map(sid => songs.find(s => s.id === sid)).filter(Boolean).map(s => songRow(s, { queue: openPlObj.songIds, inPlaylist: openPlObj.id })))
-            : h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog, padding: "16px 0", lineHeight: 1.8 } }, "这个歌单还没歌。去「首页」把歌加进来——下面点歌名可加入。"),
-          // 从全部歌里挑加入
+          (openPlObj.songs || []).length
+            ? h("div", { className: "space-y-2" }, (openPlObj.songs || []).map(s => songRow(s, { queue: (openPlObj.songs || []).map(x => x.id), inPlaylist: openPlObj.id })))
+            : h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog, padding: "16px 0", lineHeight: 1.8 } }, "这个歌单还没歌。去「首页」搜歌/在歌里点＋加进来——下面也能从「全部」挑。"),
+          // 从全部歌里挑加入（复制一份进歌单，和「全部」互不影响）
           songs.length ? h("div", { style: { marginTop: 16 } },
             h(Eyebrow, { style: { marginBottom: 8 } }, "从全部歌加入"),
-            h("div", { className: "flex flex-wrap gap-2" }, songs.filter(s => !(openPlObj.songIds || []).includes(s.id)).map(s => h("button", { key: s.id, onClick: () => onAddToPlaylist(openPlObj.id, s.id), className: "active:opacity-70", style: { fontFamily: F_BODY, fontSize: 12, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 999, padding: "6px 12px" } }, "＋ " + s.title)))) : null)
+            h("div", { className: "flex flex-wrap gap-2" }, songs.filter(s => !(openPlObj.songs || []).some(x => (s.neteaseId && x.neteaseId === s.neteaseId) || x.id === s.id)).map(s => h("button", { key: s.id, onClick: () => onAddToPlaylist(openPlObj.id, s), className: "active:opacity-70", style: { fontFamily: F_BODY, fontSize: 12, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 999, padding: "6px 12px" } }, "＋ " + s.title)))) : null)
       : h("div", null,
           // 我喜欢的音乐
           h("button", { onClick: () => favs.length && onPlaySong(favs[0].id, favs.map(s => s.id)), className: "w-full flex items-center gap-3 active:opacity-80", style: { marginTop: 8, background: t.bg2, border: "1px solid " + t.line, borderRadius: 16, padding: "12px 14px" } },
@@ -2362,19 +2384,20 @@ function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onA
           // 已有歌单列表
           playlists.length ? h("div", { style: { marginTop: 16 } },
             h(Eyebrow, { style: { marginBottom: 8 } }, "歌单 · " + playlists.length),
-            h("div", { className: "space-y-2" }, playlists.map(pl => { const ch = pl.charId ? (characters || []).find(c => c.id === pl.charId) : null; return h("div", { key: pl.id, className: "flex items-center gap-3", style: { background: t.bg2, border: "1px solid " + t.line, borderRadius: 14, padding: "10px 12px" } },
-              h("button", { onClick: () => { const q = pl.songIds || []; if (q.length) onPlaySong(q[0], q); }, className: "shrink-0 active:opacity-70", style: { width: 46, height: 46, borderRadius: 10, background: pl.cover ? "center/cover no-repeat url(" + pl.cover + ")" : "linear-gradient(135deg,#a8b4c0,#cfc9bd)", display: "flex", alignItems: "center", justifyContent: "center" } }, ch ? h(Avatar, { character: ch, size: 26, radius: 999 }) : h("span", { style: { color: "#fff", fontSize: 16 } }, "♪")),
+            h("div", { className: "space-y-2" }, playlists.map(pl => { const ch = pl.charId ? (characters || []).find(c => c.id === pl.charId) : null; const q = (pl.songs || []).map(s => s.id); return h("div", { key: pl.id, className: "flex items-center gap-3", style: { background: t.bg2, border: "1px solid " + t.line, borderRadius: 14, padding: "10px 12px" } },
+              h("button", { onClick: () => { if (q.length) onPlaySong(q[0], q); }, className: "shrink-0 active:opacity-70", style: { width: 46, height: 46, borderRadius: 10, background: pl.cover ? "center/cover no-repeat url(" + pl.cover + ")" : "linear-gradient(135deg,#a8b4c0,#cfc9bd)", display: "flex", alignItems: "center", justifyContent: "center" } }, ch ? h(Avatar, { character: ch, size: 26, radius: 999 }) : h("span", { style: { color: "#fff", fontSize: 16 } }, "♪")),
               h("button", { onClick: () => setOpenPl(pl.id), className: "flex-1 min-w-0 text-left active:opacity-70" },
                 h("div", { style: { fontFamily: F_DISPLAY, fontSize: 15, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, pl.name),
-                h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 1 } }, (pl.songIds || []).length + " 首" + (ch ? " · " + ch.name : ""))),
-              h("button", { onClick: () => { const q = pl.songIds || []; if (q.length) onPlaySong(q[0], q); }, className: "shrink-0 active:opacity-60 flex items-center justify-center", style: { width: 34, height: 34, borderRadius: 999, background: t.ink } }, ic("play", t.bg2, 16))); }))) : null));
+                h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 1 } }, (pl.songs || []).length + " 首" + (ch ? " · " + ch.name : ""))),
+              h("button", { onClick: () => { if (q.length) onPlaySong(q[0], q); }, className: "shrink-0 active:opacity-60 flex items-center justify-center", style: { width: 34, height: 34, borderRadius: 999, background: t.ink } }, ic("play", t.bg2, 16))); }))) : null));
 
   // 底部导航
   const navBtn = (k, label, iconEl) => h("button", { onClick: () => setNav(k), className: "flex-1 flex flex-col items-center gap-1 active:opacity-70 py-2", style: { color: nav === k ? t.ink : t.fog } }, iconEl, h("span", { style: { fontFamily: F_BODY, fontSize: 10.5 } }, label));
 
-  return h("div", { className: "h-full flex flex-col", style: { background: t.bg } },
+  return h("div", { className: "h-full flex flex-col relative", style: { background: t.bg } },
     h(Head, { zh: "一起听", en: nav === "play" && now ? (idx + 1) + " / " + songs.length : "Listen", onBack }),
     h("div", { className: "flex-1 overflow-y-auto" }, nav === "play" ? playTab : nav === "home" ? homeTab : mineTab),
+    pickerOverlay,
     // 底部三 tab：首页 / 播放 / 我的
     h("div", { className: "shrink-0 flex items-stretch", style: { borderTop: "1px solid " + t.line, background: t.bg } },
       navBtn("home", "首页", h("svg", { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: nav === "home" ? t.ink : t.fog, strokeWidth: 1.7 }, h("path", { d: "M4 11l8-6 8 6M6 10v9h12v-9" }))),
