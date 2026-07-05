@@ -2387,12 +2387,14 @@ function ChatThread({
         marginTop: 6
       }
     }, "SYSTEM RESPONSE"));
-    if (m.kind === "transfer") return h(TransferCard, {
+    if (m.kind === "transfer") return h("div", {
       key: i,
-      m: m,
-      isU: m.role === "user",
-      onRespond: onRespondTransfer
-    });
+      onTouchStart: selMode ? undefined : () => startPress(i), onTouchEnd: endPress,
+      onMouseDown: selMode ? undefined : () => startPress(i), onMouseUp: endPress, onMouseLeave: endPress,
+      onClick: selMode ? () => toggleSel(i) : undefined,
+      className: "flex " + (m.role === "user" ? "justify-end" : "justify-start"),
+      style: { outline: selMode && selIds.includes(i) ? `2px solid ${t.tint}` : "none", outlineOffset: 2, borderRadius: 14 }
+    }, h(TransferCard, { m: m, isU: m.role === "user", onRespond: onRespondTransfer }));
     if (m.kind === "geo") return h(GeoCard, {
       key: i,
       m: m,
@@ -2426,7 +2428,12 @@ function ChatThread({
       m.role === "user" && dsp.myAvatar && h(Avatar, { character: meAv, size: 40, radius: 10 }));
     if (m.kind === "voice") return h("div", { key: i, className: "py-1 flex items-start gap-2 " + (m.role === "user" ? "justify-end" : "justify-start") },
       m.role !== "user" && h(Avatar, { character: character, size: 40, radius: 10 }),
-      h("div", { style: { maxWidth: "72%" } }, h(VoiceMsg, { m: m, isU: m.role === "user" })),
+      h("div", {
+        onTouchStart: selMode ? undefined : () => startPress(i), onTouchEnd: endPress,
+        onMouseDown: selMode ? undefined : () => startPress(i), onMouseUp: endPress, onMouseLeave: endPress,
+        onClick: selMode ? () => toggleSel(i) : undefined,
+        style: { maxWidth: "72%", outline: selMode && selIds.includes(i) ? `2px solid ${t.tint}` : "none", outlineOffset: 2, borderRadius: 18 }
+      }, h(VoiceMsg, { m: m, isU: m.role === "user" })),
       m.role === "user" && dsp.myAvatar && h(Avatar, { character: meAv, size: 40, radius: 10 }));
     if (m.kind === "callinvite") return h("div", { key: i, className: "py-1 flex items-start gap-2 " + (m.role === "user" ? "justify-end" : "justify-start") },
       m.role !== "user" && h(Avatar, { character: character, size: 40, radius: 10 }),
@@ -2852,6 +2859,7 @@ function ChatThread({
   })))), menu != null && /*#__PURE__*/React.createElement(MsgMenu, {
     message: messages[menu],
     idx: menu,
+    items: menuItemsForKind(messages[menu]),
     onClose: () => setMenu(null),
     onAction: act => {
       if (act === "multi") {
@@ -3787,6 +3795,15 @@ function GeoStampSheet({
       color: t.bg2
     }
   }, "CONFIRM & SEND"));
+}
+// 按消息类型给出可用的长按菜单项：纯文本/图片/位置给全套；表情/语音/转账/红包等
+// 卡片类只给能用的（收藏/多选删除/撤回）——复制/编辑/引用/重Roll 对它们没意义。
+function menuItemsForKind(m) {
+  const full = [["copy", "复制", "Copy"], ["fav", "收藏", "Save"], ["edit", "编辑", "Edit"], ["quote", "引用", "Quote"], ["multi", "多选", "Select"], ["recall", "撤回", "Recall"], ["reroll", "重Roll", "Reroll"]];
+  const k = m && m.kind;
+  const textLike = !k || k === "photo" || k === "location";
+  if (textLike) return full;
+  return [["fav", "收藏", "Save"], ["multi", "多选", "Select"], ["recall", "撤回", "Recall"]];
 }
 function MsgMenu({
   message,
@@ -4744,11 +4761,15 @@ function GroupThread({
       meName: meName,
       onVote: opt => onVote(i, opt)
     });
-    if (m.kind === "redpacket") return h(RedPacketCard, {
+    if (m.kind === "redpacket") return h("div", {
       key: i,
+      onTouchStart: selMode ? undefined : () => startPress(i), onTouchEnd: endPress,
+      onMouseDown: selMode ? undefined : () => startPress(i), onMouseUp: endPress, onMouseLeave: endPress,
+      style: { outline: selMode && selIds.includes(i) ? "2px solid " + t.tint : "none", outlineOffset: 2, borderRadius: 12 }
+    }, h(RedPacketCard, {
       rp: m,
-      onClick: () => openRp(i)
-    });
+      onClick: selMode ? () => toggleSel(i) : () => openRp(i)
+    }));
     if (m.kind === "geo") return h(GeoCard, {
       key: i,
       m: m,
@@ -4756,7 +4777,13 @@ function GroupThread({
     });
     if (m.kind === "emote") return h("div", { key: i, className: "py-1 flex items-start gap-2 " + (m.role === "user" ? "justify-end" : "justify-start") },
       m.role !== "user" && h(Avatar, { character: memberById(m.senderId) || { name: m.senderName, color: t.tint }, size: 34, radius: 8 }),
-      h("div", { className: "flex flex-col " + (m.role === "user" ? "items-end" : "items-start") },
+      h("div", {
+        className: "flex flex-col " + (m.role === "user" ? "items-end" : "items-start"),
+        onTouchStart: selMode ? undefined : () => startPress(i), onTouchEnd: endPress,
+        onMouseDown: selMode ? undefined : () => startPress(i), onMouseUp: endPress, onMouseLeave: endPress,
+        onClick: selMode ? () => toggleSel(i) : undefined,
+        style: { outline: selMode && selIds.includes(i) ? "2px solid " + t.tint : "none", outlineOffset: 2, borderRadius: 12 }
+      },
         m.role !== "user" && m.senderName && h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, margin: "0 4px 2px" } }, m.senderName),
         h("img", { src: m.url, alt: m.keyword || "", style: { maxWidth: 112, maxHeight: 112, borderRadius: 12, display: "block", objectFit: "contain" }, onError: e => { e.target.style.display = "none"; } })),
       m.role === "user" && gsp.showMyAvatar && h(Avatar, { character: meAv, size: 34, radius: 8 }));
@@ -4768,7 +4795,13 @@ function GroupThread({
       h(FicShareCard, { m: m, isU: m.role === "user" }));
     if (m.kind === "voice") return h("div", { key: i, className: "py-1 flex items-start gap-2 " + (m.role === "user" ? "justify-end" : "justify-start") },
       m.role !== "user" && h(Avatar, { character: memberById(m.senderId) || { name: m.senderName, color: t.tint }, size: 34, radius: 8 }),
-      h("div", { className: "flex flex-col " + (m.role === "user" ? "items-end" : "items-start"), style: { maxWidth: "72%" } },
+      h("div", {
+        className: "flex flex-col " + (m.role === "user" ? "items-end" : "items-start"),
+        onTouchStart: selMode ? undefined : () => startPress(i), onTouchEnd: endPress,
+        onMouseDown: selMode ? undefined : () => startPress(i), onMouseUp: endPress, onMouseLeave: endPress,
+        onClick: selMode ? () => toggleSel(i) : undefined,
+        style: { maxWidth: "72%", outline: selMode && selIds.includes(i) ? "2px solid " + t.tint : "none", outlineOffset: 2, borderRadius: 18 }
+      },
         m.role !== "user" && m.senderName && h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, margin: "0 4px 2px" } }, m.senderName),
         h(VoiceMsg, { m: m, isU: m.role === "user" })),
       m.role === "user" && gsp.showMyAvatar && h(Avatar, { character: meAv, size: 34, radius: 8 }));
@@ -4780,7 +4813,11 @@ function GroupThread({
     if (m.kind === "paylater") return h(PayLaterCard, { key: i, m: m });
     if (m.kind === "transfer") return h("div", {
       key: i,
-      className: "flex flex-col py-1 " + (m.role === "user" ? "items-end" : "items-start")
+      className: "flex flex-col py-1 " + (m.role === "user" ? "items-end" : "items-start"),
+      onTouchStart: selMode ? undefined : () => startPress(i), onTouchEnd: endPress,
+      onMouseDown: selMode ? undefined : () => startPress(i), onMouseUp: endPress, onMouseLeave: endPress,
+      onClick: selMode ? () => toggleSel(i) : undefined,
+      style: { outline: selMode && selIds.includes(i) ? "2px solid " + t.tint : "none", outlineOffset: 2, borderRadius: 14 }
     }, m.toName && h("div", {
       style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginBottom: 2, marginRight: 4 }
     }, "转账给 " + m.toName), h(TransferCard, {
@@ -5150,7 +5187,7 @@ function GroupThread({
   })))), menu != null && h(MsgMenu, {
     message: messages[menu],
     idx: menu,
-    items: [["copy", "复制", "Copy"], ["fav", "收藏", "Save"], ["edit", "编辑", "Edit"], ["quote", "引用", "Quote"], ["multi", "多选", "Select"], ["recall", "撤回", "Recall"], ["reroll", "重Roll", "Reroll"]],
+    items: menuItemsForKind(messages[menu]),
     onClose: () => setMenu(null),
     onAction: act => {
       if (act === "multi") { setSelMode(true); setSelIds([menu]); }

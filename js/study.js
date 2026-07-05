@@ -48,16 +48,21 @@
     const s = String(subject || "").trim().toLowerCase();
     return loadCurricula().find(function (c) { return String(c.subject || "").trim().toLowerCase() === s; }) || null;
   }
-  // 课程 upsert；进度归课程（跨 session 共享 = 持续学习的载体）
+  // 课程 upsert（课程 = 大目标容器：goal + 跨 session 记忆；不再挂 units/progress）
   function saveCurriculum(cur) {
     const all = loadCurricula();
     const i = all.findIndex(function (c) { return c.id === cur.id; });
     if (i >= 0) all[i] = cur; else all.push(cur);
     saveCurricula(all);
   }
-  function saveCurriculumProgress(id, progress) {
+  // 把一条 session 摘要并进课程记忆（同 sessionId 覆盖旧摘要）——curriculum 内互通，不碰全局记忆库
+  function pushCurriculumSummary(curId, sessionId, text) {
     const all = loadCurricula().map(function (c) {
-      return c.id === id ? Object.assign({}, c, { progress: progress, updated_at: Date.now() }) : c;
+      if (c.id !== curId) return c;
+      const mem = c.memory || { summaries: [] };
+      const summaries = (mem.summaries || []).filter(function (s) { return s.sessionId !== sessionId; })
+        .concat([{ sessionId: sessionId, text: text, ts: Date.now() }]);
+      return Object.assign({}, c, { memory: { summaries: summaries }, updated_at: Date.now() });
     });
     saveCurricula(all);
   }
@@ -66,46 +71,45 @@
     if (mode === "costudy") return { running_summary: "", loose_vocab: [] };
     return { current_unit: null, completed: [], mastery: {}, review_queue: [], notes: "" };
   }
-  // 从冻结大纲起一份新的课程进度（第一单元起步）
-  function initCurriculumProgress(cur) {
+  // 从本节 outline 起一份 session 进度（第一小节起步）
+  function initSessionProgress(outline) {
     const p = newProgress("teach");
-    if (cur && Array.isArray(cur.units) && cur.units.length) p.current_unit = cur.units[0].id;
+    const units = outline && outline.units;
+    if (Array.isArray(units) && units.length) p.current_unit = units[0].id;
     return p;
   }
 
-  // ---- 迁移：老库把进度挂在 session 上、课程无 mode/progress ----------
-  // 课程中心化：把最领先的那个 session 进度提升到课程；课程补 mode/cast。幂等。
+  // ---- 迁移：v28「课程挂 units+progress」→ v29「课程=目标容器 + session 自带 outline」----
+  // 老 session 从其课程下放 units/progress，令 session 自足；课程补 memory/mode/cast。幂等。
   function migrate() {
     const curs = loadCurricula();
     if (!curs.length) return;
     const sess = loadSessions();
-    let changed = false;
-    curs.forEach(function (c) {
-      if (c.progress && c.mode && c.character_ids) return;
-      const refs = sess.filter(function (s) { return s.curriculum_id === c.id; });
-      const recent = refs.slice().sort(function (a, b) { return (b.updated_at || 0) - (a.updated_at || 0); })[0];
-      if (!c.progress) {
-        // 取走得最远的 session 进度（已完成单元最多者）
-        let best = null;
-        refs.forEach(function (s) {
-          if (s.progress && Array.isArray(s.progress.completed) &&
-            (!best || s.progress.completed.length > (best.completed || []).length)) best = s.progress;
-        });
-        c.progress = best ? {
-          current_unit: best.current_unit || (c.units && c.units[0] ? c.units[0].id : null),
-          completed: best.completed || [], mastery: best.mastery || {},
-          review_queue: best.review_queue || [], notes: best.notes || ""
-        } : initCurriculumProgress(c);
+    const curById = {};
+    curs.forEach(function (c) { curById[c.id] = c; });
+    let cChanged = false, sChanged = false;
+    sess.forEach(function (s) {
+      if (!s.curriculum_id || s.outline || s.mode === "costudy") return;
+      const c = curById[s.curriculum_id];
+      if (c && Array.isArray(c.units) && c.units.length) {
+        s.outline = { units: c.units, level: c.level || "", language: c.language || "中文" };
+        s.progress = s.progress || (c.progress ? c.progress : initSessionProgress(s.outline));
+        sChanged = true;
       }
-      if (!c.mode) c.mode = recent && recent.mode === "nv1" ? "nv1" : "teach";
-      if (!c.character_ids) {
-        c.character_ids = recent ? (recent.character_ids || []).slice() : [];
-        c.teacher_id = recent ? (recent.teacher_id || null) : null;
-      }
-      if (!c.updated_at) c.updated_at = c.created_at || Date.now();
-      changed = true;
     });
-    if (changed) saveCurricula(curs);
+    curs.forEach(function (c) {
+      if (!c.memory) { c.memory = { summaries: [] }; cChanged = true; }
+      if (!c.mode || !c.character_ids) {
+        const refs = sess.filter(function (s) { return s.curriculum_id === c.id; });
+        const recent = refs.slice().sort(function (a, b) { return (b.updated_at || 0) - (a.updated_at || 0); })[0];
+        if (!c.mode) c.mode = recent && recent.mode === "nv1" ? "nv1" : "teach";
+        if (!c.character_ids) { c.character_ids = recent ? (recent.character_ids || []).slice() : []; c.teacher_id = recent ? (recent.teacher_id || null) : null; }
+        cChanged = true;
+      }
+      if (!c.updated_at) { c.updated_at = c.created_at || Date.now(); cChanged = true; }
+    });
+    if (sChanged) saveSessions(sess);
+    if (cChanged) saveCurricula(curs);
   }
   migrate();
 
@@ -135,19 +139,19 @@
     return msgs;
   }
 
-  // ---- curriculum 切片：只给当前单元全量 + 其余单元仅标题 --------------
-  function curriculumSlice(cur, currentUnitId) {
-    if (!cur || !Array.isArray(cur.units)) return "";
-    const units = cur.units;
+  // ---- 本节 outline 切片：当前小节全量 + 其余仅标题（units 来自 session.outline）----
+  function outlineSlice(outline, currentUnitId, goal) {
+    const units = outline && outline.units;
+    if (!Array.isArray(units) || !units.length) return "";
     const idx = Math.max(0, units.findIndex(function (u) { return u.id === currentUnitId; }));
     const cu = units[idx] || units[0];
     const lines = [];
-    lines.push("【课程：" + (cur.subject || "") + "（" + (cur.level || "") + "）· 共 " + units.length + " 单元】");
-    lines.push("全部单元（仅标题）：" + units.map(function (u, i) {
+    lines.push("【本节课大纲：" + (goal || "") + "（" + (outline.level || "") + "）· 共 " + units.length + " 小节】");
+    lines.push("全部小节（仅标题）：" + units.map(function (u, i) {
       return (i + 1) + "." + (u.title || u.id) + (u.id === cu.id ? "←当前" : "");
     }).join("  "));
     if (cu) {
-      lines.push("\n【当前单元 · 全量】" + (cu.title || cu.id));
+      lines.push("\n【当前小节 · 全量】" + (cu.title || cu.id));
       if (cu.objectives && cu.objectives.length) lines.push("目标：" + cu.objectives.join("；"));
       if (cu.grammar && cu.grammar.length) lines.push("要点：" + cu.grammar.map(function (g) { return g.label + (g.note ? "（" + g.note + "）" : ""); }).join("；"));
       if (cu.vocab && cu.vocab.length) lines.push("词汇：" + cu.vocab.join("、"));
@@ -156,12 +160,12 @@
     return lines.join("\n");
   }
 
-  function progressText(cur, progress) {
+  function progressText(units, progress) {
     if (!progress) return "";
     const lines = ["【当前进度】"];
-    const unit = cur && Array.isArray(cur.units) ? cur.units.find(function (u) { return u.id === progress.current_unit; }) : null;
-    lines.push("当前单元：" + (unit ? unit.title : (progress.current_unit || "第一单元")) +
-      "（已完成 " + (progress.completed || []).length + " / " + (cur && cur.units ? cur.units.length : "?") + " 单元）");
+    const unit = Array.isArray(units) ? units.find(function (u) { return u.id === progress.current_unit; }) : null;
+    lines.push("当前小节：" + (unit ? unit.title : (progress.current_unit || "第一小节")) +
+      "（已完成 " + (progress.completed || []).length + " / " + (units ? units.length : "?") + " 小节）");
     const m = progress.mastery || {};
     const keys = Object.keys(m);
     if (keys.length && unit && unit.grammar) {
@@ -174,30 +178,16 @@
       });
       lines.push("掌握情况：" + parts.join("，"));
     }
-    if ((progress.review_queue || []).length) lines.push("需复习：见上面标『待复习』的点");
     if (progress.notes) lines.push("备注：" + progress.notes);
     return lines.join("\n");
   }
 
-  // ---- 课程级长期上下文（跨所有 session 的积累 = 持续学习记忆）---------
-  function longTermContext(cur) {
-    if (!cur || !cur.progress) return "";
-    const p = cur.progress;
-    const labelOf = {}, unitOf = {};
-    (cur.units || []).forEach(function (u) {
-      (u.grammar || []).forEach(function (g) { labelOf[g.id] = g.label; unitOf[g.id] = u.title; });
-    });
-    const m = p.mastery || {};
-    const weak = Object.keys(m).filter(function (k) { return m[k] <= 1; });
-    const strong = Object.keys(m).filter(function (k) { return m[k] >= 3; });
-    const lines = [];
-    if (weak.length) lines.push("弱项/待复习（历次练习累计，教学时顺带带一带、别当没学过重讲）：" +
-      weak.map(function (k) { return (labelOf[k] || k) + (unitOf[k] ? "[" + unitOf[k] + "]" : ""); }).join("、"));
-    if (strong.length) lines.push("已掌握牢固（别再从头细讲，可直接用）：" +
-      strong.map(function (k) { return labelOf[k] || k; }).join("、"));
-    if (p.notes) lines.push("上次结算给下次的提醒：" + p.notes);
-    if (!lines.length) return "";
-    return "【这门课的长期积累 · 跨所有练习（持续学习记忆）】\n" + lines.join("\n");
+  // ---- 课程记忆：curriculum 下跨 session 的往期摘要（内部互通，绝不碰全局聊天记忆库）----
+  function curriculumMemoryText(cur) {
+    if (!cur || !cur.memory || !Array.isArray(cur.memory.summaries) || !cur.memory.summaries.length) return "";
+    const recent = cur.memory.summaries.slice(-8);
+    return "【这门课前几次一起学到哪了（跨 session 记忆，自然衔接、别生硬复述、别从零重来）】\n" +
+      recent.map(function (s, i) { return (i + 1) + ". " + s.text; }).join("\n");
   }
 
   // ---- 组 prompt（隔离：只注入被允许的几块） --------------------------
@@ -228,13 +218,16 @@
     if (session.mode === "costudy") {
       if (session.progress && session.progress.running_summary)
         parts.push("【到目前为止你俩研究到哪了（摘要）】\n" + session.progress.running_summary);
-    } else if (cur) {
-      // 进度归课程：读课程共享进度（不再是本 session 的独立进度）
-      const cp = cur.progress || {};
-      parts.push(curriculumSlice(cur, cp.current_unit));
-      parts.push(progressText(cur, cp));
-      const lt = longTermContext(cur);
-      if (lt) parts.push(lt);
+    } else {
+      // 本节自带 outline+progress；再注入这门课的跨-session 记忆（curriculum 内互通）
+      const outline = session.outline || null;
+      const prog = session.progress || {};
+      if (outline) {
+        parts.push(outlineSlice(outline, prog.current_unit, session.subject));
+        parts.push(progressText(outline.units, prog));
+      }
+      const mem = curriculumMemoryText(cur);
+      if (mem) parts.push(mem);
     }
     parts.push(OUT_FMT);
     return parts.join("\n\n");
@@ -311,30 +304,59 @@
     } catch (e) { return { canTeach: false, level: "", posture: "" }; }
   }
 
-  // ---- 模型起草课程大纲（§6）：teach 无 curriculum 时触发 --------------
-  async function draftCurriculum(active, subject, worldbook, level) {
+  // ---- 起草【本节 session】的小大纲：承接这门课之前的进度，设计合适的下一步 --------
+  // priorCtx = 往期 session 摘要 + 上次 outline 小节标题 + 上次进度，喂给模型做衔接。
+  async function draftSessionOutline(active, goal, worldbook, level, priorCtx, focus) {
     const lv = (level || "").trim();
-    const levelBlock = lv
-      ? "学习者【不是零基础】，TA 的现有水平/基础是：「" + lv + "」。请据此**从合适的起点开始**：跳过 TA 已经会的部分，第一单元就衔接 TA 当前水平的下一步，难度和进度匹配 TA，别从最基础的从零讲起。整体仍循序渐进到能实用。"
-      : "学习者是**零基础**，从头设计一份从零到能用的入门大纲。";
-    const sys = "你是课程设计师。为『" + subject + "』设计一份 4~7 个单元、循序渐进的课程大纲。" + levelBlock +
-      "每个单元含：稳定 id（英文小写下划线，如 unit_greetings）、title、objectives(2~3条)、" +
-      "grammar/要点数组[{id(稳定英文小写),label(中文短标签),note(一句说明)}]、vocab(若适用,数组)、can_do(学完能做到的事,1~3条)、prereq(前置单元id数组,可空)。" +
-      "level 字段填这份大纲的实际难度定位（如 入门/N4冲刺/进阶 等）。只输出 JSON：{\"level\":\"…\",\"language\":\"中文\",\"units\":[...]}。不要 markdown。";
-    // 4~7 单元 × (objectives+grammar+vocab+can_do) 的 JSON 很长，token 给足否则被截断只剩两三课
-    const raw = await callAI(active, sys, [{ role: "user", content: "科目：" + subject + (lv ? "\n我的基础：" + lv : "\n（零基础）") }], { maxTokens: 8000 });
+    const first = !priorCtx || !priorCtx.trim();
+    const startBlock = first
+      ? (lv ? "这是这门课的第一节。学习者不是零基础，现有水平：「" + lv + "」——从合适的起点切入，别从零讲起。"
+            : "这是这门课的第一节，学习者零基础，从最开头切入。")
+      : "这【不是】第一节。下面给了这门课之前几节学到哪、掌握了什么、卡在哪——请**接着往下设计这一节**：复习一两个薄弱点，然后推进到合适的下一步，别重复已学牢的、也别跳太远。";
+    const focusBlock = (focus && focus.trim()) ? "学习者说这节想侧重：「" + focus.trim() + "」，尽量照顾。" : "";
+    const sys = "你是课程设计师，正为『" + goal + "』这门课设计**其中一节课**（一次 session，约够聊一阵）的小大纲。" +
+      startBlock + focusBlock +
+      "把这一节拆成 2~5 个循序渐进的小节（不是整门课，就这一次）。每个小节含：稳定 id（英文小写下划线）、title、objectives(1~2条)、" +
+      "grammar/要点数组[{id(英文小写),label(中文短标签),note(一句说明)}]、vocab(若适用,数组)、can_do(学完能做到,1~2条)。" +
+      "level 填这一节的难度定位。只输出 JSON：{\"level\":\"…\",\"language\":\"中文\",\"units\":[...]}。不要 markdown。";
+    const u = "课程目标：" + goal + (lv ? "\n我的基础：" + lv : "") + (priorCtx && priorCtx.trim() ? "\n\n【这门课之前的记录】\n" + priorCtx.trim() : "\n（这是第一节）");
+    const raw = await callAI(active, sys, [{ role: "user", content: u }], { maxTokens: 5000 });
     const d = extractJSON(raw) || {};
-    const units = Array.isArray(d.units) ? d.units.filter(function (u) { return u && u.id && u.title; }) : [];
+    // 稳健：模型常漏 id，别因缺 id 把小节整个丢掉——按序补 id（单元 & 要点都补）
+    let units = Array.isArray(d.units) ? d.units.filter(function (x) { return x && x.title; }) : [];
+    units = units.map(function (x, i) {
+      const uid = (x.id && String(x.id).trim()) || ("unit_" + (i + 1));
+      const grammar = Array.isArray(x.grammar) ? x.grammar.filter(function (g) { return g && g.label; }).map(function (g, gi) {
+        return Object.assign({}, g, { id: (g.id && String(g.id).trim()) || (uid + "_g" + (gi + 1)) });
+      }) : [];
+      return Object.assign({}, x, { id: uid, grammar: grammar });
+    });
     if (!units.length) throw new Error("大纲起草失败，请重试");
-    return { id: "cur_" + Date.now(), subject: subject, level: d.level || (lv ? lv : "入门"), language: d.language || "中文", units: units };
+    return { level: d.level || (lv || "入门"), language: d.language || "中文", units: units };
   }
 
-  // ---- checkpoint（§7）：手动触发，单独一次 JSON，对照 can_do 结算 -------
+  // ---- 结算一节课，浓缩成 1~2 句给课程记忆（下次开新 session 会读到）--------
+  async function summarizeStudySession(active, session, ctx) {
+    const userName = (ctx.profile && ctx.profile.name) || "用户";
+    const conv = tail(session.transcript, 40).map(function (m) {
+      return (m.role === "user" ? userName : (m.name || "老师")) + "：" + m.content;
+    }).join("\n");
+    if (!conv.trim()) return "";
+    const outline = session.outline || {};
+    const covered = (outline.units || []).map(function (u) { return u.title; }).join("、");
+    const sys = "把这一节『" + session.subject + "』的学习，浓缩成 1~2 句给下次上课的备忘：这次讲/练了什么、" + userName + "掌握得怎样、哪里还卡着/下次该接着做什么。具体、可复用。只输出正文。";
+    try {
+      return (await callAI(active, sys, [{ role: "user", content: "【本节安排】" + covered + "\n【对话】\n" + conv }], { maxTokens: 400 })).trim();
+    } catch (e) { return ""; }
+  }
+
+  // ---- checkpoint（§7）：手动触发，单独一次 JSON，对照 can_do 结算（读本节 outline）-------
   async function runCheckpoint(active, session, char, ctx) {
-    const cur = findCurriculum(session.curriculum_id);
-    if (!cur) throw new Error("无课程大纲");
-    const cp = cur.progress || {};
-    const unit = cur.units.find(function (u) { return u.id === cp.current_unit; }) || cur.units[0];
+    const outline = session.outline;
+    const units = outline && outline.units;
+    if (!Array.isArray(units) || !units.length) throw new Error("本节没有大纲");
+    const cp = session.progress || {};
+    const unit = units.find(function (u) { return u.id === cp.current_unit; }) || units[0];
     const gram = (unit.grammar || []).map(function (g) { return g.id + "(" + g.label + ")"; }).join("、");
     const conv = tail(session.transcript, 30).map(function (m) {
       return (m.role === "user" ? (ctx.profile && ctx.profile.name || "用户") : m.name) + "：" + m.content;
@@ -353,10 +375,10 @@
   window.Study = {
     loadSessions: loadSessions, saveSessions: saveSessions,
     loadCurricula: loadCurricula, findCurriculum: findCurriculum, findCurriculumBySubject: findCurriculumBySubject,
-    saveCurricula: saveCurricula, saveCurriculum: saveCurriculum, saveCurriculumProgress: saveCurriculumProgress,
-    newProgress: newProgress, initCurriculumProgress: initCurriculumProgress, longTermContext: longTermContext,
-    genTurn: genTurn, inferAbility: inferAbility, draftCurriculum: draftCurriculum, runCheckpoint: runCheckpoint,
-    tail: tail
+    saveCurricula: saveCurricula, saveCurriculum: saveCurriculum, pushCurriculumSummary: pushCurriculumSummary,
+    newProgress: newProgress, initSessionProgress: initSessionProgress, curriculumMemoryText: curriculumMemoryText,
+    genTurn: genTurn, inferAbility: inferAbility, draftSessionOutline: draftSessionOutline,
+    summarizeStudySession: summarizeStudySession, runCheckpoint: runCheckpoint, tail: tail
   };
 
   // ============================================================
@@ -394,9 +416,9 @@
         style: { fontFamily: F_BODY, fontSize: 14, background: t.ink, color: t.bg2, borderRadius: 10 } }, "＋ 新建课程"),
       curs.length === 0
         ? h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.fog, textAlign: "center", marginTop: 40, lineHeight: 1.8 } },
-            props.mode === "nv1" ? "还没有课程。\n新建后挑 2 个角色，会教的当老师、另一个陪你一起学。" : "还没有课程。\n新建后挑 1 个会教的角色，定一份大纲开始。")
+            props.mode === "nv1" ? "还没有课程。\n新建一个大目标（如日语N4），挑会教的当老师、另一个陪学，进去开小节。" : "还没有课程。\n新建一个大目标（如日语N4），进去自己开无数节小课，每节接着上次走。")
         : curs.map(function (c) {
-            const done = (c.progress && c.progress.completed || []).length, total = (c.units || []).length;
+            const n = sessCount[c.id] || 0;
             const chars = avatarsFor(c.character_ids, props.characters);
             return h("button", { key: c.id, onClick: function () { return props.onOpen(c.id); },
               className: "w-full flex items-center gap-3 py-3 px-3 mb-2 active:opacity-70",
@@ -406,12 +428,8 @@
                 h("div", { className: "flex items-center gap-2" },
                   h("span", { className: "truncate", style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, c.subject),
                   c.level ? h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: accent, border: "1px solid " + accent, borderRadius: 4, padding: "0px 5px" } }, c.level) : null),
-                h("div", { className: "flex items-center gap-2", style: { marginTop: 6 } },
-                  h("div", { className: "flex-1", style: { height: 5, background: t.line, borderRadius: 3, overflow: "hidden" } },
-                    h("div", { style: { height: "100%", width: (total ? done / total * 100 : 0) + "%", background: accent } })),
-                  h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, whiteSpace: "nowrap" } }, done + "/" + total)),
-                h("div", { className: "truncate", style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 4 } },
-                  chars.map(function (ch) { return ch.name; }).join("、") + " · " + (sessCount[c.id] || 0) + " 次练习")),
+                h("div", { className: "truncate", style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 5 } },
+                  chars.map(function (ch) { return ch.name; }).join("、") + " · " + (n ? "已上 " + n + " 节 · " + timeShort(c.updated_at) : "还没开课"))),
               props.onDel && h("span", { onClick: function (e) { e.stopPropagation(); props.onDel(c.id); },
                 style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, padding: "4px 6px" } }, "删"));
           }));
@@ -442,73 +460,60 @@
           }));
   }
 
-  // ---- 二级：课程控制台（进度总览 + 单元清单 + 历次练习 + 开启新练习）----
+  // ---- 二级：课程控制台（大目标 + 跨-session 记忆 + 历次 session + 开启新 session）----
   function CurriculumConsole(props) {
     const t = useTheme();
     const accent = t.accent || "#8a6d3b";
     const cur = props.curriculum;
-    const p = cur.progress || {};
-    const done = (p.completed || []).length, total = (cur.units || []).length;
+    const summaries = (cur.memory && cur.memory.summaries) || [];
     const sess = (props.sessions || []).filter(function (s) { return s.curriculum_id === cur.id; })
       .sort(function (a, b) { return (b.updated_at || 0) - (a.updated_at || 0); });
+    const chars = avatarsFor(cur.character_ids, props.characters);
+    function sessLabel(s) {
+      const u = s.outline && s.outline.units && s.outline.units[0];
+      return u ? u.title + ((s.outline.units.length > 1) ? " 等 " + s.outline.units.length + " 小节" : "") : "自由练习";
+    }
     return h("div", { className: "h-full flex flex-col" },
       h(Head, { zh: cur.subject, en: modeTag(cur.mode), onBack: props.onBack }),
       h("div", { className: "flex-1 min-h-0 overflow-y-auto px-5 pb-6" },
-        // 总进度条
-        h("div", { className: "flex items-center gap-2", style: { marginBottom: 4 } },
-          h("div", { className: "flex-1", style: { height: 7, background: t.line, borderRadius: 4, overflow: "hidden" } },
-            h("div", { style: { height: "100%", width: (total ? done / total * 100 : 0) + "%", background: accent } })),
-          h("span", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog } }, done + " / " + total + " 单元")),
-        p.notes ? h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 6, lineHeight: 1.6 } }, "上次提醒：" + p.notes) : null,
-        // 单元清单
-        h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.sub, margin: "16px 0 8px" } }, "课程大纲"),
-        (cur.units || []).map(function (u, i) {
-          const isDone = (p.completed || []).indexOf(u.id) >= 0;
-          const isCur = u.id === p.current_unit;
-          return h("div", { key: u.id, className: "mb-2 p-3", style: { background: isCur ? accent + "12" : t.bg2, border: "1px solid " + (isCur ? accent : t.line), borderRadius: 10 } },
-            h("div", { className: "flex items-center gap-2" },
-              h("span", { style: { fontFamily: F_BODY, fontSize: 12, color: isDone ? "#4a9e5c" : t.fog, width: 16 } }, isDone ? "✓" : (i + 1)),
-              h("span", { className: "flex-1", style: { fontFamily: F_DISPLAY, fontSize: 14.5, color: t.ink } }, u.title),
-              isCur ? h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: "#fff", background: accent, borderRadius: 4, padding: "1px 6px" } }, "当前") : null),
-            (u.grammar || []).length ? h("div", { className: "flex flex-wrap gap-1.5", style: { marginTop: 7 } }, u.grammar.map(function (g) {
-              const lv = (p.mastery || {})[g.id];
-              const col = lv >= 2 ? "#4a9e5c" : lv === 1 ? "#d6a53a" : lv === 0 ? "#cf5b4e" : t.line;
-              const fg = lv >= 0 && lv !== undefined ? "#fff" : t.fog;
-              return h("span", { key: g.id, style: { fontFamily: F_BODY, fontSize: 10.5, color: fg, background: col, borderRadius: 4, padding: "1px 6px" } }, g.label);
-            })) : null);
-        }),
-        // 历次练习
-        h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.sub, margin: "18px 0 8px" } }, "历次练习（" + sess.length + "）"),
-        sess.length === 0
-          ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, lineHeight: 1.7 } }, "还没练过。点下面「开启新练习」，进度会一直接着走。")
-          : sess.map(function (s) {
-              const chars = avatarsFor(s.character_ids, props.characters);
-              return h("button", { key: s.id, onClick: function () { return props.onOpenSession(s.id); },
-                className: "w-full flex items-center gap-3 py-2.5 px-3 mb-2 active:opacity-70",
-                style: { background: t.bg2, border: "1px solid " + t.line, borderRadius: 10, textAlign: "left" } },
-                h("div", { className: "flex -space-x-2 shrink-0" }, chars.map(function (ch) { return h(Avatar, { key: ch.id, character: ch, size: 30, radius: 999 }); })),
-                h("div", { className: "flex-1 min-w-0" },
-                  h("div", { className: "truncate", style: { fontFamily: F_BODY, fontSize: 13, color: t.ink } }, chars.map(function (ch) { return ch.name; }).join("、")),
-                  h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 2 } }, (s.transcript || []).length + " 条 · " + timeShort(s.updated_at))),
-                props.onDelSession ? h("span", { onClick: function (e) { e.stopPropagation(); props.onDelSession(s.id); },
-                  style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, padding: "4px 6px" } }, "删") : null);
-            })),
+        h("div", { className: "flex items-center gap-2", style: { marginTop: 2, marginBottom: 2 } },
+          cur.level ? h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: accent, border: "1px solid " + accent, borderRadius: 4, padding: "0px 6px" } }, cur.level) : null,
+          h("span", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog } }, chars.map(function (ch) { return ch.name; }).join("、") + " · 已上 " + sess.length + " 节")),
+        // 跨-session 记忆（学到哪了）
+        h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.sub, margin: "16px 0 8px" } }, "这门课学到哪了"),
+        summaries.length === 0
+          ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, lineHeight: 1.7 } }, "还没有记录。开一节课，聊完它会自动记住进度，下一节接着走。")
+          : h("div", { className: "mb-2 p-3", style: { background: t.bg2, border: "1px solid " + t.line, borderRadius: 10 } },
+              summaries.slice().reverse().slice(0, 8).map(function (sm, i) {
+                return h("div", { key: sm.sessionId || i, style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink, lineHeight: 1.7, marginBottom: i < Math.min(summaries.length, 8) - 1 ? 6 : 0 } }, "· " + sm.text);
+              })),
+        // 历次 session
+        h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.sub, margin: "18px 0 8px" } }, "历次课（" + sess.length + "）"),
+        sess.map(function (s) {
+          const p = s.progress || {}, total = (s.outline && s.outline.units || []).length, done = (p.completed || []).length;
+          return h("button", { key: s.id, onClick: function () { return props.onOpenSession(s.id); },
+            className: "w-full flex items-center gap-3 py-2.5 px-3 mb-2 active:opacity-70",
+            style: { background: t.bg2, border: "1px solid " + t.line, borderRadius: 10, textAlign: "left" } },
+            h("div", { className: "flex-1 min-w-0" },
+              h("div", { className: "truncate", style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.ink } }, sessLabel(s)),
+              h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 2 } }, (total ? "进度 " + done + "/" + total + " · " : "") + (s.transcript || []).length + " 条 · " + timeShort(s.updated_at))),
+            props.onDelSession ? h("span", { onClick: function (e) { e.stopPropagation(); props.onDelSession(s.id); },
+              style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, padding: "4px 6px" } }, "删") : null);
+        })),
       h("div", { className: "shrink-0 px-5 py-3", style: { borderTop: "1px solid " + t.line } },
-        h("button", { onClick: function () { return props.onNewPractice(cur); }, className: "w-full py-3 active:opacity-70",
-          style: { fontFamily: F_BODY, fontSize: 15, background: accent, color: "#fff", borderRadius: 12 } }, "＋ 开启新练习")));
+        h("button", { onClick: function () { return props.onNewSession(cur); }, className: "w-full py-3 active:opacity-70",
+          style: { fontFamily: F_BODY, fontSize: 15, background: accent, color: "#fff", borderRadius: 12 } }, "＋ 开一节课（自动接上次进度）")));
   }
 
-  // ---- 新建课程流程（teach / nv1；复用大纲落库，session 不再重复起草）----
-  function NewCourse(props) {
+  // ---- 新建课程 = 定个大目标容器（teach / nv1）：不预生成大纲，进控制台再开小节 ----
+  function NewCurriculum(props) {
     const t = useTheme();
     const mode = props.mode; // 'teach' | 'nv1'
     const want = mode === "nv1" ? 2 : 1;
     const [subject, setSubject] = useState("");
     const [level, setLevel] = useState("");
     const [picked, setPicked] = useState([]);
-    const [busy, setBusy] = useState("");
-    const [draft, setDraft] = useState(null);
-    const [pendCast, setPendCast] = useState(null); // { teacherId, charIds }
+    const [busy, setBusy] = useState(false);
     const field = { fontFamily: F_BODY, fontSize: 14, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 8, padding: "10px 12px", width: "100%" };
 
     function toggle(id) {
@@ -520,69 +525,41 @@
     }
 
     async function begin() {
-      if (!subject.trim()) { props.toast("先填个科目"); return; }
+      if (!subject.trim()) { props.toast("先填个大目标"); return; }
       if (picked.length < want) { props.toast(want === 2 ? "挑 2 个角色" : "挑 1 个角色"); return; }
-      if (!props.active) { props.toast("请先到设置配置 API"); return; }
       try {
         const chars = picked.map(function (id) { return props.characters.find(function (c) { return c.id === id; }); });
         let teacherId;
         if (mode === "teach") {
-          // 认真教板块：你已明确要教，直接以选中角色为老师，省掉一次能力判定调用
-          teacherId = chars[0].id;
+          teacherId = chars[0].id; // 认真教：你已明确要教，选中角色即老师
         } else {
-          // 一教一学：判两位谁能教，能教的当老师；都不能则挡回（去一起研究）
-          setBusy("infer");
+          if (!props.active) { props.toast("请先到设置配置 API"); return; }
+          setBusy(true);
           const abil = [];
           for (let i = 0; i < chars.length; i++) abil.push(await inferAbility(props.active, chars[i], subject.trim(), props.worldbook));
           const idx = abil.findIndex(function (a) { return a.canTeach; });
-          if (idx < 0) { setBusy(""); props.toast("这俩谁都不太教得了「" + subject.trim() + "」——换个会的角色，或去『一起研究』一起摸索"); return; }
+          setBusy(false);
+          if (idx < 0) { props.toast("这俩谁都不太教得了「" + subject.trim() + "」——换个会的角色，或去『一起研究』一起摸索"); return; }
           teacherId = chars[idx].id;
         }
-        setBusy("draft");
-        const cur = await draftCurriculum(props.active, subject.trim(), props.worldbook, level.trim());
-        setDraft(cur); setPendCast({ teacherId: teacherId, charIds: picked.slice() });
-        setBusy("");
-      } catch (e) { props.toast("出错了：" + (e.message || "重试")); setBusy(""); }
-    }
-
-    function confirm(dr) {
-      const chars = pendCast.charIds.map(function (id) { return props.characters.find(function (c) { return c.id === id; }); });
-      const cur = {
-        id: "cur_" + Date.now(), subject: subject.trim(), level: dr.level || (level.trim() || "入门"),
-        language: dr.language || "中文", units: dr.units, mode: mode,
-        character_ids: pendCast.charIds.slice(), teacher_id: pendCast.teacherId,
-        progress: initCurriculumProgress(dr), created_at: Date.now(), updated_at: Date.now(),
-        _castNames: chars.map(function (c) { return c.name; })
-      };
-      saveCurriculum(cur);
-      props.onCreated(cur); // 上层建首个 session 并进入
-    }
-
-    if (draft) {
-      return h("div", { className: "h-full flex flex-col" },
-        h(Head, { zh: "审核大纲", en: draft.subject, onBack: function () { setDraft(null); setPendCast(null); } }),
-        h("div", { className: "flex-1 min-h-0 overflow-y-auto px-5 pb-6" },
-          h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, marginBottom: 12, lineHeight: 1.7 } },
-            "这是模型起草的课程大纲。确认后冻结落库成一门课，之后每次练习都接着同一条进度走。不满意可重新起草。"),
-          (draft.units || []).map(function (u, i) {
-            return h("div", { key: u.id, className: "mb-3 p-3", style: { background: t.bg2, border: "1px solid " + t.line, borderRadius: 10 } },
-              h("div", { style: { fontFamily: F_DISPLAY, fontSize: 15, color: t.ink } }, (i + 1) + ". " + u.title),
-              (u.objectives || []).length ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.sub, marginTop: 4, lineHeight: 1.7 } }, "目标：" + u.objectives.join("；")) : null,
-              (u.grammar || []).length ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, marginTop: 3, lineHeight: 1.7 } }, "要点：" + u.grammar.map(function (g) { return g.label; }).join("、")) : null);
-          })),
-        h("div", { className: "shrink-0 px-5 py-3 flex gap-3", style: { borderTop: "1px solid " + t.line } },
-          h("button", { onClick: async function () { setBusy("draft"); try { const c = await draftCurriculum(props.active, draft.subject, props.worldbook, level.trim()); setDraft(c); } catch (e) { props.toast(e.message); } setBusy(""); }, disabled: !!busy, className: "flex-1 py-3", style: { fontFamily: F_BODY, fontSize: 14, border: "1px solid " + t.line, color: t.ink, borderRadius: 10 } }, busy === "draft" ? "起草中…" : "重新起草"),
-          h("button", { onClick: function () { confirm(draft); }, disabled: !!busy, className: "flex-1 py-3", style: { fontFamily: F_BODY, fontSize: 14, background: t.ink, color: t.bg2, borderRadius: 10 } }, "确认冻结并开始")));
+        const cur = {
+          id: "cur_" + Date.now(), subject: subject.trim(), level: level.trim(), mode: mode,
+          character_ids: picked.slice(), teacher_id: teacherId, memory: { summaries: [] },
+          created_at: Date.now(), updated_at: Date.now()
+        };
+        saveCurriculum(cur);
+        props.onCreated(cur); // 上层落到控制台，让用户自己开第一节
+      } catch (e) { props.toast("出错了：" + (e.message || "重试")); setBusy(false); }
     }
 
     return h("div", { className: "h-full flex flex-col" },
       h(Head, { zh: mode === "nv1" ? "新建课程 · 一教一学" : "新建课程 · 认真教", en: "New", onBack: props.onBack }),
       h("div", { className: "flex-1 min-h-0 overflow-y-auto px-5 pb-6" },
-        h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.ink, marginBottom: 6 } }, "学什么"),
-        h("input", { value: subject, onChange: function (e) { return setSubject(e.target.value); }, placeholder: "例：日语 N5 / 吉他入门 / 微积分…", style: field }),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.ink, marginBottom: 6 } }, "大目标"),
+        h("input", { value: subject, onChange: function (e) { return setSubject(e.target.value); }, placeholder: "例：日语 N4 / 吉他弹唱 / 微积分…", style: field }),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 5, lineHeight: 1.6 } }, "这是一门课的大方向。建好后进去，你可以开无数节小课，每节各自生成大纲、接着上次的进度走。"),
         h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.ink, margin: "18px 0 6px" } }, "我的基础（可选）"),
-        h("input", { value: level, onChange: function (e) { return setLevel(e.target.value); }, placeholder: "不填=零基础。填了会按你的水平起草，如：已过 N5 想冲 N4 / 会弹几个和弦", style: field }),
-        h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 5, lineHeight: 1.6 } }, "大纲会跳过你已经会的、从合适的地方开始。"),
+        h("input", { value: level, onChange: function (e) { return setLevel(e.target.value); }, placeholder: "不填=零基础。如：已过 N5 想冲 N4 / 会弹几个和弦", style: field }),
         h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.ink, margin: "18px 0 6px" } }, mode === "nv1" ? "老师 + 同学（选 2 个）" : "找谁教（选 1 个）"),
         h("div", { className: "flex flex-col gap-2" }, (props.characters || []).map(function (c) {
           const on = picked.includes(c.id);
@@ -594,8 +571,104 @@
         })),
         mode === "nv1" ? h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 10, lineHeight: 1.7 } }, "会自动判两位谁能教这门——能教的当老师，另一个当同学陪你学。") : null),
       h("div", { className: "shrink-0 px-5 py-3", style: { borderTop: "1px solid " + t.line } },
-        h("button", { onClick: begin, disabled: !!busy, className: "w-full py-3", style: { fontFamily: F_BODY, fontSize: 15, background: t.ink, color: t.bg2, borderRadius: 12, opacity: busy ? 0.6 : 1 } },
-          busy === "infer" ? "判定角色能力中…" : busy === "draft" ? "起草课程大纲中…" : "起草大纲")));
+        h("button", { onClick: begin, disabled: busy, className: "w-full py-3", style: { fontFamily: F_BODY, fontSize: 15, background: t.ink, color: t.bg2, borderRadius: 12, opacity: busy ? 0.6 : 1 } },
+          busy ? "判定角色能力中…" : "建课程")));
+  }
+
+  // ---- 开一节课：为本节生成小大纲（承接往期 session 摘要+进度）→ 审核 → 落地 ----
+  function NewSession(props) {
+    const t = useTheme();
+    const cur = props.curriculum;
+    const [focus, setFocus] = useState("");
+    const [busy, setBusy] = useState("");   // '' | 'sum' | 'draft'
+    const [draft, setDraft] = useState(null);
+    const field = { fontFamily: F_BODY, fontSize: 14, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 8, padding: "10px 12px", width: "100%" };
+
+    // 惰性总结：开新节前，把这门课里"有内容但还没最新摘要"的旧 session 各总结一句，落进课程记忆
+    async function summarizePriors() {
+      const list = loadSessions().filter(function (s) { return s.curriculum_id === cur.id && s.mode !== "costudy"; });
+      for (let i = 0; i < list.length; i++) {
+        const s = list[i];
+        const hasContent = (s.transcript || []).filter(function (m) { return m.role !== "system"; }).length >= 2;
+        const stale = !s.summary || (s.summaryTs || 0) < (s.updated_at || 0);
+        if (!hasContent || !stale) continue;
+        const text = await summarizeStudySession(props.active, s, { profile: props.profile });
+        if (text) {
+          const all = loadSessions().map(function (x) { return x.id === s.id ? Object.assign({}, x, { summary: text, summaryTs: Date.now() }) : x; });
+          saveSessions(all);
+          pushCurriculumSummary(cur.id, s.id, text);
+        }
+      }
+    }
+
+    function buildPriorCtx() {
+      const fresh = findCurriculum(cur.id) || cur;
+      const sums = ((fresh.memory && fresh.memory.summaries) || []).slice(-8).map(function (sm) { return "· " + sm.text; });
+      const prior = loadSessions().filter(function (s) { return s.curriculum_id === cur.id && s.outline; })
+        .sort(function (a, b) { return (b.updated_at || 0) - (a.updated_at || 0); });
+      const last = prior[0];
+      const lines = sums.slice();
+      if (last && last.outline) {
+        lines.push("上一节安排的小节：" + (last.outline.units || []).map(function (u) { return u.title; }).join("、"));
+        const lp = last.progress || {};
+        const done = (lp.completed || []).length, tot = (last.outline.units || []).length;
+        lines.push("上一节完成到 " + done + "/" + tot + " 小节" + (lp.notes ? "；上次提醒：" + lp.notes : ""));
+      }
+      return lines.join("\n");
+    }
+
+    async function generate() {
+      if (!props.active) { props.toast("请先到设置配置 API"); return; }
+      try {
+        setBusy("sum");
+        await summarizePriors();
+        setBusy("draft");
+        const priorCtx = buildPriorCtx();
+        const outline = await draftSessionOutline(props.active, cur.subject, props.worldbook, cur.level, priorCtx, focus.trim());
+        setDraft(outline); setBusy("");
+      } catch (e) { props.toast("出错了：" + (e.message || "重试")); setBusy(""); }
+    }
+
+    function confirm(outline) {
+      const chars = avatarsFor(cur.character_ids, props.characters);
+      const sess = {
+        id: "st_" + Date.now(), curriculum_id: cur.id, mode: cur.mode,
+        character_ids: (cur.character_ids || []).slice(), teacher_id: cur.teacher_id || null,
+        subject: cur.subject, title: cur.subject + " · " + chars.map(function (c) { return c.name; }).join("&"),
+        outline: outline, progress: initSessionProgress(outline),
+        created_at: Date.now(), updated_at: Date.now(), transcript: []
+      };
+      saveSessions(loadSessions().concat([sess]));
+      props.onCreated(sess);
+    }
+
+    if (draft) {
+      return h("div", { className: "h-full flex flex-col" },
+        h(Head, { zh: "本节大纲", en: cur.subject, onBack: function () { setDraft(null); } }),
+        h("div", { className: "flex-1 min-h-0 overflow-y-auto px-5 pb-6" },
+          h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, marginBottom: 12, lineHeight: 1.7 } },
+            "这是为这一节课起的小大纲（已参考之前几节的进度）。确认后就按它上课；不满意可重来。"),
+          (draft.units || []).map(function (u, i) {
+            return h("div", { key: u.id, className: "mb-3 p-3", style: { background: t.bg2, border: "1px solid " + t.line, borderRadius: 10 } },
+              h("div", { style: { fontFamily: F_DISPLAY, fontSize: 15, color: t.ink } }, (i + 1) + ". " + u.title),
+              (u.objectives || []).length ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.sub, marginTop: 4, lineHeight: 1.7 } }, "目标：" + u.objectives.join("；")) : null,
+              (u.grammar || []).length ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, marginTop: 3, lineHeight: 1.7 } }, "要点：" + u.grammar.map(function (g) { return g.label; }).join("、")) : null);
+          })),
+        h("div", { className: "shrink-0 px-5 py-3 flex gap-3", style: { borderTop: "1px solid " + t.line } },
+          h("button", { onClick: generate, disabled: !!busy, className: "flex-1 py-3", style: { fontFamily: F_BODY, fontSize: 14, border: "1px solid " + t.line, color: t.ink, borderRadius: 10 } }, busy ? "重排中…" : "重新排"),
+          h("button", { onClick: function () { confirm(draft); }, disabled: !!busy, className: "flex-1 py-3", style: { fontFamily: F_BODY, fontSize: 14, background: t.ink, color: t.bg2, borderRadius: 10 } }, "就按这个上课")));
+    }
+
+    return h("div", { className: "h-full flex flex-col" },
+      h(Head, { zh: "开一节课", en: cur.subject, onBack: props.onBack }),
+      h("div", { className: "flex-1 min-h-0 overflow-y-auto px-5 pb-6" },
+        h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink, lineHeight: 1.7, marginBottom: 16 } },
+          "这门课：" + cur.subject + (cur.level ? "（" + cur.level + "）" : "") + "。点下面生成本节小大纲——会自动参考你之前几节学到哪、卡在哪，接着往下排。"),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.ink, marginBottom: 6 } }, "这节想侧重什么（可选）"),
+        h("input", { value: focus, onChange: function (e) { return setFocus(e.target.value); }, placeholder: "留空=接着上次自动安排；或写：想多练听力 / 复习上次的动词变形", style: field })),
+      h("div", { className: "shrink-0 px-5 py-3", style: { borderTop: "1px solid " + t.line } },
+        h("button", { onClick: generate, disabled: !!busy, className: "w-full py-3", style: { fontFamily: F_BODY, fontSize: 15, background: t.ink, color: t.bg2, borderRadius: 12, opacity: busy ? 0.6 : 1 } },
+          busy === "sum" ? "回顾之前几节…" : busy === "draft" ? "为这节排大纲…" : "生成本节大纲")));
   }
 
   // ---- 新建研究（costudy）：挑 1 角色 + 题目，直接开聊，无大纲无判定 ----
@@ -642,9 +715,10 @@
       if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }, [sess.transcript.length, busy]);
 
-    const cur = sess.curriculum_id ? findCurriculum(sess.curriculum_id) : null;
-    // 进度归课程：teach/nv1 读课程共享进度；costudy 仍用 session 自己的滚动摘要
-    const prog = cur ? (cur.progress || {}) : (sess.progress || {});
+    // 本节自足：outline+progress 都挂在 session 上（costudy 的 progress 是 running_summary）
+    const outline = sess.outline || null;
+    const units = (outline && outline.units) || [];
+    const prog = sess.progress || {};
     const chars = (sess.character_ids || []).map(function (id) { return (props.characters || []).find(function (c) { return c.id === id; }); }).filter(Boolean);
     const teacher = sess.teacher_id ? chars.find(function (c) { return c.id === sess.teacher_id; }) : chars[0];
     const userName = (props.profile && props.profile.name) || "我";
@@ -717,54 +791,52 @@
 
     async function checkpoint() {
       if (busy || !props.active) return;
-      if (sess.mode === "costudy" || !cur) return;
+      if (sess.mode === "costudy" || !units.length) return;
       setBusy(true);
       try {
         const s = sessRef.current;
-        // 进度归课程：结算写进课程共享进度（下次任何练习都能读到），不再写 session
-        const cp = Object.assign({ completed: [], mastery: {} }, cur.progress);
-        // 结算这课的掌握程度（模型评估各要点，写进三色灯 + 待复习队列）；评估失败也不挡推进
+        // 本节自足：结算写进本 session 的进度（跨 session 靠开新节时的摘要衔接，不写这里）
+        const cp = Object.assign({ completed: [], mastery: {} }, s.progress);
         try {
           const res = await runCheckpoint(props.active, s, teacher, ctx);
           cp.mastery = Object.assign({}, cp.mastery, res.mastery);
           cp.notes = res.notes || cp.notes;
           cp.review_queue = Object.keys(cp.mastery).filter(function (k) { return cp.mastery[k] <= 1; });
         } catch (e) {/* 掌握评估失败：仍然按用户意愿推进 */}
-        // 你手动点了「这课学完」= 你决定推进，无条件进下一课（是否掌握由你说了算）
-        const idx = cur.units.findIndex(function (u) { return u.id === cp.current_unit; });
+        // 你手动点了「这节学完」= 你决定推进，无条件进下一小节
+        const idx = units.findIndex(function (u) { return u.id === cp.current_unit; });
         if (!cp.completed.includes(cp.current_unit)) cp.completed = cp.completed.concat([cp.current_unit]);
-        const nextU = cur.units[idx + 1];
+        const nextU = units[idx + 1];
         if (nextU) {
           cp.current_unit = nextU.id;
           const weak = (cp.review_queue || []).length;
-          props.toast("进入下一课：" + nextU.title + (weak ? "（有 " + weak + " 个点标了待复习）" : ""));
+          props.toast("进入下一小节：" + nextU.title + (weak ? "（有 " + weak + " 个点标了待复习）" : ""));
         } else {
-          props.toast("全部单元都学完啦 🎉");
+          props.toast("本节都学完啦 🎉 回课程可以开下一节");
         }
-        saveCurriculumProgress(cur.id, cp);
-        commit(Object.assign({}, s)); // 仅 bump session 时间 + 触发重渲染读新课程进度
+        commit(Object.assign({}, s, { progress: cp }));
       } catch (e) {
         props.toast("出错了：" + (e.message || "重试"));
       } finally { setBusy(false); }
     }
 
-    // 退回上一课：current_unit 回到上一单元，并把上一单元从「已完成」里移除（重新学）
+    // 退回上一小节：current_unit 回上一小节，并从「已完成」移除（重新学）
     function prevUnit() {
-      if (busy || !cur) return;
-      const cp = Object.assign({ completed: [] }, cur.progress);
-      const idx = cur.units.findIndex(function (u) { return u.id === cp.current_unit; });
-      if (idx <= 0) { props.toast("已经是第一课了"); return; }
-      const prev = cur.units[idx - 1];
+      if (busy || !units.length) return;
+      const s = sessRef.current;
+      const cp = Object.assign({ completed: [] }, s.progress);
+      const idx = units.findIndex(function (u) { return u.id === cp.current_unit; });
+      if (idx <= 0) { props.toast("已经是第一小节了"); return; }
+      const prev = units[idx - 1];
       cp.current_unit = prev.id;
       cp.completed = (cp.completed || []).filter(function (x) { return x !== prev.id; });
-      saveCurriculumProgress(cur.id, cp);
-      commit(Object.assign({}, sessRef.current));
-      props.toast("退回上一课：" + prev.title);
+      commit(Object.assign({}, s, { progress: cp }));
+      props.toast("退回上一小节：" + prev.title);
     }
 
     // 顶栏
     const accent = modeColor(sess.mode, t);
-    const unit = cur ? cur.units.find(function (u) { return u.id === prog.current_unit; }) : null;
+    const unit = units.length ? units.find(function (u) { return u.id === prog.current_unit; }) : null;
     const topBar = sess.mode === "costudy"
       ? h("div", { className: "px-5 pb-2", style: { background: t.bg } },
           h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: accent, lineHeight: 1.6 } },
@@ -772,9 +844,9 @@
       : h("div", { className: "px-5 pb-2", style: { background: t.bg } },
           h("button", { onClick: function () { return setExpand(!expand); }, className: "w-full flex items-center gap-2 active:opacity-70" },
             h("div", { className: "flex-1", style: { height: 5, background: t.line, borderRadius: 3, overflow: "hidden" } },
-              h("div", { style: { height: "100%", width: (cur ? ((prog.completed || []).length / cur.units.length * 100) : 0) + "%", background: accent } })),
+              h("div", { style: { height: "100%", width: (units.length ? ((prog.completed || []).length / units.length * 100) : 0) + "%", background: accent } })),
             h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } },
-              (unit ? unit.title : "") + " " + ((prog.completed || []).length) + "/" + (cur ? cur.units.length : "?"))),
+              (unit ? unit.title : "本节") + " " + ((prog.completed || []).length) + "/" + (units.length || "?"))),
           expand && unit ? h("div", { className: "mt-2 flex flex-wrap gap-1.5" }, (unit.grammar || []).map(function (g) {
             const lv = (prog.mastery || {})[g.id];
             const col = lv >= 2 ? "#4a9e5c" : lv === 1 ? "#d6a53a" : "#cf5b4e";
@@ -801,8 +873,8 @@
       h(Head, {
         zh: sess.subject, en: modeTag(sess.mode), onBack: props.onBack,
         right: sess.mode !== "costudy" ? h("div", { className: "flex items-center gap-1.5" },
-          h("button", { onClick: prevUnit, disabled: busy || !cur || (cur.units.findIndex(function (u) { return u.id === prog.current_unit; }) <= 0), className: "active:opacity-60 disabled:opacity-30", style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog, border: "1px solid " + t.line, borderRadius: 8, padding: "4px 9px" } }, "上一课"),
-          h("button", { onClick: checkpoint, disabled: busy, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 12.5, color: accent, border: "1px solid " + accent, borderRadius: 8, padding: "4px 10px" } }, "这课学完")) : null
+          h("button", { onClick: prevUnit, disabled: busy || !units.length || (units.findIndex(function (u) { return u.id === prog.current_unit; }) <= 0), className: "active:opacity-60 disabled:opacity-30", style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog, border: "1px solid " + t.line, borderRadius: 8, padding: "4px 9px" } }, "上一小节"),
+          h("button", { onClick: checkpoint, disabled: busy, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 12.5, color: accent, border: "1px solid " + accent, borderRadius: 8, padding: "4px 10px" } }, "这节学完")) : null
       }),
       topBar,
       h("div", { ref: scrollRef, className: "flex-1 min-h-0 overflow-y-auto px-5 py-3" },
@@ -837,24 +909,20 @@
     const sessions = loadSessions();
     const curricula = loadCurricula();
 
-    // 用某门课的 cast 建一个新练习 session（复用 curriculum_id，绝不重复起草）
-    function startPractice(cur) {
-      const chars = avatarsFor(cur.character_ids, props.characters);
-      const sess = {
-        id: "st_" + Date.now(), curriculum_id: cur.id, mode: cur.mode,
-        character_ids: (cur.character_ids || []).slice(), teacher_id: cur.teacher_id || null,
-        subject: cur.subject, title: cur.subject + " · " + chars.map(function (c) { return c.name; }).join("&"),
-        updated_at: Date.now(), progress: null, transcript: []
-      };
-      saveSessions(loadSessions().concat([sess]));
-      setOpenId(sess.id); setView("thread");
-    }
-
-    if (view === "newCourse") {
-      return h(NewCourse, {
+    if (view === "newCurriculum") {
+      return h(NewCurriculum, {
         mode: tab, active: props.active, characters: props.characters, worldbook: props.worldbook, toast: props.toast,
         onBack: function () { setView("home"); },
-        onCreated: function (cur) { startPractice(cur); }
+        onCreated: function (cur) { setCurId(cur.id); setView("console"); } // 落到控制台，自己开第一节
+      });
+    }
+    if (view === "newSession") {
+      const cur = curricula.find(function (c) { return c.id === curId; });
+      if (!cur) { setView("home"); return null; }
+      return h(NewSession, {
+        curriculum: cur, active: props.active, characters: props.characters, worldbook: props.worldbook, profile: props.profile, toast: props.toast,
+        onBack: function () { setView("console"); },
+        onCreated: function (sess) { setOpenId(sess.id); setView("thread"); }
       });
     }
     if (view === "newCostudy") {
@@ -881,7 +949,7 @@
         curriculum: cur, sessions: sessions, characters: props.characters,
         onBack: function () { refresh(); setView("home"); },
         onOpenSession: function (id) { setOpenId(id); setView("thread"); },
-        onNewPractice: function (c) { startPractice(c); },
+        onNewSession: function (c) { setCurId(c.id); setView("newSession"); },
         onDelSession: function (id) {
           saveSessions(loadSessions().filter(function (s) { return s.id !== id; }));
           refresh(); props.toast && props.toast("已删除");
@@ -915,7 +983,7 @@
         .sort(function (a, b) { return (b.updated_at || 0) - (a.updated_at || 0); });
       panel = h(CurriculumList, {
         mode: tab, curricula: cs, sessions: sessions, characters: props.characters,
-        onNew: function () { setView("newCourse"); },
+        onNew: function () { setView("newCurriculum"); },
         onOpen: function (id) { setCurId(id); setView("console"); },
         onDel: function (id) {
           saveCurricula(loadCurricula().filter(function (c) { return c.id !== id; }));
