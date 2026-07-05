@@ -5351,9 +5351,10 @@ function GroupSettingsSheet({ gs, group, characters, onSave, onSummarize, onAddM
         h("button", { onClick: () => onKickMember(c.id), className: "active:opacity-50", style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, border: "1px solid " + t.line, borderRadius: 999, padding: "3px 10px" } }, "移出")))),
 
     h("div", { className: "pt-4", style: { fontFamily: F_BODY, fontSize: 12, color: t.fog } }, "旁观模式：" + (spec ? "开（建群时设定，角色不知你在看）" : "关")),
-    row("记忆互通", "群里可提及成员与你的私聊；私聊也记得群聊；成员会带出心声，并影响实时好感与心情", interop, setInterop),
-    interop && sliderRow("带入私聊条数", "每位成员最近多少条私聊会被带进群聊上下文（0＝只带长期记忆）。", privN, setPrivN, 0, 30, 2, " 条"),
-    sliderRow("入群前上文条数", "抓取每位成员『入群前』和你的私聊各最近多少条，作为背景补充上文（0＝不带；不依赖记忆互通）。", preJoinN, setPreJoinN, 0, 20, 1, " 条"),
+    row("记忆互通", "开：群实时抽取每位成员跟你的单聊+长期记忆+记忆库，双向记得，带心声/实时好感。关：本群是封闭空间，只吃下面的『入群前上文』X 条前情提要，记忆不进也不出。", interop, setInterop),
+    interop
+      ? sliderRow("带入私聊条数", "互通时，每位成员最近多少条私聊会被实时带进群聊上下文（0＝只带长期记忆）。", privN, setPrivN, 0, 30, 2, " 条")
+      : sliderRow("入群前上文条数", "封闭群的前情提要：抓每位成员『入群前』和你的私聊各最近多少条当背景（0＝不带）。开了记忆互通就用不上、自动让位给实时抽取。", preJoinN, setPreJoinN, 0, 20, 1, " 条"),
 
     // 记忆库
     h("div", { className: "pt-7", style: { borderTop: "1px solid " + t.line, marginTop: 20 } },

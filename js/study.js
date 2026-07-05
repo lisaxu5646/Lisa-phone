@@ -321,7 +321,8 @@
       "每个单元含：稳定 id（英文小写下划线，如 unit_greetings）、title、objectives(2~3条)、" +
       "grammar/要点数组[{id(稳定英文小写),label(中文短标签),note(一句说明)}]、vocab(若适用,数组)、can_do(学完能做到的事,1~3条)、prereq(前置单元id数组,可空)。" +
       "level 字段填这份大纲的实际难度定位（如 入门/N4冲刺/进阶 等）。只输出 JSON：{\"level\":\"…\",\"language\":\"中文\",\"units\":[...]}。不要 markdown。";
-    const raw = await callAI(active, sys, [{ role: "user", content: "科目：" + subject + (lv ? "\n我的基础：" + lv : "\n（零基础）") }], { maxTokens: 3200 });
+    // 4~7 单元 × (objectives+grammar+vocab+can_do) 的 JSON 很长，token 给足否则被截断只剩两三课
+    const raw = await callAI(active, sys, [{ role: "user", content: "科目：" + subject + (lv ? "\n我的基础：" + lv : "\n（零基础）") }], { maxTokens: 8000 });
     const d = extractJSON(raw) || {};
     const units = Array.isArray(d.units) ? d.units.filter(function (u) { return u && u.id && u.title; }) : [];
     if (!units.length) throw new Error("大纲起草失败，请重试");
