@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.03";
+const APP_VERSION = "v46.04";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -3077,17 +3077,33 @@ function App() {
     // 候选回复者：发帖人 + 关系网里认识发帖人的其他角色（都可能插话）
     const others = characters.filter(c => c.id !== author.id && (rels[c.id + "->" + author.id] || rels[author.id + "->" + c.id]));
     const roster = [author, ...others.slice(0, 4)].map(c => c.remark || c.name);
+    const meName = profile.name || "我";
+    const fbAuthor = author.remark || author.name;
+    // 兜底也别千篇一律的「看到啦」：贴着用户这条评论回一句短的
+    const fallbackText = () => {
+      const t = String(text || "").trim();
+      const pool = [
+        t ? "「" + (t.length > 12 ? t.slice(0, 12) + "…" : t) + "」——嗯，我看到了。" : "看到你评论啦。",
+        "哈哈你这条我记下了。", "被你这么一说还真是。", "懂你意思，回头细说。", "谢啦，收到～"
+      ];
+      return pool[Math.floor(Math.random() * pool.length)];
+    };
     try {
       const bundle = buildBundle(ctxFor(author));
-      const meName = profile.name || "我";
-      const system = bundle + "\n\n【场景】这是「" + author.name + "」发的朋友圈：「" + mom.content + "」。用户「" + meName + "」刚在下面评论了：「" + text + "」。可能回复的人（发帖人本人，或认识发帖人的共同好友都可能插话）：" + roster.join("、") + "。请生成他们对【用户这条评论」" + text + "」】的回复——**必须是直接回应用户说的这句话（像微信朋友圈里回复评论那样，针对内容作答，别答非所问、别自说自话讲无关的事）**；至少一条（保底），不一定是发帖人，谁最合适谁回，1-3 条，各自符合人设与关系，短句。\n只输出 JSON：{\"replies\":[{\"author\":\"回复者名\",\"text\":\"回复内容（直接回应用户那句）\"}]}";
-      const raw = await callAI(active, system, [{ role: "user", content: "生成对用户评论的回复" }], { maxTokens: 500 });
+      const system = bundle + "\n\n【场景】这是「" + author.name + "」发的朋友圈：「" + mom.content + "」。用户「" + meName + "」刚在下面评论了：「" + text + "」。可能回复的人（发帖人本人，或认识发帖人的共同好友都可能插话）：" + roster.join("、") + "。请生成他们对【用户这条评论「" + text + "」】的回复——**必须直接回应用户说的这句话的具体内容（像微信朋友圈里回复评论那样，接住 Ta 说的、有来有往），别答非所问、别自说自话。绝对不许用「看到啦」「收到」这种敷衍空话搪塞**；至少一条（保底），不一定是发帖人，谁最合适谁回，1-3 条，各自符合人设与关系，短句、有具体内容。\n只输出 JSON：{\"replies\":[{\"author\":\"回复者名\",\"text\":\"回复内容（直接回应用户那句的具体内容）\"}]}";
+      const raw = await callAI(active, system, [{ role: "user", content: "针对用户评论「" + text + "」生成回复 JSON" }], { maxTokens: 900 });
       const d = extractJSON(raw) || {};
-      let reps = (Array.isArray(d.replies) ? d.replies : []).filter(r => r && r.text && r.author !== meName && r.author !== "我");
-      if (!reps.length) reps = [{ author: author.remark || author.name, text: "看到啦。" }]; // 保底
+      // 容错解析：{replies:[...]} / 裸数组 / {reply} / {text}
+      let reps = [];
+      if (Array.isArray(d.replies)) reps = d.replies;
+      else if (Array.isArray(d)) reps = d;
+      else if (d.reply) reps = [typeof d.reply === "string" ? { author: fbAuthor, text: d.reply } : d.reply];
+      else if (typeof d.text === "string") reps = [{ author: fbAuthor, text: d.text }];
+      reps = reps.filter(r => r && r.text && String(r.text).trim() && String(r.text).toLowerCase() !== "null" && r.author !== meName && r.author !== "我" && r.author !== "用户");
+      if (!reps.length) reps = [{ author: fbAuthor, text: fallbackText() }]; // 保底
       reps.forEach((r, i) => setTimeout(() => pMom(p => p.map(m => m.id === id ? { ...m, comments: [...(m.comments || []), { author: r.author, text: "回复 " + meName + "：" + r.text }] } : m)), 400 + i * 600));
     } catch (e) {
-      pMom(p => p.map(m => m.id === id ? { ...m, comments: [...(m.comments || []), { author: author.remark || author.name, text: "回复 " + (profile.name || "我") + "：看到啦。" }] } : m));
+      setTimeout(() => pMom(p => p.map(m => m.id === id ? { ...m, comments: [...(m.comments || []), { author: fbAuthor, text: "回复 " + meName + "：" + fallbackText() }] } : m)), 400);
     }
   };
   // 我发一条朋友圈（可带图描述、可选可见范围）
