@@ -742,7 +742,8 @@ function App() {
     rels,
     chars: characters,
     worldbook,
-    memLib: memLibRef.current
+    // 记忆分区：不互通的群是封闭空间，线下也不读全局记忆库（不让外部记忆流入）
+    memLib: gsFor(group.id).memoryInterop ? memLibRef.current : null
   });
   const pGOffline = (groupId, updater) => setGroupOfflines(prev => {
     const next = updater(prev[groupId] || []);
@@ -882,11 +883,14 @@ function App() {
     try {
       if (active && group) summary = await summarizeOfflineGroup(active, ctxForGroupOffline(group), sess);
     } catch (e) {}
+    // 记忆分区：只有开了「记忆互通」的群才把线下总结写进全局记忆库；
+    // 不互通的群是封闭空间——总结只留在本群这条线下会话里，绝不外泄到记忆库/单聊。
+    const interopOn = gsFor(groupId).memoryInterop;
     pGOffline(groupId, list => list.map(s => s.id === sess.id ? { ...s, endTs: Date.now(), summary } : s));
-    if (summary && group) addMemEntry({ text: summary, tags: ["线下", "群聊"], charIds: group.memberIds || [], source: "auto" });
+    if (summary && group && interopOn) addMemEntry({ text: summary, tags: ["线下", "群聊"], charIds: group.memberIds || [], source: "auto" });
     // TODO(日程覆盖，用户说后面再弄)：把本次群聊线下时间段的日程覆盖成这段经过 + 各角色想法。
     setSending(false);
-    toast(summary ? "已记入记忆库" : "已结束");
+    toast(summary ? (interopOn ? "已记入记忆库" : "已结束（记忆只留在本群）") : "已结束");
     setOfflineGroup(null);
   };
   const goHome = () => {
@@ -1292,9 +1296,10 @@ function App() {
       if (!active) throw new Error("请先配置 API");
       const gchat = groupChatsRef.current[groupId] || [];
       const hist = gchat.filter(m => m.kind !== "ooc").slice(-(gs.ctxN || 30)).map(m => m.role === "narration" ? "【旁白】" + m.content : m.role === "system" ? "（" + m.content + "）" : (m.role === "user" ? profile.name || "用户" : m.senderName || "某人") + ": " + (m.kind === "poll" ? "[发起投票]" + m.title : m.kind === "redpacket" ? "[发红包]" + (m.message || "") : m.content)).join("\n");
-      // 补充上文：每位成员入群前的私聊（不接记忆库时用作背景），按群创建时间截断
+      // 补充上文：每位成员入群前的私聊，作为「封闭空间」的 X 条前情提要——
+      // 只在【未开记忆互通】时用；开了互通就实时抽单聊，这档自动让位、不叠加。
       let preJoin = "";
-      if (gs.preJoinN > 0) {
+      if (gs.preJoinN > 0 && !gs.memoryInterop) {
         const cutTs = groupCreatedTs(group);
         const pj = members.map(c => {
           const before = (chatsRef.current[c.id] || []).filter(m => !m.recalled && !m.kind && (!cutTs || (m.ts || 0) < cutTs)).slice(-gs.preJoinN);
@@ -1724,6 +1729,8 @@ function App() {
   const maybeSummarizeGroup = async groupId => {
     const g = groups.find(x => x.id === groupId); if (!g) return;
     const gs = gsFor(groupId);
+    // 记忆分区：不互通的群不自动往全局记忆库总结（记忆只留在本群，靠上下文条数+入群前上文续场）
+    if (!gs.memoryInterop) return;
     const thresh = gs.sumThresh || 150, buffer = gs.sumBuffer || 20;
     const msgs = (groupChatsRef.current[groupId] || []).filter(m => m.role === "user" || m.role === "assistant" || m.role === "narration");
     const lastSum = gs.lastSummarizedCount || 0;
