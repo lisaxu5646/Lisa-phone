@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v32";
+const APP_VERSION = "v33";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -37,6 +37,23 @@ function DevBadges() {
   return h("div", { className: "shrink-0 flex items-center justify-between", style: { height: 19, padding: "0 13px", pointerEvents: "none" } },
     h("span", { style: { fontFamily: "monospace", fontSize: 10, letterSpacing: 0.5, color: t.ink, opacity: 0.4 } }, APP_VERSION),
     h(BatteryBadge, null));
+}
+// 一起听·本地音频存 IndexedDB（音频文件大，localStorage 5MB 存不下）。key=歌曲id，value=Blob。
+function idbAudioOpen() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("x_listen_audio", 1);
+    r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains("aud")) r.result.createObjectStore("aud"); };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function idbAudioPut(k, blob) { const db = await idbAudioOpen(); return new Promise((res, rej) => { const tx = db.transaction("aud", "readwrite"); tx.objectStore("aud").put(blob, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
+async function idbAudioGet(k) { const db = await idbAudioOpen(); return new Promise((res, rej) => { const tx = db.transaction("aud", "readonly"); const rq = tx.objectStore("aud").get(k); rq.onsuccess = () => res(rq.result || null); rq.onerror = () => rej(rq.error); }); }
+async function idbAudioDel(k) { const db = await idbAudioOpen(); return new Promise(res => { const tx = db.transaction("aud", "readwrite"); tx.objectStore("aud").delete(k); tx.oncomplete = () => res(); tx.onerror = () => res(); }); }
+// 从网易云链接/分享文案/裸ID里抠出歌曲 id
+function parseNeteaseId(input) {
+  const s = String(input || "");
+  const m = s.match(/id=(\d{3,})/) || s.match(/\/song\/(\d{3,})/) || s.match(/^\s*(\d{3,})\s*$/);
+  return m ? m[1] : null;
 }
 // 内置默认表情：手画 SVG 表情脸，编码成 data URI（不依赖图床，开箱即用）
 function buildDefaultEmotes() {
@@ -3846,7 +3863,42 @@ function App() {
     saveListen(p => ({ ...p, songs: [{ id: "sg_" + Date.now(), title: tt, artist: (artist || "").trim(), cover: cover, ts: Date.now() }, ...(p.songs || [])].slice(0, 30) }));
   };
   const playListenSong = id => saveListen(p => { const s = (p.songs || []).find(x => x.id === id); if (!s) return p; return { ...p, songs: [{ ...s, ts: Date.now() }, ...(p.songs || []).filter(x => x.id !== id)] }; });
-  const removeListenSong = id => saveListen(p => ({ ...p, songs: (p.songs || []).filter(x => x.id !== id) }));
+  const removeListenSong = id => { idbAudioDel(id); saveListen(p => ({ ...p, songs: (p.songs || []).filter(x => x.id !== id) })); };
+  // 网易云外链：贴链接/分享文案/裸ID → 抠 id，用官方 outchain iframe 播放（无需登陆；VIP/版权歌可能放不了）
+  const addNeteaseSong = (input, title, artist) => {
+    const nid = parseNeteaseId(input);
+    if (!nid) { toast("没认出网易云歌曲链接或ID"); return; }
+    saveListen(p => ({ ...p, songs: [{ id: "sg_" + Date.now(), source: "netease", neteaseId: nid, title: (title || "").trim() || ("网易云歌曲 " + nid), artist: (artist || "").trim(), ts: Date.now() }, ...(p.songs || []).filter(x => x.neteaseId !== nid)].slice(0, 40) }));
+    toast("已添加");
+  };
+  // 本地音频：真文件 → 存 IndexedDB（持久），播放时取出建 objectURL
+  const addLocalSong = async (file, title, artist) => {
+    if (!file) return;
+    const id = "sg_" + Date.now();
+    try { await idbAudioPut(id, file); } catch (e) { toast("音频存储失败"); return; }
+    saveListen(p => ({ ...p, songs: [{ id, source: "local", title: (title || "").trim() || file.name.replace(/\.[^.]+$/, ""), artist: (artist || "").trim(), ts: Date.now() }, ...(p.songs || [])].slice(0, 40) }));
+    toast("已添加");
+  };
+  const setListenPartner = charId => saveListen(p => ({ ...p, partnerId: charId }));
+  // 让一起听的角色对【当前这首】说两句（切歌/重播/听着都能点）；反应挂在歌上显示
+  const reactListenSong = async evt => {
+    const p = listen;
+    const song = (p.songs || [])[0];
+    const partner = characters.find(c => c.id === p.partnerId);
+    if (!song || !partner) { toast(partner ? "先添加一首歌" : "先选一个一起听的人"); return; }
+    if (!active) { toast("请先到设置配置 API"); return; }
+    setGen(g => ({ ...g, listen: true }));
+    try {
+      const evtHint = evt === "switch" ? "你俩刚切到这首歌。" : evt === "replay" ? "这首歌 TA 又倒回去重听了一遍。" : "这首歌正放着。";
+      const react = await runProbe(active, ctxFor(partner), {
+        instruction: "你在和用户一起听歌。" + evtHint + "当前这首：《" + song.title + "》" + (song.artist ? " - " + song.artist : "") + "。按你的人设和此刻心情，对这首歌/这个当下随口说一两句（喜不喜欢、想起什么、跟着哼、吐槽品味、或想点别的歌），别客服腔、别报歌单、别复述歌名，1-2 句可多气泡。",
+        schemaHint: "{\"say\":[\"气泡1\",\"气泡2\"]}", maxTokens: 500
+      });
+      const say = react && Array.isArray(react.say) ? react.say : (react && react.say ? [react.say] : []);
+      if (say.length) saveListen(pp => ({ ...pp, songs: (pp.songs || []).map(s => s.id === song.id ? { ...s, reactions: [...(s.reactions || []), { charId: partner.id, name: partner.name, text: say.join("\n"), ts: Date.now() }].slice(-6) } : s) }));
+    } catch (e) { toast("生成失败：" + (e.message || "重试")); }
+    finally { setGen(g => ({ ...g, listen: false })); }
+  };
   // TA 主动贴一张（右上刷新触发；未来接调度器）
   const genCoupleNote = async char => {
     if (!active) { toast("请先到设置配置 API"); return false; }
@@ -4814,11 +4866,17 @@ function App() {
     toast: toast
   });else if (screen === "listen") body = h(ListenTogether, {
     listen: listen,
+    characters: characters,
     onBack: goHome,
     onSetDisc: setListenDisc,
-    onAddSong: addListenSong,
+    onAddNetease: addNeteaseSong,
+    onAddLocal: addLocalSong,
     onPlaySong: playListenSong,
-    onRemoveSong: removeListenSong
+    onRemoveSong: removeListenSong,
+    onSetPartner: setListenPartner,
+    onReact: reactListenSong,
+    getAudio: idbAudioGet,
+    gen: gen.listen
   });else if (screen === "calendar") body = h(Calendar, {
     characters: characters,
     calendar: calendar,
