@@ -496,9 +496,16 @@ function MusicWidget({ listen, player, onOpen }) {
   const t = useTheme();
   const data = listen || {};
   const songs = data.songs || [];
-  // 实时反映全局播放器正在放的歌（没在放就退回第一首/空）
+  // 实时反映全局播放器正在放的歌（可能在库/歌单/临时搜索结果里，都要找得到）
   const nowId = (player && player.songId) || null;
-  const now = songs.find(s => s.id === nowId) || songs[0] || null;
+  const findSong = id => {
+    if (!id) return null;
+    if (data.nowSong && data.nowSong.id === id) return data.nowSong;
+    let s = songs.find(x => x.id === id); if (s) return s;
+    for (const pl of (data.playlists || [])) { const f = (pl.songs || []).find(x => x.id === id); if (f) return f; }
+    return null;
+  };
+  const now = findSong(nowId) || songs[0] || null;
   const playing = !!(player && player.playing && now && now.id === nowId);
   const discImg = (now && now.cover) || data.disc || null;
   const frac = player && player.dur ? Math.max(0, Math.min(1, (player.t || 0) / player.dur)) : 0;

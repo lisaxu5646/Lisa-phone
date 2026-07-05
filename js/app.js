@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v40";
+const APP_VERSION = "v41";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -635,10 +635,10 @@ function App() {
       const L = listenRef.current || {};
       const uName = profile && profile.name ? profile.name : "对方";
       const lines = [];
-      // 正和这个角色一起听（且开了"让 TA 在聊天里聊歌"）→ 让 TA 自然聊起当前这首
-      if (L.autoComment && L.partnerId === char.id && player.songId) {
-        const cur = (L.songs || []).find(s => s.id === player.songId);
-        if (cur) lines.push("【你正和 " + uName + " 一起听】《" + cur.title + "》" + (cur.artist ? " - " + cur.artist : "") + (player.playing ? "（正放着）" : "（暂停中）") + "。你可以自然聊聊这首歌、跟着哼、说喜不喜欢、想起什么、或想换首歌——别报歌单、别客服腔。");
+      // 正和这个角色一起听 → 无论开没开自动评论，TA 都「知道」在放什么（被问起能接住）；开了自动评论才额外鼓励主动聊
+      if (L.partnerId === char.id && player.songId) {
+        const cur = resolveSong(player.songId);
+        if (cur) lines.push("【你正和 " + uName + " 一起听】《" + cur.title + "》" + (cur.artist ? " - " + cur.artist : "") + (player.playing ? "（正放着）" : "（暂停中）") + "。" + (L.autoComment ? "你可以自然聊聊这首歌、跟着哼、说喜不喜欢、想起什么、或想换首歌——别报歌单、别客服腔。" : "如果 " + uName + " 问起你在听什么/这首歌，你清楚就是这首，能自然接住、说说感受，别装不知道。"));
       }
       // 一起听过的歌 → 记忆
       const hist = L.history || [];
@@ -3987,7 +3987,10 @@ function App() {
     saveListen(p => {
       const hist = [{ id: song.id, title: song.title, artist: song.artist || "", partnerId: p.partnerId || null, ts: Date.now() }, ...(p.history || []).filter(x => x.id !== song.id)].slice(0, 30);
       const patch = { ...p, nowId: songId, history: hist };
-      if (queueIds && queueIds.length) patch.nowQueue = queueIds; else if (!inLib && !inPl) patch.nowQueue = [songId];
+      // 播放队列：显式传了就用；否则从「全部」库放就整库当队列；再否则(搜索结果单曲)就只这一首
+      if (queueIds && queueIds.length) patch.nowQueue = queueIds;
+      else if (inLib) patch.nowQueue = (p.songs || []).map(s => s.id);
+      else patch.nowQueue = [songId];
       // 不在库/歌单里的（搜索结果直接播放）→ 暂存为 nowSong，供 resolveSong 找到，但不进「全部」
       if (!inLib && !inPl) patch.nowSong = song; else patch.nowSong = (p.nowSong && p.nowSong.id === songId) ? null : p.nowSong;
       return patch;
@@ -4005,14 +4008,27 @@ function App() {
     if (el.paused) { if (!el.getAttribute("src")) return playSong(player.songId); el.play(); setPlayer(p => ({ ...p, playing: true })); }
     else { el.pause(); setPlayer(p => ({ ...p, playing: false })); }
   };
-  // 队列优先用 nowQueue（播放歌单/播放搜索结果时设的），否则全库；上一首/下一首在队列里循环
+  // 队列优先用 nowQueue（播放歌单/播放搜索结果时设的），否则全库；上一首/下一首在队列里循环。
+  // 关键：切歌时把当前队列一起传给 playSong，否则播放歌单里点下一首会把队列缩成单曲。
   const stepSong = dir => {
     const L = listenRef.current, all = L.songs || [];
     let q = (L.nowQueue && L.nowQueue.length ? L.nowQueue : all.map(s => s.id)).filter(id => !!resolveSong(id));
     if (!q.length) return;
+    if ((L.playMode || "order") === "shuffle" && q.length > 1) {
+      let n; do { n = q[Math.floor(Math.random() * q.length)]; } while (n === player.songId);
+      playSong(n, q); return;
+    }
     const i = Math.max(0, q.indexOf(player.songId));
-    playSong(q[(i + dir + q.length) % q.length]);
+    playSong(q[(i + dir + q.length) % q.length], q);
   };
+  // 播放结束自动下一首：单曲循环则重播，随机则随机，否则顺序下一首
+  const advanceSong = () => {
+    const L = listenRef.current;
+    if ((L.playMode || "order") === "one" && player.songId) { playSong(player.songId, L.nowQueue); return; }
+    stepSong(1);
+  };
+  // 顺序 → 单曲循环 → 随机 → 顺序
+  const cyclePlayMode = () => saveListen(p => { const order = ["order", "one", "shuffle"]; const cur = p.playMode || "order"; return { ...p, playMode: order[(order.indexOf(cur) + 1) % 3] }; });
   const seekPlayer = frac => { const el = audioElRef.current; if (el && el.duration) el.currentTime = Math.max(0, Math.min(1, frac)) * el.duration; };
   // fav / 封面 / 改名：在「全部」库、所有歌单、nowSong 里凡是同 id 的都改（保持各处一份数据一致）
   const patchSongEverywhere = (id, patch) => saveListen(p => ({
@@ -4110,9 +4126,11 @@ function App() {
     if (!neteaseApi) { toast("先在下方配一个网易云搜索接口，才能拉到能播的歌"); return; }
     setGen(g => ({ ...g, charPlaylist: char.id }));
     try {
-      let rec = await runProbe(active, ctxFor(char), {
-        instruction: "你是「" + char.name + "」。按你的人设、成长背景、性格和音乐口味，列出 10 首你自己真会单曲循环、真实存在、能在主流音乐平台搜到的歌（华语/欧美/日韩都行，别编造不存在的歌）。只给歌，别解释。",
-        schemaHint: "{\"songs\":[{\"title\":\"歌名\",\"artist\":\"歌手\"}]}", maxTokens: 1400
+      // 用干净上下文：去掉手机在听/最近听歌/朋友圈等会污染推荐的字段（否则角色只会照抄用户刚搜的、或查手机里那两首）
+      const cleanCtx = Object.assign({}, ctxFor(char), { phoneNote: "", listenLog: "", momentLog: "", forumEcho: "", giftLog: "", recentChat: "" });
+      let rec = await runProbe(active, cleanCtx, {
+        instruction: "你是「" + char.name + "」。**完全按你自己的人设、成长背景、性格和音乐口味**，列出整整 10 首你自己私下真会单曲循环、真实存在、能在主流音乐平台搜到的歌（华语/欧美/日韩都行，别编造不存在的歌，风格可以多样）。**注意：不要照抄任何『你手机里在听』『最近听过』『用户刚搜过或已有』的歌——那些不算，要给你发自内心喜欢的。必须给满 10 首。** 只给歌，别解释。",
+        schemaHint: "{\"songs\":[{\"title\":\"歌名1\",\"artist\":\"歌手1\"},{\"title\":\"歌名2\",\"artist\":\"歌手2\"}]}", maxTokens: 1400
       });
       // 容错解析：可能是 {songs:[...]}、直接数组、或 {list:[...]}；元素可能是对象或"歌名 - 歌手"字符串
       let wantsRaw = rec && Array.isArray(rec.songs) ? rec.songs : Array.isArray(rec) ? rec : (rec && (rec.list || rec.data || rec.result)) || [];
@@ -5140,6 +5158,8 @@ function App() {
     onStep: stepSong,
     onSeek: seekPlayer,
     onToggleFav: toggleFav,
+    playMode: listen.playMode || "order",
+    onCyclePlayMode: cyclePlayMode,
     gen: gen.listen,
     genCharPl: gen.charPlaylist
   });else if (screen === "calendar") body = h(Calendar, {
@@ -5211,11 +5231,11 @@ function App() {
     ref: audioElRef,
     style: { display: "none" },
     onTimeUpdate: e => setPlayer(p => ({ ...p, t: e.target.currentTime || 0, dur: e.target.duration || 0 })),
-    onEnded: () => stepSong(1)
+    onEnded: advanceSong
   }), /*#__PURE__*/React.createElement("div", {
     className: "flex-1 min-h-0 relative"
   }, body), (player.songId && screen !== "listen") ? h(MiniPlayer, {
-    song: (listen.songs || []).find(s => s.id === player.songId) || null,
+    song: resolveSong(player.songId),
     playing: player.playing,
     loading: player.loading,
     onOpen: goListen,
