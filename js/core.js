@@ -55,6 +55,10 @@ const IPlus = p => /*#__PURE__*/React.createElement(Svg, p, /*#__PURE__*/React.c
 const IX = p => /*#__PURE__*/React.createElement(Svg, p, /*#__PURE__*/React.createElement("path", {
   d: "M18 6L6 18M6 6l12 12"
 }));
+// 置顶图钉
+const IPin = p => /*#__PURE__*/React.createElement(Svg, p, /*#__PURE__*/React.createElement("path", {
+  d: "M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6zM12 15v5"
+}));
 // 让角色回复：闪光/召唤感的小图标
 const ISpark = p => /*#__PURE__*/React.createElement(Svg, p, /*#__PURE__*/React.createElement("path", {
   d: "M12 4c.4 3.6 1.9 5.1 5.5 5.5C13.9 9.9 12.4 11.4 12 15c-.4-3.6-1.9-5.1-5.5-5.5C10.1 9.1 11.6 7.6 12 4z"

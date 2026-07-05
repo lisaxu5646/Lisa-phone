@@ -1179,6 +1179,8 @@ function Messages({
   moments,
   profile,
   unreadMap,
+  pinned,
+  onTogglePin,
   onBack,
   onOpenThread,
   onOpenGroup,
@@ -1222,6 +1224,33 @@ function Messages({
     cy: 8,
     r: 4
   }), NP("M5 21v-1a7 7 0 0114 0v1")]]];
+  // 聊天列表：群+角色合并，置顶的排最前，其余按最后一条消息时间倒序（最近的在上）
+  const pinnedSet = new Set(pinned || []);
+  const chatItems = [
+    ...groups.map(g => { const msgs = groupChats[g.id] || []; const last = msgs[msgs.length - 1]; return { key: "g_" + g.id, id: g.id, type: "group", g: g, last: last, ts: last ? (last.ts || 0) : 0 }; }),
+    ...characters.map(c => { const msgs = chats[c.id] || []; const last = msgs[msgs.length - 1]; return { key: "c_" + c.id, id: c.id, type: "char", c: c, last: last, ts: last ? (last.ts || 0) : 0 }; })
+  ];
+  chatItems.sort((a, b) => { const pa = pinnedSet.has(a.id), pb = pinnedSet.has(b.id); if (pa !== pb) return pa ? -1 : 1; return b.ts - a.ts; });
+  // 长按置顶：按住 ~0.5s 触发 onTogglePin，并拦掉随后的点击（避免误进聊天）
+  const pressT = useRef({}); const longFired = useRef(false);
+  const startPress = id => { longFired.current = false; clearTimeout(pressT.current[id]); pressT.current[id] = setTimeout(() => { longFired.current = true; onTogglePin && onTogglePin(id); }, 500); };
+  const endPress = id => clearTimeout(pressT.current[id]);
+  const guardClick = fn => { if (longFired.current) { longFired.current = false; return; } fn(); };
+  const longProps = id => ({ onPointerDown: () => startPress(id), onPointerUp: () => endPress(id), onPointerLeave: () => endPress(id), onPointerCancel: () => endPress(id) });
+  const unreadBadge = un => un > 0 && h("span", { style: { position: "absolute", top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 999, background: t.accent, color: "#fff", fontSize: 10, fontFamily: F_BODY, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 5px" } }, un > 99 ? "99+" : un);
+  const rowBg = id => pinnedSet.has(id) ? "rgba(0,0,0,0.035)" : "transparent";
+  const renderCharRow = it => { const c = it.c, last = it.last, un = unreadMap[c.id] || 0; return h("button", Object.assign({ key: it.key, onClick: () => guardClick(() => onOpenThread(c)), className: "w-full flex items-center gap-3 px-5 py-3.5 active:bg-black/5", style: { borderBottom: "1px solid " + t.line, background: rowBg(c.id) } }, longProps(c.id)),
+    h("div", { className: "relative shrink-0" }, h(Avatar, { character: c, size: 50, radius: 10 }), unreadBadge(un)),
+    h("div", { className: "flex-1 text-left min-w-0" },
+      h("div", { className: "flex items-center gap-1.5" }, pinnedSet.has(c.id) && h(IPin, { size: 12, color: t.fog }), h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, c.remark || c.name)),
+      h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog }, className: "truncate" }, last ? last.content : "打个招呼吧")),
+    last && h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.line } }, fmtStamp(last.ts))); };
+  const renderGroupRow = it => { const g = it.g, last = it.last, un = unreadMap[g.id] || 0; return h("button", Object.assign({ key: it.key, onClick: () => guardClick(() => onOpenGroup(g)), className: "w-full flex items-center gap-3 px-5 py-3.5 active:bg-black/5", style: { borderBottom: "1px solid " + t.line, background: rowBg(g.id) } }, longProps(g.id)),
+    h("div", { className: "relative shrink-0" }, h("div", { className: "grid grid-cols-2 gap-0.5 p-0.5", style: { width: 50, height: 50, borderRadius: 10, background: t.bg, overflow: "hidden" } }, (g.memberIds || []).slice(0, 4).map((mid, k) => { const m = characters.find(x => x.id === mid); return h("div", { key: k, style: { overflow: "hidden", borderRadius: 3 } }, m ? h(Avatar, { character: m, size: 23, radius: 3 }) : null); })), unreadBadge(un)),
+    h("div", { className: "flex-1 text-left min-w-0" },
+      h("div", { className: "flex items-center gap-1.5" }, pinnedSet.has(g.id) && h(IPin, { size: 12, color: t.fog }), h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, g.name), h("span", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog } }, "(" + (g.memberIds || []).length + ")")),
+      h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog }, className: "truncate" }, last ? (last.senderName ? last.senderName + "：" : "") + last.content : "群聊已创建")),
+    last && h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.line } }, fmtStamp(last.ts))); };
   return /*#__PURE__*/React.createElement("div", {
     className: "h-full flex flex-col",
     style: {
@@ -1257,119 +1286,10 @@ function Messages({
     color: t.ink
   })) : null)), /*#__PURE__*/React.createElement("div", {
     className: "flex-1 overflow-y-auto"
-  }, tab === "chats" && /*#__PURE__*/React.createElement("div", null, characters.length === 0 && groups.length === 0 && /*#__PURE__*/React.createElement(Empty, {
-    text: "还没有对话",
-    sub: "先去通讯录或群像录入角色"
-  }), groups.map(g => {
-    const msgs = groupChats[g.id] || [];
-    const last = msgs[msgs.length - 1];
-    return /*#__PURE__*/React.createElement("button", {
-      key: g.id,
-      onClick: () => onOpenGroup(g),
-      className: "w-full flex items-center gap-3 px-5 py-3.5 active:bg-black/5",
-      style: {
-        borderBottom: `1px solid ${t.line}`
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "grid grid-cols-2 gap-0.5 shrink-0 p-0.5",
-      style: {
-        width: 50,
-        height: 50,
-        borderRadius: 10,
-        background: t.line
-      }
-    }, g.memberIds.slice(0, 4).map(id => {
-      const c = characters.find(x => x.id === id);
-      return /*#__PURE__*/React.createElement(Avatar, {
-        key: id,
-        character: c,
-        size: 22,
-        radius: 4
-      });
-    })), /*#__PURE__*/React.createElement("div", {
-      className: "flex-1 text-left min-w-0"
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontFamily: F_DISPLAY,
-        fontSize: 16,
-        color: t.ink
-      }
-    }, g.name, " ", /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 12,
-        color: t.fog
-      }
-    }, "(", g.memberIds.length, ")")), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontFamily: F_BODY,
-        fontSize: 12.5,
-        color: t.fog
-      },
-      className: "truncate"
-    }, last ? (last.senderName ? last.senderName + "：" : "") + last.content : "群聊已创建")), last && /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontFamily: F_BODY,
-        fontSize: 10,
-        color: t.line
-      }
-    }, fmtStamp(last.ts)));
-  }), characters.map(c => {
-    const msgs = chats[c.id] || [];
-    const last = msgs[msgs.length - 1];
-    const un = unreadMap[c.id] || 0;
-    return /*#__PURE__*/React.createElement("button", {
-      key: c.id,
-      onClick: () => onOpenThread(c),
-      className: "w-full flex items-center gap-3 px-5 py-3.5 active:bg-black/5",
-      style: {
-        borderBottom: `1px solid ${t.line}`
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "relative shrink-0"
-    }, /*#__PURE__*/React.createElement(Avatar, {
-      character: c,
-      size: 50,
-      radius: 10
-    }), un > 0 && /*#__PURE__*/React.createElement("span", {
-      style: {
-        position: "absolute",
-        top: -4,
-        right: -4,
-        minWidth: 18,
-        height: 18,
-        borderRadius: 999,
-        background: t.accent,
-        color: "#fff",
-        fontSize: 10,
-        fontFamily: F_BODY,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "0 5px"
-      }
-    }, un)), /*#__PURE__*/React.createElement("div", {
-      className: "flex-1 text-left min-w-0"
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontFamily: F_DISPLAY,
-        fontSize: 16,
-        color: t.ink
-      }
-    }, c.remark || c.name), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontFamily: F_BODY,
-        fontSize: 12.5,
-        color: t.fog
-      },
-      className: "truncate"
-    }, last ? last.content : "打个招呼吧")), last && /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontFamily: F_BODY,
-        fontSize: 10,
-        color: t.line
-      }
-    }, fmtStamp(last.ts)));
-  })), tab === "contacts" && /*#__PURE__*/React.createElement("div", {
+  }, tab === "chats" && /*#__PURE__*/React.createElement("div", null,
+    characters.length === 0 && groups.length === 0 && h(Empty, { text: "还没有对话", sub: "先去通讯录或群像录入角色" }),
+    chatItems.map(it => it.type === "group" ? renderGroupRow(it) : renderCharRow(it))
+  ), tab === "contacts" && /*#__PURE__*/React.createElement("div", {
     className: "py-1"
   }, h("button", {
     onClick: () => setGroupMgr(true),

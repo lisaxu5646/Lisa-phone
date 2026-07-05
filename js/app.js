@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.02";
+const APP_VERSION = "v46.03";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -78,6 +78,10 @@ function App() {
   const isStandalone = typeof window !== "undefined" && (window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches);
   const [now, setNow] = useState(new Date());
   const [screen, setScreen] = useState("home");
+  // 当前正在看哪个聊天（供未读红点判断：在看就不累加）
+  const viewRef = useRef({ screen: "home", charId: null });
+  // 置顶的聊天/群 id 集合
+  const [pinnedChats, setPinnedChats] = useState(() => loadJSON("x_pinnedChats", []));
   const [characters, setCharacters] = useState([]);
   const [groups, setGroups] = useState([]);
   const [chats, setChats] = useState({});
@@ -215,6 +219,8 @@ function App() {
   const [activeId, setActiveId] = useState(null);
   const [activeChar, setActiveChar] = useState(null);
   const [activeGroup, setActiveGroup] = useState(null);
+  // 记录此刻在看的聊天，供未读红点判断
+  viewRef.current = { screen, charId: screen === "gthread" ? (activeGroup && activeGroup.id) : (activeChar && activeChar.id) };
   const [editingChar, setEditingChar] = useState(null);
   const [selSched, setSelSched] = useState(null);
   const [selPhone, setSelPhone] = useState(null);
@@ -392,6 +398,12 @@ function App() {
     const pl = p[id] || [];
     const n = typeof u === "function" ? u(pl) : u;
     saveJSON("x_chat:" + id, n);
+    // 未读红点：新增的角色消息若此刻没在看这个聊天，累加未读条数（推到微任务里，别在 reducer 里改别的 state）
+    if (n.length > pl.length) {
+      const added = n.slice(pl.length).filter(m => m && m.role === "assistant" && m.kind !== "system").length;
+      const viewing = viewRef.current.screen === "thread" && viewRef.current.charId === id;
+      if (added > 0 && !viewing) setTimeout(() => bumpUnread(id, added), 0);
+    }
     return {
       ...p,
       [id]: n
@@ -401,6 +413,11 @@ function App() {
     const pl = p[id] || [];
     const n = typeof u === "function" ? u(pl) : u;
     saveJSON("x_gchat:" + id, n);
+    if (n.length > pl.length) {
+      const added = n.slice(pl.length).filter(m => m && m.role !== "user" && m.kind !== "system").length;
+      const viewing = viewRef.current.screen === "gthread" && viewRef.current.charId === id;
+      if (added > 0 && !viewing) setTimeout(() => bumpUnread(id, added), 0);
+    }
     return {
       ...p,
       [id]: n
@@ -545,28 +562,43 @@ function App() {
     saveJSON("x_unread", n);
     return n;
   });
+  // 未读小红点 +k（角色发来消息时若没在看这个聊天就累加）
+  const bumpUnread = (id, k) => setUnreadMap(p => {
+    const n = { ...p, [id]: (p[id] || 0) + k };
+    saveJSON("x_unread", n);
+    return n;
+  });
+  // 置顶/取消置顶某个聊天（长按聊天条触发）
+  const togglePinChat = id => setPinnedChats(p => {
+    const n = p.includes(id) ? p.filter(x => x !== id) : [id, ...p];
+    saveJSON("x_pinnedChats", n);
+    return n;
+  });
   // 角色此刻的行程（给聊天/心情联动用）
   const schedNowFor = char => {
     const s = (schedulesRef.current[char.id] || {})[schedDayKey(new Date())];
     if (!s || !Array.isArray(s.seqs) || !s.seqs.length) return "";
-    const idx = schedCurrentSeqIdx(s.seqs, true);
-    const cur = idx >= 0 ? s.seqs[idx] : null;
-    const next = s.seqs[idx + 1];
-    let out = "今日安排（负荷 " + (s.load || "") + "）：\n" + s.seqs.map(x => (x.time || "") + " " + x.title + (x.location ? "（" + x.location + "）" : "") + (x.deviation ? "［临时改动：" + (x.deviation.reason || "") + "］" : "")).join("\n");
-    if (cur) out += "\n\n此刻（约 " + (cur.time || "") + "）Ta 正在：" + cur.title + (cur.location ? "，在 " + cur.location : "") + (cur.deviation ? "（这段是临时改动：" + (cur.deviation.reason || "") + "，多半和用户有关）" : "");
+    // 换算到我这边时间轴以正确判「此刻」，但给角色的文案仍用 TA 当地时刻（角色按自己时区想事情）
+    const disp = schedDisplaySeqs(char, s.seqs);
+    const idx = schedCurrentSeqIdx(disp, true);
+    const cur = idx >= 0 ? disp[idx] : null;
+    const next = disp[idx + 1];
+    let out = "今日安排（负荷 " + (s.load || "") + "）：\n" + disp.map(x => (x._charTime || x.time || "") + " " + x.title + (x.location ? "（" + x.location + "）" : "") + (x.deviation ? "［临时改动：" + (x.deviation.reason || "") + "］" : "")).join("\n");
+    if (cur) out += "\n\n此刻（你当地约 " + (cur._charTime || cur.time || "") + "）Ta 正在：" + cur.title + (cur.location ? "，在 " + cur.location : "") + (cur.deviation ? "（这段是临时改动：" + (cur.deviation.reason || "") + "，多半和用户有关）" : "");
     else out += "\n\n此刻还没到今天第一项，Ta 大概刚开始一天 / 还没起。";
-    if (next) out += "\n待会儿：" + (next.time || "") + " " + next.title;
+    if (next) out += "\n待会儿：" + (next._charTime || next.time || "") + " " + next.title;
     return out;
   };
-  // 结构化「此刻在做什么/在哪」——给聊天顶栏用（联动今日日程）。没今日日程就返回 null。
+  // 结构化「此刻在做什么/在哪」——给聊天顶栏用（联动今日日程）。没今日日程就返回 null。顶栏在我这边，用我这边时刻。
   const schedNowBriefFor = char => {
     if (!char) return null;
     const s = (schedulesRef.current[char.id] || {})[schedDayKey(new Date())];
     if (!s || !Array.isArray(s.seqs) || !s.seqs.length) return null;
-    const idx = schedCurrentSeqIdx(s.seqs, true);
-    const cur = idx >= 0 ? s.seqs[idx] : null;
+    const disp = schedDisplaySeqs(char, s.seqs);
+    const idx = schedCurrentSeqIdx(disp, true);
+    const cur = idx >= 0 ? disp[idx] : null;
     if (!cur) return { time: "", title: "还没开始今天的安排", location: "", dev: false };
-    return { time: cur.time || "", title: cur.title || "", location: cur.location || "", type: cur.type || "other", dev: !!cur.deviation };
+    return { time: cur._myLabel || cur.time || "", title: cur.title || "", location: cur.location || "", type: cur.type || "other", dev: !!cur.deviation };
   };
   const ctxFor = char => ({
     char,
@@ -1134,7 +1166,7 @@ function App() {
         : "";
       // 一起听邀请：偶尔主动约对方一起听歌
       const inviteHint = isListenPartner ? "" : "\n【邀你一起听歌】偶尔（想跟 " + uName + " 分享一首歌、此刻在听到好歌、或气氛正好时，很克制、别频繁、绝大多数回合都 null），你可以主动邀请一起听歌：listenInvite 填 {\"song\":\"想一起听的歌名（可留空）\",\"say\":\"邀请的话，一句\"}；不邀请就 null。";
-      const system = bundle + ("\n\n【任务】完全代入「" + char.name + "」通过手机即时通讯和用户聊天。**必须把话拆成多条短气泡：word 数组给多个元素，每条只放一两句，像真人发微信那样一句一条连着发；绝不要把一大段话塞进一个气泡。**语气自然，不要旁白/动作/括号小动作。依据关系网与好感度把握亲密度，不提前暴露未发生的剧情。若开启了时间/位置感知，可自然回应但别生硬报数据。" + callHint + proactiveHint + gapHint + wearHint + ambientHint + listenHint + inviteHint + "\n【引用】大多数情况 quote 填 null。只有当用户一次发了好几条、你明确针对其中较早的某一句作答、需要指明是哪句时，才在 quote 放那句原文；正常顺着对话回复不要引用，别每条都引用。\n若此刻你想主动转账给用户（如还钱、给心意、打赏），填 transfer:{\"amount\":数字,\"note\":\"附言\"}，否则 null。若你想把自己所在的位置发给用户（如提到你在哪），填 location:{\"name\":\"地点名\"}，否则 null。\n若此刻你想主动买一件东西送给用户（贴合人设与好感的心意/惊喜，别频繁），填 gift:{\"name\":\"礼物名\"}，否则 null。它会像快递一样过段时间送到用户手上。" + kinHint + emoteHint + "\n【语音】若你想发语音消息（懒得打字、唱一句、语气/情绪很重要、亲密时想让 Ta 听见），把要说的话放进 voice 数组——每个元素是一条语音的「转文字」内容（会显示成语音气泡＋下面转文字）；多数时候还是用文字 word，voice 只偶尔用，不发就给 []。\n【通话】若此刻你很想直接跟对方通话（想听声音、有急事、撒娇、煲电话粥），可以主动发起：call 填 \"voice\"（语音）或 \"video\"（视频），会给对方弹一张来电邀请卡；不想就 null，别频繁、偶尔为之。\n【拉黑】仅当用户言行让你极度愤怒/被深深冒犯/彻底寒心、且以你的人设你真的会「拉黑」对方时，才填 block:true 并在 blockreason 写一句原因——要非常罕见、有充分理由，绝大多数情况 block 为 false。\n【撤回】若你发出后又后悔某句、说漏了嘴、或不想让 Ta 看到，可以撤回那一句：填 recall:{\"text\":\"要撤回的那句原文（要和你 word 里的某句一致或另说一句）\",\"reason\":\"你撤回它的心里想法/原因\"}，否则一律 null，别频繁撤回。\n【朋友圈】若聊到用户的朋友圈、或你此刻想去 Ta 某条朋友圈下补一条评论/点赞（尤其你之前没评论、现在说要去评），把评论内容填进 momentComment（会真的发到 Ta 最新那条朋友圈下），否则 null。\n【输出】只输出一个 JSON，不要代码块：\n{\"word\":[\"气泡1\",\"气泡2\"],\"quote\":\"你在回应的用户那句话原文或null\",\"transfer\":null,\"location\":null,\"gift\":null,\"kinshipcard\":null,\"block\":false,\"blockreason\":null,\"recall\":null,\"momentComment\":null,\"forumPost\":null,\"whisper\":null,\"thought\":" + JSON.stringify(thoughtSpec) + ",\"moment\":\"想发的动态或null\",\"affinityDelta\":整数(-5到5通常0),\"mood\":{\"label\":\"此刻心情词\",\"baseline\":\"平复后的心情词\",\"softened\":\"半衰后的心情词\"},\"wearing\":\"此刻穿着一句\",\"action\":\"此刻在做的动作（一般一句；情境需要时可写两三句更具体）\",\"emote\":\"想发的表情关键词或null\",\"voice\":[],\"call\":null,\"songSwitch\":null,\"listenInvite\":null}").replace(/用户/g, uName);
+      const system = bundle + ("\n\n【任务】完全代入「" + char.name + "」通过手机即时通讯和用户聊天。**必须把话拆成多条短气泡：word 数组给多个元素，每条只放一两句，像真人发微信那样一句一条连着发；绝不要把一大段话塞进一个气泡。**语气自然，不要旁白/动作/括号小动作。依据关系网与好感度把握亲密度，不提前暴露未发生的剧情。若开启了时间/位置感知，可自然回应但别生硬报数据。" + callHint + proactiveHint + gapHint + wearHint + ambientHint + listenHint + inviteHint + "\n【引用】大多数情况 quote 填 null。只有当用户一次发了好几条、你明确针对其中较早的某一句作答、需要指明是哪句时，才在 quote 放那句原文；正常顺着对话回复不要引用，别每条都引用。\n若此刻你想主动转账给用户（如还钱、给心意、打赏），填 transfer:{\"amount\":数字,\"note\":\"附言\"}，否则 null。若你想把自己所在的位置发给用户（如提到你在哪），填 location:{\"name\":\"地点名\"}，否则 null。\n【送东西/点外卖 gift】只要你在这轮话里【说了】要给用户买东西、点外卖、点奶茶咖啡、送吃的/花/礼物/惊喜之类——就**必须**把它填进 gift:{\"name\":\"具体东西名，如 一杯生椰拿铁 / 麻辣烫外卖 / 一束花\"}，别只嘴上说却不填（不填就不会真的送到，用户会收不到）。没有要送就填 null；平时别频繁乱送。它会像外卖/快递一样过一会儿送到用户手上。" + kinHint + emoteHint + "\n【语音】若你想发语音消息（懒得打字、唱一句、语气/情绪很重要、亲密时想让 Ta 听见），把要说的话放进 voice 数组——每个元素是一条语音的「转文字」内容（会显示成语音气泡＋下面转文字）；多数时候还是用文字 word，voice 只偶尔用，不发就给 []。\n【通话】若此刻你很想直接跟对方通话（想听声音、有急事、撒娇、煲电话粥），可以主动发起：call 填 \"voice\"（语音）或 \"video\"（视频），会给对方弹一张来电邀请卡；不想就 null，别频繁、偶尔为之。\n【拉黑】仅当用户言行让你极度愤怒/被深深冒犯/彻底寒心、且以你的人设你真的会「拉黑」对方时，才填 block:true 并在 blockreason 写一句原因——要非常罕见、有充分理由，绝大多数情况 block 为 false。\n【撤回】若你发出后又后悔某句、说漏了嘴、或不想让 Ta 看到，可以撤回那一句：填 recall:{\"text\":\"要撤回的那句原文（要和你 word 里的某句一致或另说一句）\",\"reason\":\"你撤回它的心里想法/原因\"}，否则一律 null，别频繁撤回。\n【朋友圈】若聊到用户的朋友圈、或你此刻想去 Ta 某条朋友圈下补一条评论/点赞（尤其你之前没评论、现在说要去评），把评论内容填进 momentComment（会真的发到 Ta 最新那条朋友圈下），否则 null。\n【输出】只输出一个 JSON，不要代码块：\n{\"word\":[\"气泡1\",\"气泡2\"],\"quote\":\"你在回应的用户那句话原文或null\",\"transfer\":null,\"location\":null,\"gift\":null,\"kinshipcard\":null,\"block\":false,\"blockreason\":null,\"recall\":null,\"momentComment\":null,\"forumPost\":null,\"whisper\":null,\"thought\":" + JSON.stringify(thoughtSpec) + ",\"moment\":\"想发的动态或null\",\"affinityDelta\":整数(-5到5通常0),\"mood\":{\"label\":\"此刻心情词\",\"baseline\":\"平复后的心情词\",\"softened\":\"半衰后的心情词\"},\"wearing\":\"此刻穿着一句\",\"action\":\"此刻在做的动作（一般一句；情境需要时可写两三句更具体）\",\"emote\":\"想发的表情关键词或null\",\"voice\":[],\"call\":null,\"songSwitch\":null,\"listenInvite\":null}").replace(/用户/g, uName);
       const g = [];
       for (const m of history) {
         if (m.role === "user") {
@@ -2098,10 +2130,14 @@ function App() {
     const dp = schedDateParts(dayKey);
     setGen(g => ({ ...g, sched: char.id + "|" + dayKey }));
     try {
-      const nowStr = String(new Date().getHours()).padStart(2, "0") + ":" + String(new Date().getMinutes()).padStart(2, "0");
+      // 角色若在别的时区，「此刻几点」按 TA 当地算（异地：日程照 TA 的作息时区推演，时间字段一律填 TA 当地时刻）
+      const tzShiftMin = schedTzShiftMin(char);
+      const charNow = new Date(Date.now() + tzShiftMin * 60000);
+      const nowStr = String(charNow.getHours()).padStart(2, "0") + ":" + String(charNow.getMinutes()).padStart(2, "0");
+      const tzNote = tzShiftMin ? "。注意：TA 在别的时区（此刻 TA 当地约 " + nowStr + "），seqs 里的 time 一律填【TA 当地时刻】、按 TA 当地作息安排（睡觉/上班/吃饭都照 TA 那边的钟）" : "";
       const when = retro
-        ? "这是【已经过去的】" + dp.md + "（" + dp.dowZh + "）——回溯推演 Ta 那天实际是怎么过的"
-        : "这是【今天】" + dp.md + "（" + dp.dowZh + "），现在时间约 " + nowStr + "——推演 Ta 今天一整天会怎么过、以及【此刻及之前】的实际执行情况";
+        ? "这是【已经过去的】" + dp.md + "（" + dp.dowZh + "）——回溯推演 Ta 那天实际是怎么过的" + tzNote
+        : "这是【今天】" + dp.md + "（" + dp.dowZh + "），现在时间约 " + nowStr + "——推演 Ta 今天一整天会怎么过、以及【此刻及之前】的实际执行情况" + tzNote;
       const devRule = retro
         ? "【偏差 deviation】其中 0-2 段可以是「偏差」：原计划被打断或改变，尤其受最近和用户的对话、用户的要求、或 Ta 那天的心情影响。"
         : "【偏差 deviation】偏差=计划被实际打断/改变，只可能发生在【时间已过去（早于此刻 " + nowStr + "）】的时段；此刻之后（未来）还没发生的时段，deviation 一律必须为 null，绝不要给未来时段编造偏差。已过去的时段里最多 0-2 段是偏差，尤其受最近和用户的对话/心情影响（如用户抱怨犯困，Ta 提前收工去做饭）。";
@@ -4990,8 +5026,11 @@ function App() {
     },
     onOpenGroup: g => {
       setActiveGroup(g);
+      clearUnread(g.id);
       setScreen("gthread");
     },
+    pinned: pinnedChats,
+    onTogglePin: togglePinChat,
     onNewGroup: () => setNewGroupOpen(true),
     onOpenContact: c => {
       setActiveChar(c);

@@ -541,16 +541,40 @@ function schedWeek(today) {
   });
 }
 function schedActIcon(type) { return { coffee: GCoffee, work: GBrief, create: GPen, meal: GMeal, rest: GMoon, social: GChat, out: GWalk }[type] || GBrief; }
+// 角色本地时区 - 我本地 的分钟差（char.tz 如 "+8"/"-5"/"+5.5"/""跟随系统）。异地恋用。
+function schedTzShiftMin(char) {
+  const raw = char && char.tz != null ? String(char.tz) : "";
+  if (raw === "") return 0;
+  const co = parseFloat(raw);
+  if (isNaN(co)) return 0;
+  const myOff = -new Date().getTimezoneOffset() / 60;
+  return Math.round((co - myOff) * 60);
+}
+function pad2(n) { return String(n).padStart(2, "0"); }
+// 把角色本地日程转成「我这边的时间轴」：每段算出我这边对应时刻(_myMin/_myLabel)，保留角色当地时间(_charTime)；
+// 有时差就按我这边时间重新排序（框架=我的时间，内容=角色的日程）。
+function schedDisplaySeqs(char, seqs) {
+  const shift = schedTzShiftMin(char);
+  const arr = (seqs || []).map(s => {
+    const m = /(\d{1,2}):(\d{2})/.exec(s.time || "");
+    const cm = m ? (+m[1]) * 60 + (+m[2]) : null;
+    const my = cm == null ? null : (((cm - shift) % 1440) + 1440) % 1440;
+    return Object.assign({}, s, { _charTime: s.time || "", _myMin: my, _myLabel: my == null ? (s.time || "") : pad2(Math.floor(my / 60)) + ":" + pad2(my % 60), _shifted: shift !== 0 });
+  });
+  if (shift !== 0) arr.sort((a, b) => (a._myMin == null ? 99999 : a._myMin) - (b._myMin == null ? 99999 : b._myMin));
+  return arr;
+}
 function schedCurrentSeqIdx(seqs, isToday) {
   if (!isToday) return -1;
   const now = new Date(), cur = now.getHours() * 60 + now.getMinutes();
   let idx = -1, prev = -1;
   // 单调化时间：某段时间早于上一段=跨过午夜（凌晨），+24h 保持递增，
   // 否则末尾的「00:00 睡觉」会被算成 tm=0 抢走 curIdx，把真正在进行的时段错误地灰掉。
+  // 若 seq 带了 _myMin（已换算成我这边时间），就用它比对。
   (seqs || []).forEach((s, i) => {
-    const m = /(\d{1,2}):(\d{2})/.exec(s.time || "");
-    if (!m) return;
-    let tm = (+m[1]) * 60 + (+m[2]);
+    let tm;
+    if (s._myMin != null) tm = s._myMin;
+    else { const m = /(\d{1,2}):(\d{2})/.exec(s.time || ""); if (!m) return; tm = (+m[1]) * 60 + (+m[2]); }
     while (tm < prev) tm += 1440;
     prev = tm;
     if (tm <= cur) idx = i;
@@ -579,7 +603,9 @@ function LifeDay({ char, dayKey, plan, busy, onGen, onBack }) {
       h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, dp.dowEn + ", " + dp.dateNum),
       h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog } }, dp.md + " " + dp.dowZh)));
   if (busy || !plan) return h("div", { className: "h-full flex flex-col", style: { background: t.bg } }, head, h("div", { className: "flex-1 flex items-center justify-center" }, h(Spinner, { label: "正在推演 " + char.name + " 的这天…" })));
-  const seqs = plan.seqs || [];
+  // 异地：把角色本地日程换算到我这边的时间轴并重排（框架=我的时间）
+  const seqs = schedDisplaySeqs(char, plan.seqs || []);
+  const tzShifted = seqs.length && seqs[0]._shifted;
   const curIdx = schedCurrentSeqIdx(seqs, isToday);
   const murmurs = plan.murmurs || [];
   const seqState = i => !isToday ? "done" : i < curIdx ? "done" : i === curIdx ? "current" : "future";
@@ -590,6 +616,7 @@ function LifeDay({ char, dayKey, plan, busy, onGen, onBack }) {
         h(GChat, { size: 15, color: t.accent }),
         h("span", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.sub } }, "实时碎碎念 · " + murmurs.length + " 条"),
         h(IChevR, { size: 14, color: t.fog, style: { marginLeft: "auto" } })),
+      tzShifted && h("div", { className: "mb-3", style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, lineHeight: 1.5, background: t.bg2, border: "1px solid " + t.line, borderRadius: 10, padding: "7px 11px" } }, "TA 在别的时区，日程按 TA 当地作息推演，时间已换算到你这边（框架＝你的时间）。左侧是你这边时刻，「当地」是 TA 那边时刻。"),
       seqs.length === 0 ? h("div", { className: "text-center", style: { paddingTop: 40, fontFamily: F_BODY, fontSize: 13, color: t.fog } }, "这天没有记录")
         : h("div", { style: { position: "relative", paddingLeft: 22, animation: "fadeUp .3s ease both" } },
             h("div", { style: { position: "absolute", left: 5, top: 8, bottom: 8, width: 0, borderLeft: "1.5px dashed " + t.line } }),
@@ -608,7 +635,9 @@ function LifeDay({ char, dayKey, plan, busy, onGen, onBack }) {
                   (dev && dev.plan) && h("div", { style: { marginTop: 4, fontFamily: F_BODY, fontSize: 11.5, color: t.fog } }, "原计划：" + dev.plan),
                   (dev && dev.actual ? h("div", { className: "flex items-center gap-1.5", style: { marginTop: 10 } }, h(GWalk, { size: 13, color: t.fog }), h("span", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.sub } }, dev.actual))
                     : s.location && h("div", { className: "flex items-center gap-1.5", style: { marginTop: 10 } }, h(GWalk, { size: 13, color: t.fog }), h("span", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.sub } }, s.location))),
-                  s.time && h("div", { style: { position: "absolute", top: 16, right: 66, fontFamily: "'Archivo',sans-serif", fontSize: 12, color: t.fog } }, s.time)));
+                  s.time && h("div", { style: { position: "absolute", top: 16, right: 66, textAlign: "right" } },
+                    h("div", { style: { fontFamily: "'Archivo',sans-serif", fontSize: 12, color: t.fog } }, s._myLabel || s.time),
+                    s._shifted && h("div", { style: { fontFamily: "'Archivo',sans-serif", fontSize: 9, color: t.fog, opacity: 0.7, marginTop: 1 } }, "当地 " + s._charTime))));
             }))),
     openMurmur && h(Sheet, { onClose: () => setOpenMurmur(false), tall: true },
       h(Eyebrow, { style: { marginBottom: 4 } }, "实时碎碎念 · MURMURS"),
