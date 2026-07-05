@@ -4342,6 +4342,8 @@ function Carry({ characters, carry, carryGifts, selId, busyKey, giftBusy, onBack
   const t = useTheme();
   const [pick, setPick] = useState(false);
   const [open, setOpen] = useState(null);
+  const [inBox, setInBox] = useState(true); // 先看盒子，打开盒子点头像才进 Ta 的随身物
+  const [boxOpen, setBoxOpen] = useState(false);
   // 绿点=有内容且没看过；点开即消，刷新全部时重亮
   const [seen, setSeen] = useState(() => loadJSON("x_carrySeen", {}));
   const isSeen = (cid, k) => !!(seen[cid] && seen[cid][k]);
@@ -4349,13 +4351,28 @@ function Carry({ characters, carry, carryGifts, selId, busyKey, giftBusy, onBack
   const clearSeen = cid => setSeen(p => { const n = { ...p }; delete n[cid]; saveJSON("x_carrySeen", n); return n; });
   const char = characters.find(c => c.id === selId) || characters[0];
   if (!char) return h("div", { className: "h-full flex flex-col" }, h(Head, { zh: "随身物", en: "Carry", onBack }), h(Empty, { text: "还没有角色", sub: "先去群像录入一位" }));
+  // 盒子首页：点开盒子 → 角色头像跳出来 → 点头像才进 Ta 的随身物
+  if (inBox) return h("div", { className: "h-full flex flex-col", style: { background: t.bg } },
+    h(Head, { zh: "随身物", en: "Carry", onBack }),
+    h("div", { className: "flex-1 overflow-y-auto px-6 pb-10 flex flex-col items-center" },
+      h("button", { onClick: () => setBoxOpen(v => !v), className: "active:opacity-90", style: { marginTop: 26, position: "relative", width: 156, height: 128 } },
+        // 盖子
+        h("div", { style: { position: "absolute", top: boxOpen ? -18 : 2, left: -7, right: -7, height: 30, borderRadius: 8, background: "linear-gradient(180deg,#e7dcc6,#d4c4a6)", border: "1px solid " + t.line, transform: boxOpen ? "rotate(-7deg)" : "none", transformOrigin: "left center", transition: "all .28s ease", boxShadow: "0 5px 12px rgba(0,0,0,0.12)" } }),
+        // 盒身
+        h("div", { style: { position: "absolute", bottom: 0, left: 0, right: 0, height: 100, borderRadius: "5px 5px 14px 14px", background: "linear-gradient(180deg,#f0e8d8,#ddd0b6)", border: "1px solid " + t.line, boxShadow: "inset 0 6px 14px rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "center" } },
+          boxOpen ? null : h("span", { style: { fontFamily: F_DISPLAY, fontStyle: "italic", fontSize: 15, color: t.fog, letterSpacing: "0.08em" } }, "CARRY"))),
+      h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, marginTop: 16 } }, boxOpen ? "点头像，翻翻 Ta 的随身物" : "点一下打开盒子"),
+      boxOpen ? h("div", { className: "grid grid-cols-3 gap-x-3 gap-y-5", style: { marginTop: 24, width: "100%", animation: "fadeUp .32s ease" } },
+        characters.map(c => h("button", { key: c.id, onClick: () => { onSel(c.id); setOpen(null); setInBox(false); }, className: "flex flex-col items-center gap-1.5 active:opacity-70" },
+          h(Avatar, { character: c, size: 62, radius: 17 }),
+          h("span", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.sub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 84 } }, c.remark || c.name)))) : null));
   const data = carry[char.id] || {};
   const gifts = (carryGifts && carryGifts[char.id]) || [];
   const hasData = s => s.gifts ? gifts.length > 0 : !!data[s.key];
   if (open) return h(CarrySection, { char, sectionKey: open, data: data[open], gifts, busyKey: busyKey === "__all__" ? open : busyKey, giftBusy, onGen, onGenGiftThought, onBack: () => setOpen(null) });
   return h("div", { className: "h-full flex flex-col", style: { background: t.bg } },
     h("div", { className: "shrink-0 px-5 pt-5 pb-3 flex items-center justify-between" },
-      h("button", { onClick: onBack, className: "active:opacity-50" }, h(IArrow, { size: 19, color: t.ink })),
+      h("button", { onClick: () => setInBox(true), className: "active:opacity-50" }, h(IArrow, { size: 19, color: t.ink })),
       h("div", { style: { fontFamily: F_DISPLAY, fontSize: 15, color: t.ink } }, char.name + " 的随身物"),
       h("div", { className: "flex items-center gap-3" },
         h("button", { onClick: () => setPick(true), className: "active:opacity-50" }, h(Avatar, { character: char, size: 24, radius: 6 })),

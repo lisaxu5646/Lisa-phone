@@ -906,6 +906,7 @@ function PhoneCarry({
   const t = useTheme();
   const [pick, setPick] = useState(false);
   const [open, setOpen] = useState(null);
+  const [inList, setInList] = useState(true); // 先看通讯录列表，点某人才进 Ta 的手机
   // 绿点 = 有数据且还没看过；打开即消，刷新全部时重新点亮
   const [seen, setSeen] = useState(() => loadJSON("x_phoneSeen", {}));
   const isSeen = (cid, k) => !!(seen[cid] && seen[cid][k]);
@@ -922,6 +923,19 @@ function PhoneCarry({
     text: "还没有角色",
     sub: "先去群像录入一位"
   }));
+  // 通讯录列表：进查手机先看这个，点某人才进 Ta 的手机
+  if (inList) return h("div", { className: "h-full flex flex-col", style: { background: t.bg } },
+    h(Head, { zh: "查手机", en: "Whose Phone", onBack }),
+    h("div", { className: "flex-1 overflow-y-auto px-5 pb-8" },
+      characters.map(c => h("button", {
+        key: c.id, onClick: () => { onSel(c.id); setOpen(null); setInList(false); },
+        className: "w-full flex items-center gap-3 py-3 active:opacity-60", style: { borderBottom: "1px solid " + t.line }
+      },
+        h(Avatar, { character: c, size: 46, radius: 13 }),
+        h("div", { className: "flex-1 min-w-0 text-left" },
+          h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16.5, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.remark || c.name),
+          h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 1 } }, "翻翻 Ta 的手机")),
+        h("span", { style: { fontFamily: F_BODY, fontSize: 20, color: t.fog, flexShrink: 0 } }, "›")))));
   const data = phones[char.id] || {};
   const hasData = a => a.key === "video" ? data.video_day || data.video_night : data[a.key];
   if (open) return h(PhoneApp, {
@@ -940,7 +954,7 @@ function PhoneCarry({
   }, h("div", {
     className: "shrink-0 px-5 pt-5 pb-3 flex items-center justify-between"
   }, h("button", {
-    onClick: onBack,
+    onClick: () => setInList(true),
     className: "active:opacity-50"
   }, h(IArrow, {
     size: 19,

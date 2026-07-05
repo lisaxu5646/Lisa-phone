@@ -482,9 +482,13 @@
   // ---------- 生成配置弹窗（齿轮）----------
   function GenSheet(props) {
     const t = useTheme();
+    const cfg0 = loadCfg();
+    const styles = cfg0.styles || [];
     const [n, setN] = useState(3);
     const [sel, setSel] = useState([]); // 选中的 CP preset id 或角色 id（这里存最终 cp 数组）
     const [pickA, setPickA] = useState(""), [pickB, setPickB] = useState("");
+    const [styleIds, setStyleIds] = useState(cfg0.activeStyleIds || []); // 本次生效的文风（默认=上次选的）
+    function toggleStyle(id) { setStyleIds(function (prev) { return prev.indexOf(id) >= 0 ? prev.filter(function (x) { return x !== id; }) : prev.concat([id]); }); }
     const cps = props.cps, characters = props.characters;
     // 最终 cp：优先用手动选（pickA/pickB，可为角色/我/原创空），否则用点选的 preset
     function chosenCP() {
@@ -499,6 +503,15 @@
 
         h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.sub, marginBottom: 8 } }, "生成篇数　" + n + " 篇"),
         h("input", { type: "range", min: 1, max: 8, value: n, onChange: function (e) { setN(Number(e.target.value)); }, className: "w-full mb-6" }),
+
+        // 本次文风（在「我的·生成设置」里建，这里按需勾选，可多选，不选=不限）
+        h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.sub, marginBottom: 8 } }, "文风（本次生效，可多选，不选＝不限）"),
+        styles.length ? h("div", { className: "flex flex-wrap gap-2 mb-6" },
+          styles.map(function (s) {
+            const on = styleIds.indexOf(s.id) >= 0;
+            return h("button", { key: s.id, onClick: function () { toggleStyle(s.id); }, style: { fontFamily: F_BODY, fontSize: 12.5, padding: "5px 12px", borderRadius: 999, background: on ? t.accent : "transparent", color: on ? t.bg2 : t.sub, border: "1px solid " + (on ? t.accent : t.line) } }, s.label);
+          })
+        ) : h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 18 } }, "还没有文风预设，去「我的 → 生成设置」新建，之后每次在这里勾选。"),
 
         h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.sub, marginBottom: 8 } }, "选择预设好的 CP，或本次手动设置一对"),
         // 从 CP 预设名单里选
@@ -527,7 +540,7 @@
 
         h("div", { className: "flex items-center gap-3" },
           h("button", { onClick: function () { setN(3); setSel([]); setPickA(""); setPickB(""); }, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 13.5, color: t.sub, padding: "10px 18px", borderRadius: 12, border: "1px solid " + t.line } }, "重置"),
-          h("button", { onClick: function () { props.onConfirm(n, chosenCP()); }, className: "flex-1 active:opacity-80", style: { fontFamily: F_BODY, fontSize: 14, color: t.bg2, background: t.ink, padding: "11px", borderRadius: 12 } }, "确定生成"))));
+          h("button", { onClick: function () { props.onConfirm(n, chosenCP(), styleIds); }, className: "flex-1 active:opacity-80", style: { fontFamily: F_BODY, fontSize: 14, color: t.bg2, background: t.ink, padding: "11px", borderRadius: 12 } }, "确定生成"))));
   }
 
   // ---------- 新建/编辑自定义世界观 tab ----------
@@ -863,18 +876,15 @@
         h("div", { className: "flex items-center justify-between mb-2" },
           h("div", { style: { fontFamily: F_DISPLAY, fontSize: 17, color: t.ink } }, "预设文风"),
           h("button", { onClick: function () { setAdding(!adding); }, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 12.5, color: t.accent } }, adding ? "取消" : "＋ 新建")),
-        h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginBottom: 10 } }, "可建多个文风、勾选任意组合（勾中的会一起生效；都不勾=不限）"),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginBottom: 10 } }, "在这里建好文风预设；每次生成时在齿轮弹窗里按需勾选（可多选），随时换。"),
         adding ? h("div", { className: "rounded-2xl px-4 py-3 mb-4", style: { background: t.bg2, border: "1px solid " + t.line } },
           h("input", { value: label, onChange: function (e) { setLabel(e.target.value); }, placeholder: "文风名（如 冷冽白描 / 治愈慢热 / 港风）", className: "w-full outline-none mb-2", style: { fontFamily: F_BODY, fontSize: 13, padding: "7px 10px", borderRadius: 8, background: t.bg, color: t.ink, border: "1px solid " + t.line } }),
           h("textarea", { value: text, onChange: function (e) { setText(e.target.value); }, rows: 3, placeholder: "文风描述，如：多用短句白描、冷色调意象、情绪藏在动作里、少直白抒情…", className: "w-full outline-none resize-none mb-3", style: { fontFamily: F_BODY, fontSize: 13, lineHeight: 1.6, padding: "9px 11px", borderRadius: 8, background: t.bg, color: t.ink, border: "1px solid " + t.line } }),
           h("button", { onClick: addStyle, className: "w-full active:opacity-80", style: { fontFamily: F_BODY, fontSize: 13, color: t.bg2, background: t.ink, padding: "9px", borderRadius: 10 } }, "保存文风")) : null,
         (cfg.styles || []).length ? (cfg.styles || []).map(function (s) {
-          const on = (cfg.activeStyleIds || []).indexOf(s.id) >= 0;
-          return h("div", { key: s.id, className: "rounded-xl px-4 py-3 mb-2", style: { background: t.bg2, border: "1px solid " + (on ? t.accent : t.line) } },
+          return h("div", { key: s.id, className: "rounded-xl px-4 py-3 mb-2", style: { background: t.bg2, border: "1px solid " + t.line } },
             h("div", { className: "flex items-center justify-between" },
-              h("button", { onClick: function () { toggle(s.id); }, className: "flex items-center gap-2 text-left flex-1 active:opacity-60" },
-                h("div", { style: { width: 16, height: 16, borderRadius: 4, border: "1.5px solid " + (on ? t.accent : t.line), background: on ? t.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" } }, on ? h(ICheck, { size: 11, color: t.bg2 }) : null),
-                h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, color: t.ink } }, s.label)),
+              h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, color: t.ink } }, s.label),
               h("button", { onClick: function () { del(s.id); }, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 12, color: t.accent } }, "删除")),
             h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 4, lineHeight: 1.5 } }, s.text));
         }) : (adding ? null : h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, marginBottom: 8 } }, "还没有文风预设。")),
@@ -1152,15 +1162,21 @@
     function chapterShared(fic, ch, chapNo) { props.onNotifyChapter && props.onNotifyChapter(fic, ch, chapNo, fic.sharedTo || []); }
 
     // 生成
-    async function doGen(n, cp) {
+    async function doGen(n, cp, styleIds) {
       setGearOpen(false); setBusy(true);
       props.toast && props.toast("生成中…（" + n + " 篇）");
       try {
         const chars = cpChars(cp, characters, props.profile);
         const cfg = loadCfg();
+        // 本次勾选的文风（GenSheet 传来）→ 用它，并记住当默认；没传就退回上次的
+        let styleText;
+        if (Array.isArray(styleIds)) {
+          saveCfg(Object.assign({}, cfg, { activeStyleIds: styleIds }));
+          styleText = (cfg.styles || []).filter(function (s) { return styleIds.indexOf(s.id) >= 0; }).map(function (s) { return s.text; }).filter(Boolean).join("\n\n");
+        } else styleText = activeStyleText(cfg);
         // 推荐(mixed)版：把其它世界观当池子供每篇随机取
         const worldPool = curTab.mixed ? tabs.filter(function (x) { return !x.mixed; }) : null;
-        const opts = { style: activeStyleText(cfg), perFic: cfg.perFic, chatMaterial: chatMaterialFor(chars), worldPool: worldPool };
+        const opts = { style: styleText, perFic: cfg.perFic, chatMaterial: chatMaterialFor(chars), worldPool: worldPool };
         const arr = await window.Fanfic.genBatch(props.active, curTab, chars, n, userName, props.worldbook, opts);
         const now = Date.now();
         const made = arr.map(function (x, i) {
