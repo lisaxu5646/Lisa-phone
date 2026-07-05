@@ -312,6 +312,7 @@ function buildBundle(ctx, opts) {
   if (ctx.momentLog && ctx.momentLog.trim()) parts.push("【" + uName + " 最近的朋友圈 & 你的互动】（你清楚自己在每条下点没点赞、评没评论。" + uName + " 问起时如实回答；若你此刻决定去补一条评论/点赞，就把评论内容填进输出的 momentComment 字段）\n" + ctx.momentLog.trim());
   if (ctx.forumEcho && ctx.forumEcho.trim()) parts.push("【你在论坛（贴吧）的动态 & 有人回你】（这些真实发生过、你都看到了：" + uName + " 在你帖子下的评论、别人对你评论的回复等。" + uName + " 聊到或提起时可自然回应、追问、辩解或调侃，别生硬罗列、别自曝上帝视角）\n" + ctx.forumEcho.trim());
   if (ctx.phoneNote && ctx.phoneNote.trim()) parts.push("【你手机上的近况（你自己清楚这些：在听的歌、刷的视频、记的备忘等。别主动报清单，但当 " + uName + " 提起、或内容对上了——比如发来你正在听的那首歌的一句歌词——你要能自然认出来、接住话、反应过来）】\n" + ctx.phoneNote.trim());
+  if (ctx.listenLog && ctx.listenLog.trim()) parts.push("【一起听 · 歌】\n" + ctx.listenLog.trim());
   if (ctx.periodNote && ctx.periodNote.trim()) parts.push("【" + uName + " 的生理期】" + ctx.periodNote.trim());
   if (recentChat && recentChat.trim()) parts.push("【最近对话】\n" + recentChat.trim());
   return parts.join("\n\n");

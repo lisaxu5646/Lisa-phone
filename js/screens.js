@@ -2172,10 +2172,11 @@ function Us({ characters, couples, whispers, onBack, onInvite, onUnlink, onGenWh
 // CONFIG
 // ============================================================
 // 一起听（展示型）：自定义唱片封面 + 添加"正在听"的歌（歌名/歌手/封面）+ 歌单，不真放声音
-function ListenTogether({ listen, characters, onBack, onSetDisc, onAddNetease, onAddLocal, onPlaySong, onRemoveSong, onSetPartner, onReact, apiBase, onSetApiBase, onAddNeteaseResult, player, onTogglePlay, onStep, onSeek, onToggleFav, gen }) {
+function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onAddNetease, onAddLocal, onPlaySong, onRemoveSong, onSetPartner, apiBase, onSetApiBase, onAddNeteaseResult, onCreatePlaylist, onDeletePlaylist, onAddToPlaylist, onRemoveFromPlaylist, onGenCharPlaylist, onSetAutoComment, player, onTogglePlay, onStep, onSeek, onToggleFav, gen, genCharPl }) {
   const t = useTheme();
   const data = listen || {};
   const songs = data.songs || [];
+  const playlists = data.playlists || [];
   const partner = (characters || []).find(c => c.id === data.partnerId) || null;
   const nowId = (player && player.songId) || (songs[0] && songs[0].id) || null;
   const now = songs.find(s => s.id === nowId) || songs[0] || null;
@@ -2186,7 +2187,8 @@ function ListenTogether({ listen, characters, onBack, onSetDisc, onAddNetease, o
   const dur = (player && player.dur) || 0, cur = (player && player.t) || 0;
   const frac = dur ? cur / dur : 0;
   const fmt = s => { s = Math.max(0, Math.floor(s || 0)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
-  const [tab, setTab] = useState(apiBase ? "search" : "netease"); // search | netease | local
+  const [nav, setNav] = useState(now ? "play" : "home"); // home | play | mine 底部三 tab
+  const [addTab, setAddTab] = useState(apiBase ? "search" : "netease"); // search | netease | local
   const [link, setLink] = useState("");
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
@@ -2196,9 +2198,11 @@ function ListenTogether({ listen, characters, onBack, onSetDisc, onAddNetease, o
   const [searching, setSearching] = useState(false);
   const [apiEdit, setApiEdit] = useState(false);
   const [apiInput, setApiInput] = useState(apiBase || "");
-  const [showLib, setShowLib] = useState(false);
+  const [openPl, setOpenPl] = useState(null); // 展开的歌单 id
+  const [plName, setPlName] = useState("");
+  const [plCharPick, setPlCharPick] = useState(false); // 选角色生成歌单
   const audioFileRef = useRef(null);
-  const discRef = useRef(null);
+  const coverRef = useRef(null);
 
   const doSearch = async () => {
     if (!apiBase || !q.trim()) return;
@@ -2214,8 +2218,7 @@ function ListenTogether({ listen, characters, onBack, onSetDisc, onAddNetease, o
   const addNet = () => { if (link.trim()) { onAddNetease(link, title, artist); setLink(""); setTitle(""); setArtist(""); } };
   const addLoc = () => { if (localFile) { onAddLocal(localFile, title, artist); setLocalFile(null); setTitle(""); setArtist(""); } };
   const field = { fontFamily: F_BODY, fontSize: 13.5, background: t.bg, color: t.ink, border: "1px solid " + t.line, borderRadius: 8, padding: "9px 11px", width: "100%", outline: "none" };
-  const tabBtn = (k, label) => h("button", { onClick: () => setTab(k), className: "flex-1 py-2 active:opacity-70", style: { fontFamily: F_BODY, fontSize: 12.5, borderRadius: 8, background: tab === k ? t.ink : t.bg, color: tab === k ? t.bg2 : t.fog, border: "1px solid " + (tab === k ? t.ink : t.line) } }, label);
-  // 播放控制小图标
+  const tabBtn = (k, label) => h("button", { onClick: () => setAddTab(k), className: "flex-1 py-2 active:opacity-70", style: { fontFamily: F_BODY, fontSize: 12.5, borderRadius: 8, background: addTab === k ? t.ink : t.bg, color: addTab === k ? t.bg2 : t.fog, border: "1px solid " + (addTab === k ? t.ink : t.line) } }, label);
   const ic = (kind, c, size) => { size = size || 22;
     if (kind === "play") return h("svg", { width: size, height: size, viewBox: "0 0 24 24" }, h("path", { d: "M8 5v14l11-7z", fill: c }));
     if (kind === "pause") return h("svg", { width: size, height: size, viewBox: "0 0 24 24" }, h("rect", { x: 6, y: 5, width: 4, height: 14, rx: 1, fill: c }), h("rect", { x: 14, y: 5, width: 4, height: 14, rx: 1, fill: c }));
@@ -2223,95 +2226,162 @@ function ListenTogether({ listen, characters, onBack, onSetDisc, onAddNetease, o
     return h("svg", { width: size, height: size, viewBox: "0 0 24 24" }, h("path", { d: "M5 5v14l10-7z", fill: c }), h("rect", { x: 15.6, y: 5, width: 2.4, height: 14, rx: 1, fill: c }));
   };
   const cbtn = (child, onClick, o) => h("button", { onClick: onClick, className: "active:opacity-60 flex items-center justify-center shrink-0", style: Object.assign({ borderRadius: 999, background: (o && o.bg) || "transparent", width: (o && o.size) || 46, height: (o && o.size) || 46 }, o && o.style) }, child);
+  // 歌曲行（列表用）
+  const songRow = (s, opts) => { opts = opts || {}; return h("div", { key: s.id, className: "flex items-center gap-2", style: { background: s.id === nowId ? (t.accent || "#8a6d3b") + "14" : t.bg2, border: "1px solid " + (s.id === nowId ? (t.accent || "#8a6d3b") : t.line), borderRadius: 14, padding: "8px 10px" } },
+    h("button", { onClick: () => onPlaySong(s.id, opts.queue), className: "flex items-center gap-3 flex-1 min-w-0 active:opacity-70", style: { textAlign: "left" } },
+      h("div", { style: { flexShrink: 0, width: 42, height: 42, borderRadius: 8, background: s.cover ? "center/cover no-repeat url(" + s.cover + ")" : "linear-gradient(135deg,#cfc9bd,#a8a294)", display: "flex", alignItems: "center", justifyContent: "center" } }, s.cover ? null : h("span", { style: { color: "rgba(255,255,255,0.9)", fontSize: 15 } }, s.source === "netease" ? "☁" : "♪")),
+      h("div", { className: "flex-1 min-w-0" },
+        h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14.5, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, (s.id === nowId && playing ? "▶ " : "") + s.title),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.artist || (s.source === "netease" ? "网易云" : "本地")))),
+    h("button", { onClick: () => onToggleFav(s.id), className: "active:opacity-60 shrink-0", style: { fontSize: 15, color: s.fav ? "#e0576b" : t.fog, padding: "0 3px" } }, s.fav ? "♥" : "♡"),
+    opts.inPlaylist
+      ? h("button", { onClick: () => onRemoveFromPlaylist(opts.inPlaylist, s.id), className: "active:opacity-60 shrink-0", style: { fontFamily: F_BODY, fontSize: 15, color: t.fog } }, "×")
+      : h("button", { onClick: () => onRemoveSong(s.id), className: "active:opacity-60 shrink-0", style: { fontFamily: F_BODY, fontSize: 15, color: t.fog } }, "×")); };
+
+  // ============ 播放 tab ============
+  const playTab = now ? h("div", { className: "flex flex-col items-center px-6 pb-6" },
+    h("button", { onClick: () => coverRef.current && coverRef.current.click(), className: "active:opacity-90 relative", style: { width: 232, height: 232, borderRadius: 999, marginTop: 14, background: "radial-gradient(circle at 50% 50%, #2b2b30 0 61%, #17171b 62%)", boxShadow: "0 16px 44px rgba(0,0,0,0.34)", display: "flex", alignItems: "center", justifyContent: "center", animation: playing ? "wk-spin 9s linear infinite" : "none" } },
+      h("div", { style: { width: 148, height: 148, borderRadius: 999, background: nowCover ? "center/cover no-repeat url(" + nowCover + ")" : discImg ? "center/cover no-repeat url(" + discImg + ")" : "linear-gradient(135deg,#e8b6c8,#f0d9a8)", boxShadow: "inset 0 0 0 5px rgba(0,0,0,0.22)", display: "flex", alignItems: "center", justifyContent: "center" } },
+        h("div", { style: { width: 18, height: 18, borderRadius: 999, background: t.bg, border: "3px solid rgba(0,0,0,0.35)" } }))),
+    h("div", { style: { fontFamily: F_BODY, fontSize: 10, color: t.fog, marginTop: 8 } }, "点唱片换封面"),
+    h("div", { style: { fontFamily: F_DISPLAY, fontSize: 24, color: t.ink, marginTop: 12, textAlign: "center", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, now.title),
+    h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, color: t.fog, marginTop: 5, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, now.artist || (now.source === "netease" ? "网易云" : "本地")),
+    h("div", { className: "flex items-center justify-center gap-4", style: { marginTop: 14 } },
+      cbtn(h("span", { style: { fontSize: 20, color: now.fav ? "#e0576b" : t.fog } }, now.fav ? "♥" : "♡"), () => onToggleFav(now.id), { bg: t.bg2 })),
+    h("div", { className: "w-full", style: { maxWidth: 320 } },
+      h("input", { type: "range", min: 0, max: 1000, value: Math.round(frac * 1000), onChange: e => onSeek(Number(e.target.value) / 1000), style: { width: "100%", marginTop: 14 } }),
+      h("div", { className: "flex items-center justify-between" },
+        h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, fmt(cur)),
+        h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, dur ? fmt(dur) : "--:--"))),
+    player && player.err ? h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.accent, marginTop: 2, textAlign: "center" } }, player.err) : null,
+    h("div", { className: "flex items-center justify-center gap-6", style: { marginTop: 8 } },
+      cbtn(ic("prev", t.ink, 26), () => onStep(-1), { size: 52 }),
+      cbtn(player && player.loading ? h("span", { style: { color: t.bg2, fontSize: 13 } }, "…") : playing ? ic("pause", t.bg2, 30) : ic("play", t.bg2, 30), onTogglePlay, { bg: t.ink, size: 72 }),
+      cbtn(ic("next", t.ink, 26), () => onStep(1), { size: 52 })),
+    // 和谁听（可不选 = 自己听）
+    h("div", { className: "flex items-center gap-2", style: { marginTop: 22, width: "100%", overflowX: "auto" } },
+      h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, flexShrink: 0 } }, "和谁听："),
+      h("button", { onClick: () => onSetPartner(null), className: "active:opacity-70", style: { flexShrink: 0, fontFamily: F_BODY, fontSize: 12, color: !partner ? t.ink : t.fog, border: "1px solid " + (!partner ? t.ink : t.line), borderRadius: 999, padding: "5px 12px" } }, "自己听"),
+      (characters || []).map(c => { const on = data.partnerId === c.id; return h("button", { key: c.id, onClick: () => onSetPartner(on ? null : c.id), className: "active:opacity-70", style: { flexShrink: 0, opacity: on ? 1 : 0.5, border: on ? "2px solid " + (t.accent || "#8a6d3b") : "2px solid transparent", borderRadius: 999, padding: 1 } }, h(Avatar, { character: c, size: 30, radius: 999 })); })),
+    partner ? h("div", { className: "flex items-center justify-between w-full", style: { marginTop: 14, background: t.bg2, border: "1px solid " + t.line, borderRadius: 12, padding: "10px 12px" } },
+      h("div", { style: { flex: 1, minWidth: 0 } },
+        h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink } }, "让 " + partner.name + " 在聊天里聊这首歌"),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 2, lineHeight: 1.4 } }, "开：TA 会在私聊里自然聊你俩在听的歌、也能帮你切歌（消耗一次回复）")),
+      h("button", { onClick: () => onSetAutoComment(!data.autoComment), className: "shrink-0 active:opacity-70", style: { width: 44, height: 26, borderRadius: 999, background: data.autoComment ? (t.accent || "#8a6d3b") : t.line, position: "relative", transition: "background .15s" } },
+        h("div", { style: { position: "absolute", top: 3, left: data.autoComment ? 21 : 3, width: 20, height: 20, borderRadius: 999, background: "#fff", transition: "left .15s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" } }))) : null)
+    : h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.fog, textAlign: "center", padding: "80px 24px", lineHeight: 1.9 } }, "还没有歌\n去「首页」搜歌名 / 贴链接 / 传本地");
+
+  // ============ 首页 tab（浏览 + 添加 + 设置）============
+  const homeTab = h("div", { className: "px-6 pb-6" },
+    // 搜索栏（仿音乐 app）
+    h("div", { className: "flex gap-2 items-center", style: { marginTop: 6 } },
+      h("div", { className: "flex-1 flex items-center gap-2", style: { background: t.bg2, border: "1px solid " + t.line, borderRadius: 999, padding: "8px 14px" } },
+        h("span", { style: { color: t.fog, fontSize: 13 } }, "🔍"),
+        h("input", { value: q, onChange: e => setQ(e.target.value), onKeyDown: e => { if (e.key === "Enter") doSearch(); }, placeholder: apiBase ? "全网 搜索歌曲 / 歌手" : "先配搜索接口↓", style: { flex: 1, background: "transparent", border: "none", outline: "none", fontFamily: F_BODY, fontSize: 13.5, color: t.ink } })),
+      h("button", { onClick: () => audioFileRef.current && audioFileRef.current.click(), className: "shrink-0 active:opacity-70 flex items-center justify-center", style: { width: 40, height: 40, borderRadius: 999, background: t.bg2, border: "1px solid " + t.line, fontSize: 16 } }, "⬆")),
+    // 搜索结果
+    apiBase && (searching || results != null) ? h("div", { style: { marginTop: 10 } },
+      searching ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, padding: "6px 2px" } }, "搜索中…")
+      : results && results.length === 0 ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, padding: "6px 2px" } }, "没搜到（或接口没响应）")
+      : h("div", { className: "space-y-1.5" }, (results || []).map(s => h("button", { key: s.id, onClick: () => onAddNeteaseResult(s), className: "w-full flex items-center gap-2.5 active:opacity-70", style: { textAlign: "left", padding: "5px 4px" } },
+          h("div", { style: { flexShrink: 0, width: 40, height: 40, borderRadius: 8, background: s.cover ? "center/cover no-repeat url(" + s.cover + ")" : "linear-gradient(135deg,#cfc9bd,#a8a294)" } }),
+          h("div", { className: "flex-1 min-w-0" },
+            h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.name),
+            h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.artist || "未知歌手")),
+          h("span", { style: { fontFamily: F_BODY, fontSize: 16, color: t.tint, flexShrink: 0 } }, "＋"))))) : null,
+    // 全部歌曲
+    songs.length ? h("div", { style: { marginTop: 16 } },
+      h(Eyebrow, { style: { marginBottom: 8 } }, "全部 · " + songs.length),
+      h("div", { className: "space-y-2" }, songs.map(s => songRow(s, {})))) : null,
+    // 添加：链接ID / 本地 + 接口设置（折叠在下方）
+    h("div", { style: { background: t.bg2, border: "1px solid " + t.line, borderRadius: 16, padding: "12px 14px", marginTop: 18 } },
+      h(Eyebrow, { style: { marginBottom: 10 } }, "添加歌曲"),
+      h("div", { className: "flex gap-2", style: { marginBottom: 10 } }, apiBase ? tabBtn("search", "搜歌名") : null, tabBtn("netease", "链接/ID"), tabBtn("local", "本地")),
+      addTab === "search" && apiBase
+        ? h("div", { className: "flex gap-2" },
+            h("input", { value: q, onChange: e => setQ(e.target.value), onKeyDown: e => { if (e.key === "Enter") doSearch(); }, placeholder: "搜歌名 / 歌手（结果在上方）", style: field }),
+            h("button", { onClick: doSearch, disabled: searching || !q.trim(), className: "active:opacity-70 disabled:opacity-40", style: { background: t.ink, color: t.bg2, fontFamily: F_BODY, fontSize: 13, padding: "0 16px", borderRadius: 8, flexShrink: 0 } }, searching ? "…" : "搜"))
+        : addTab === "netease"
+          ? h("div", null,
+              h("input", { value: link, onChange: e => setLink(e.target.value), placeholder: "贴网易云分享链接或歌曲ID", style: Object.assign({ marginBottom: 8 }, field) }),
+              h("input", { value: title, onChange: e => setTitle(e.target.value), placeholder: "歌名（选填，填了角色聊得更准）", style: Object.assign({ marginBottom: 8 }, field) }),
+              h("div", { className: "flex items-center gap-2" },
+                h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, flex: 1, lineHeight: 1.4 } }, "分享→复制链接贴进来；VIP/无版权可能放不出"),
+                h("button", { onClick: addNet, disabled: !link.trim(), className: "active:opacity-70 disabled:opacity-40", style: { background: t.ink, color: t.bg2, fontFamily: F_DISPLAY, fontSize: 14, padding: "7px 18px", borderRadius: 10, flexShrink: 0 } }, "添加")))
+          : h("div", null,
+              h("button", { onClick: () => audioFileRef.current && audioFileRef.current.click(), className: "w-full active:opacity-70", style: { fontFamily: F_BODY, fontSize: 12.5, color: localFile ? t.ink : t.tint, border: "1px dashed " + t.line, borderRadius: 8, padding: "10px", marginBottom: 8 } }, localFile ? "✓ " + localFile.name.slice(0, 24) : "＋ 选一个音频文件"),
+              h("input", { value: title, onChange: e => setTitle(e.target.value), placeholder: "歌名（留空=文件名）", style: Object.assign({ marginBottom: 8 }, field) }),
+              h("div", { className: "flex items-center gap-2" },
+                h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, flex: 1, lineHeight: 1.4 } }, "只存这台设备，不上传；清缓存会没"),
+                h("button", { onClick: addLoc, disabled: !localFile, className: "active:opacity-70 disabled:opacity-40", style: { background: t.ink, color: t.bg2, fontFamily: F_DISPLAY, fontSize: 14, padding: "7px 18px", borderRadius: 10, flexShrink: 0 } }, "添加"))),
+      h("div", { style: { borderTop: "1px solid " + t.line, marginTop: 12, paddingTop: 10 } },
+        apiEdit
+          ? h("div", null,
+              h("input", { value: apiInput, onChange: e => setApiInput(e.target.value), placeholder: "https://你的-netease-api.vercel.app", style: Object.assign({ marginBottom: 8 }, field) }),
+              h("div", { className: "flex gap-2" },
+                h("button", { onClick: () => { onSetApiBase(apiInput); setApiEdit(false); }, className: "flex-1 py-2 active:opacity-70", style: { background: t.ink, color: t.bg2, fontFamily: F_BODY, fontSize: 13, borderRadius: 8 } }, "保存"),
+                h("button", { onClick: () => setApiEdit(false), className: "flex-1 py-2 active:opacity-70", style: { border: "1px solid " + t.line, color: t.fog, fontFamily: F_BODY, fontSize: 13, borderRadius: 8 } }, "取消")))
+          : h("button", { onClick: () => { setApiInput(apiBase || ""); setApiEdit(true); }, className: "active:opacity-70", style: { fontFamily: F_BODY, fontSize: 11.5, color: apiBase ? t.fog : t.tint } }, apiBase ? "✓ 已连搜索接口 · 改" : "＋ 配网易云搜索接口（自部署后填地址，就能搜歌名）"))));
+
+  // ============ 我的 tab（歌单）============
+  const favs = songs.filter(s => s.fav);
+  const openPlObj = playlists.find(p => p.id === openPl) || null;
+  const mineTab = h("div", { className: "px-6 pb-6" },
+    openPlObj
+      ? h("div", null, // 歌单详情
+          h("div", { className: "flex items-center gap-2", style: { marginTop: 8, marginBottom: 12 } },
+            h("button", { onClick: () => setOpenPl(null), className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 13, color: t.fog } }, "‹ 歌单"),
+            h("div", { style: { fontFamily: F_DISPLAY, fontSize: 18, color: t.ink, flex: 1, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, openPlObj.name),
+            h("button", { onClick: () => { onDeletePlaylist(openPlObj.id); setOpenPl(null); }, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 12, color: t.fog } }, "删除")),
+          (openPlObj.songIds || []).length
+            ? h("div", { className: "space-y-2" }, (openPlObj.songIds || []).map(sid => songs.find(s => s.id === sid)).filter(Boolean).map(s => songRow(s, { queue: openPlObj.songIds, inPlaylist: openPlObj.id })))
+            : h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog, padding: "16px 0", lineHeight: 1.8 } }, "这个歌单还没歌。去「首页」把歌加进来——下面点歌名可加入。"),
+          // 从全部歌里挑加入
+          songs.length ? h("div", { style: { marginTop: 16 } },
+            h(Eyebrow, { style: { marginBottom: 8 } }, "从全部歌加入"),
+            h("div", { className: "flex flex-wrap gap-2" }, songs.filter(s => !(openPlObj.songIds || []).includes(s.id)).map(s => h("button", { key: s.id, onClick: () => onAddToPlaylist(openPlObj.id, s.id), className: "active:opacity-70", style: { fontFamily: F_BODY, fontSize: 12, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 999, padding: "6px 12px" } }, "＋ " + s.title)))) : null)
+      : h("div", null,
+          // 我喜欢的音乐
+          h("button", { onClick: () => favs.length && onPlaySong(favs[0].id, favs.map(s => s.id)), className: "w-full flex items-center gap-3 active:opacity-80", style: { marginTop: 8, background: t.bg2, border: "1px solid " + t.line, borderRadius: 16, padding: "12px 14px" } },
+            h("div", { style: { flexShrink: 0, width: 52, height: 52, borderRadius: 12, background: "linear-gradient(135deg,#e0576b,#f0a8c0)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: "#fff" } }, "♥"),
+            h("div", { className: "flex-1 min-w-0 text-left" },
+              h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, "我喜欢的音乐"),
+              h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, marginTop: 2 } }, favs.length + " 首 · 收藏歌单")),
+            h("div", { style: { flexShrink: 0, width: 36, height: 36, borderRadius: 999, background: t.ink, display: "flex", alignItems: "center", justifyContent: "center" } }, ic("play", t.bg2, 18))),
+          // 创建歌单
+          h("div", { className: "flex gap-2", style: { marginTop: 14 } },
+            h("input", { value: plName, onChange: e => setPlName(e.target.value), placeholder: "新建歌单名", style: field }),
+            h("button", { onClick: () => { if (plName.trim()) { const id = onCreatePlaylist(plName.trim(), []); setPlName(""); setOpenPl(id); } }, disabled: !plName.trim(), className: "active:opacity-70 disabled:opacity-40", style: { background: t.ink, color: t.bg2, fontFamily: F_BODY, fontSize: 13, padding: "0 16px", borderRadius: 8, flexShrink: 0 } }, "建")),
+          // 角色歌单生成
+          h("div", { style: { background: t.bg2, border: "1px solid " + t.line, borderRadius: 16, padding: "12px 14px", marginTop: 14 } },
+            h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink } }, "根据角色人设生成歌单"),
+            h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 2, marginBottom: 10, lineHeight: 1.4 } }, "让 TA 推 10 首自己会单曲循环的歌，自动去网易云拉成能直接听的歌单（需先配搜索接口）"),
+            plCharPick
+              ? h("div", { className: "flex flex-wrap gap-2" }, (characters || []).map(c => h("button", { key: c.id, onClick: () => { setPlCharPick(false); onGenCharPlaylist(c); }, className: "active:opacity-70 flex items-center gap-1.5", style: { background: t.bg, border: "1px solid " + t.line, borderRadius: 999, padding: "5px 10px 5px 5px" } }, h(Avatar, { character: c, size: 24, radius: 999 }), h("span", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink } }, c.name))))
+              : h("button", { onClick: () => setPlCharPick(true), disabled: !!genCharPl, className: "w-full active:opacity-70 disabled:opacity-50", style: { background: t.ink, color: t.bg2, fontFamily: F_DISPLAY, fontSize: 14, padding: "9px", borderRadius: 10 } }, genCharPl ? "生成中…" : "选一个角色生成")),
+          // 已有歌单列表
+          playlists.length ? h("div", { style: { marginTop: 16 } },
+            h(Eyebrow, { style: { marginBottom: 8 } }, "歌单 · " + playlists.length),
+            h("div", { className: "space-y-2" }, playlists.map(pl => { const ch = pl.charId ? (characters || []).find(c => c.id === pl.charId) : null; return h("div", { key: pl.id, className: "flex items-center gap-3", style: { background: t.bg2, border: "1px solid " + t.line, borderRadius: 14, padding: "10px 12px" } },
+              h("button", { onClick: () => { const q = pl.songIds || []; if (q.length) onPlaySong(q[0], q); }, className: "shrink-0 active:opacity-70", style: { width: 46, height: 46, borderRadius: 10, background: pl.cover ? "center/cover no-repeat url(" + pl.cover + ")" : "linear-gradient(135deg,#a8b4c0,#cfc9bd)", display: "flex", alignItems: "center", justifyContent: "center" } }, ch ? h(Avatar, { character: ch, size: 26, radius: 999 }) : h("span", { style: { color: "#fff", fontSize: 16 } }, "♪")),
+              h("button", { onClick: () => setOpenPl(pl.id), className: "flex-1 min-w-0 text-left active:opacity-70" },
+                h("div", { style: { fontFamily: F_DISPLAY, fontSize: 15, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, pl.name),
+                h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 1 } }, (pl.songIds || []).length + " 首" + (ch ? " · " + ch.name : ""))),
+              h("button", { onClick: () => { const q = pl.songIds || []; if (q.length) onPlaySong(q[0], q); }, className: "shrink-0 active:opacity-60 flex items-center justify-center", style: { width: 34, height: 34, borderRadius: 999, background: t.ink } }, ic("play", t.bg2, 16))); }))) : null));
+
+  // 底部导航
+  const navBtn = (k, label, iconEl) => h("button", { onClick: () => setNav(k), className: "flex-1 flex flex-col items-center gap-1 active:opacity-70 py-2", style: { color: nav === k ? t.ink : t.fog } }, iconEl, h("span", { style: { fontFamily: F_BODY, fontSize: 10.5 } }, label));
 
   return h("div", { className: "h-full flex flex-col", style: { background: t.bg } },
-    h(Head, { zh: "一起听", en: now ? (idx + 1) + " / " + songs.length : "Listen", onBack, right: songs.length ? h("button", { onClick: () => setShowLib(v => !v), className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog } }, showLib ? "收起" : "歌单 " + songs.length) : null }),
-    h("div", { className: "flex-1 overflow-y-auto px-6 pb-8" },
-      // ===== Now Playing =====
-      now ? h("div", { className: "flex flex-col items-center" },
-        h("button", { onClick: () => { if (!nowCover && !discImg && discRef.current) discRef.current.click(); }, className: "active:opacity-90", style: { width: 232, height: 232, borderRadius: 999, marginTop: 14, background: "radial-gradient(circle at 50% 50%, #2b2b30 0 61%, #17171b 62%)", boxShadow: "0 16px 44px rgba(0,0,0,0.34)", display: "flex", alignItems: "center", justifyContent: "center", animation: playing ? "wk-spin 9s linear infinite" : "none" } },
-          h("div", { style: { width: 148, height: 148, borderRadius: 999, background: nowCover ? "center/cover no-repeat url(" + nowCover + ")" : discImg ? "center/cover no-repeat url(" + discImg + ")" : "linear-gradient(135deg,#e8b6c8,#f0d9a8)", boxShadow: "inset 0 0 0 5px rgba(0,0,0,0.22)", display: "flex", alignItems: "center", justifyContent: "center" } },
-            h("div", { style: { width: 18, height: 18, borderRadius: 999, background: t.bg, border: "3px solid rgba(0,0,0,0.35)" } }))),
-        h("div", { style: { fontFamily: F_DISPLAY, fontSize: 24, color: t.ink, marginTop: 22, textAlign: "center", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, now.title),
-        h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, color: t.fog, marginTop: 5, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, now.artist || (now.source === "netease" ? "网易云" : "本地")),
-        // 收藏 / 让TA说说
-        h("div", { className: "flex items-center justify-between", style: { marginTop: 16, width: "100%", maxWidth: 300 } },
-          cbtn(h("span", { style: { fontSize: 20, color: now.fav ? "#e0576b" : t.fog } }, now.fav ? "♥" : "♡"), () => onToggleFav(now.id), { bg: t.bg2 }),
-          partner
-            ? cbtn(h(Avatar, { character: partner, size: 30, radius: 999 }), () => onReact && onReact("play"), { bg: t.bg2, style: { opacity: gen ? 0.5 : 1 } })
-            : cbtn(h("span", { style: { fontSize: 18, color: t.fog, letterSpacing: 1 } }, "···"), () => setShowLib(true), { bg: t.bg2 })),
-        // 进度
-        h("div", { className: "w-full" },
-          h("input", { type: "range", min: 0, max: 1000, value: Math.round(frac * 1000), onChange: e => onSeek(Number(e.target.value) / 1000), style: { width: "100%", marginTop: 14 } }),
-          h("div", { className: "flex items-center justify-between" },
-            h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, fmt(cur)),
-            h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, dur ? fmt(dur) : "--:--"))),
-        player && player.err ? h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.accent, marginTop: 2, textAlign: "center" } }, player.err) : null,
-        // 控制
-        h("div", { className: "flex items-center justify-center gap-6", style: { marginTop: 8 } },
-          cbtn(ic("prev", t.ink, 26), () => onStep(-1), { size: 52 }),
-          cbtn(player && player.loading ? h("span", { style: { color: t.bg2, fontSize: 13 } }, "…") : playing ? ic("pause", t.bg2, 30) : ic("play", t.bg2, 30), onTogglePlay, { bg: t.ink, size: 72 }),
-          cbtn(ic("next", t.ink, 26), () => onStep(1), { size: 52 })),
-        // 和谁听
-        h("div", { className: "flex items-center gap-2", style: { marginTop: 20, width: "100%", overflowX: "auto" } },
-          h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, flexShrink: 0 } }, "和谁听："),
-          (characters || []).map(c => { const on = data.partnerId === c.id; return h("button", { key: c.id, onClick: () => onSetPartner(on ? null : c.id), className: "active:opacity-70", style: { flexShrink: 0, opacity: on ? 1 : 0.5, border: on ? "2px solid " + (t.accent || "#8a6d3b") : "2px solid transparent", borderRadius: 999, padding: 1 } }, h(Avatar, { character: c, size: 30, radius: 999 })); })),
-        (now.reactions || []).length ? h("div", { className: "w-full space-y-1.5", style: { marginTop: 12 } }, now.reactions.map((r, i) => h("div", { key: i, className: "flex items-start gap-2" },
-          h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, flexShrink: 0, marginTop: 4 } }, r.name + "："),
-          h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 10, padding: "6px 10px", whiteSpace: "pre-wrap" } }, r.text)))) : null)
-        : h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.fog, textAlign: "center", padding: "40px 0", lineHeight: 1.9 } }, "还没有歌\n在下面搜歌名 / 贴链接 / 传本地"),
-      // ===== 歌单库（折叠）=====
-      showLib ? h("div", { style: { marginTop: 16 } },
-        h(Eyebrow, { style: { marginBottom: 8 } }, "歌单 · " + songs.length),
-        h("div", { className: "space-y-2" }, songs.map(s => h("div", { key: s.id, className: "flex items-center gap-2", style: { background: s.id === nowId ? (t.accent || "#8a6d3b") + "16" : t.bg2, border: "1px solid " + (s.id === nowId ? (t.accent || "#8a6d3b") : t.line), borderRadius: 14, padding: "8px 10px" } },
-          h("button", { onClick: () => onPlaySong(s.id), className: "flex items-center gap-3 flex-1 min-w-0 active:opacity-70", style: { textAlign: "left" } },
-            h("div", { style: { flexShrink: 0, width: 40, height: 40, borderRadius: 8, background: s.cover ? "center/cover no-repeat url(" + s.cover + ")" : "linear-gradient(135deg,#cfc9bd,#a8a294)", display: "flex", alignItems: "center", justifyContent: "center" } }, s.cover ? null : h("span", { style: { color: "rgba(255,255,255,0.9)", fontSize: 15 } }, s.source === "netease" ? "☁" : "♪")),
-            h("div", { className: "flex-1 min-w-0" },
-              h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14.5, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, (s.id === nowId && playing ? "▶ " : "") + s.title),
-              h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.artist || (s.source === "netease" ? "网易云" : "本地")))),
-          h("button", { onClick: () => onToggleFav(s.id), className: "active:opacity-60 shrink-0", style: { fontSize: 15, color: s.fav ? "#e0576b" : t.fog, padding: "0 3px" } }, s.fav ? "♥" : "♡"),
-          h("button", { onClick: () => onRemoveSong(s.id), className: "active:opacity-60 shrink-0", style: { fontFamily: F_BODY, fontSize: 15, color: t.fog } }, "×")))))
-        : null,
-      // 添加：搜索(需API) / 网易云链接ID / 本地
-      h("div", { style: { background: t.bg2, border: "1px solid " + t.line, borderRadius: 16, padding: "12px 14px", marginTop: 18 } },
-        h("div", { className: "flex gap-2", style: { marginBottom: 10 } }, apiBase ? tabBtn("search", "搜歌名") : null, tabBtn("netease", "链接/ID"), tabBtn("local", "本地")),
-        tab === "search" && apiBase
-          ? h("div", null,
-              h("div", { className: "flex gap-2", style: { marginBottom: 8 } },
-                h("input", { value: q, onChange: e => setQ(e.target.value), onKeyDown: e => { if (e.key === "Enter") doSearch(); }, placeholder: "搜歌名 / 歌手", style: field }),
-                h("button", { onClick: doSearch, disabled: searching || !q.trim(), className: "active:opacity-70 disabled:opacity-40", style: { background: t.ink, color: t.bg2, fontFamily: F_BODY, fontSize: 13, padding: "0 16px", borderRadius: 8, flexShrink: 0 } }, searching ? "…" : "搜")),
-              results == null ? null : results.length === 0
-                ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, padding: "8px 0" } }, "没搜到（或接口没响应）")
-                : h("div", { className: "space-y-1.5", style: { maxHeight: "38vh", overflowY: "auto" } }, results.map(s => h("button", { key: s.id, onClick: () => onAddNeteaseResult(s), className: "w-full flex items-center gap-2.5 active:opacity-70", style: { textAlign: "left", padding: "5px 4px" } },
-                    h("div", { style: { flexShrink: 0, width: 38, height: 38, borderRadius: 6, background: s.cover ? "center/cover no-repeat url(" + s.cover + ")" : "linear-gradient(135deg,#cfc9bd,#a8a294)" } }),
-                    h("div", { className: "flex-1 min-w-0" },
-                      h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.name),
-                      h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.artist || "未知歌手")),
-                    h("span", { style: { fontFamily: F_BODY, fontSize: 12, color: t.tint, flexShrink: 0 } }, "＋")))))
-          : tab === "netease"
-            ? h("div", null,
-                h("input", { value: link, onChange: e => setLink(e.target.value), placeholder: "贴网易云分享链接或歌曲ID", style: Object.assign({ marginBottom: 8 }, field) }),
-                h("input", { value: title, onChange: e => setTitle(e.target.value), placeholder: "歌名（选填，填了角色聊得更准）", style: Object.assign({ marginBottom: 8 }, field) }),
-                h("div", { className: "flex items-center gap-2" },
-                  h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, flex: 1, lineHeight: 1.4 } }, "分享→复制链接贴进来；VIP/无版权可能放不出"),
-                  h("button", { onClick: addNet, disabled: !link.trim(), className: "active:opacity-70 disabled:opacity-40", style: { background: t.ink, color: t.bg2, fontFamily: F_DISPLAY, fontSize: 14, padding: "7px 18px", borderRadius: 10, flexShrink: 0 } }, "添加")))
-            : h("div", null,
-                h("button", { onClick: () => audioFileRef.current && audioFileRef.current.click(), className: "w-full active:opacity-70", style: { fontFamily: F_BODY, fontSize: 12.5, color: localFile ? t.ink : t.tint, border: "1px dashed " + t.line, borderRadius: 8, padding: "10px", marginBottom: 8 } }, localFile ? "✓ " + localFile.name.slice(0, 24) : "＋ 选一个音频文件"),
-                h("input", { value: title, onChange: e => setTitle(e.target.value), placeholder: "歌名（留空=文件名）", style: Object.assign({ marginBottom: 8 }, field) }),
-                h("div", { className: "flex items-center gap-2" },
-                  h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, flex: 1, lineHeight: 1.4 } }, "只存这台设备，不上传；清缓存会没"),
-                  h("button", { onClick: addLoc, disabled: !localFile, className: "active:opacity-70 disabled:opacity-40", style: { background: t.ink, color: t.bg2, fontFamily: F_DISPLAY, fontSize: 14, padding: "7px 18px", borderRadius: 10, flexShrink: 0 } }, "添加"))),
-        // 网易云搜索接口设置
-        h("div", { style: { borderTop: "1px solid " + t.line, marginTop: 12, paddingTop: 10 } },
-          apiEdit
-            ? h("div", null,
-                h("input", { value: apiInput, onChange: e => setApiInput(e.target.value), placeholder: "https://你的-netease-api.vercel.app", style: Object.assign({ marginBottom: 8 }, field) }),
-                h("div", { className: "flex gap-2" },
-                  h("button", { onClick: () => { onSetApiBase(apiInput); setApiEdit(false); }, className: "flex-1 py-2 active:opacity-70", style: { background: t.ink, color: t.bg2, fontFamily: F_BODY, fontSize: 13, borderRadius: 8 } }, "保存"),
-                  h("button", { onClick: () => setApiEdit(false), className: "flex-1 py-2 active:opacity-70", style: { border: "1px solid " + t.line, color: t.fog, fontFamily: F_BODY, fontSize: 13, borderRadius: 8 } }, "取消")))
-            : h("button", { onClick: () => { setApiInput(apiBase || ""); setApiEdit(true); }, className: "active:opacity-70", style: { fontFamily: F_BODY, fontSize: 11.5, color: apiBase ? t.fog : t.tint } }, apiBase ? "✓ 已连搜索接口 · 改" : "＋ 配网易云搜索接口（自部署后填地址，就能搜歌名）"))),
-      h("input", { ref: audioFileRef, type: "file", accept: "audio/*", onChange: e => { const f = e.target.files && e.target.files[0]; if (f) setLocalFile(f); e.target.value = ""; }, style: { display: "none" } }),
-      h("input", { ref: discRef, type: "file", accept: "image/*", onChange: e => { const f = e.target.files && e.target.files[0]; if (f) onSetDisc(f); e.target.value = ""; }, style: { display: "none" } })));
+    h(Head, { zh: "一起听", en: nav === "play" && now ? (idx + 1) + " / " + songs.length : "Listen", onBack }),
+    h("div", { className: "flex-1 overflow-y-auto" }, nav === "play" ? playTab : nav === "home" ? homeTab : mineTab),
+    // 底部三 tab：首页 / 播放 / 我的
+    h("div", { className: "shrink-0 flex items-stretch", style: { borderTop: "1px solid " + t.line, background: t.bg } },
+      navBtn("home", "首页", h("svg", { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: nav === "home" ? t.ink : t.fog, strokeWidth: 1.7 }, h("path", { d: "M4 11l8-6 8 6M6 10v9h12v-9" }))),
+      navBtn("play", "播放", h("svg", { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: nav === "play" ? t.ink : t.fog, strokeWidth: 1.7 }, h("circle", { cx: 12, cy: 12, r: 8 }), h("path", { d: "M10 9l5 3-5 3z", fill: nav === "play" ? t.ink : t.fog }))),
+      navBtn("mine", "我的", h("svg", { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: nav === "mine" ? t.ink : t.fog, strokeWidth: 1.7 }, h("circle", { cx: 12, cy: 8, r: 3.4 }), h("path", { d: "M5 20c0-3.6 3.1-5.5 7-5.5s7 1.9 7 5.5" })))),
+    h("input", { ref: audioFileRef, type: "file", accept: "audio/*", onChange: e => { const f = e.target.files && e.target.files[0]; if (f) { setLocalFile(f); setAddTab("local"); setNav("home"); } e.target.value = ""; }, style: { display: "none" } }),
+    h("input", { ref: coverRef, type: "file", accept: "image/*", onChange: e => { const f = e.target.files && e.target.files[0]; if (f && now) onSetCover(now.id, f); e.target.value = ""; }, style: { display: "none" } }));
 }
 
 // 设置·情侣问答自定义题库：为每个角色单独加题（各角色不互通，内置 60 题仍共用）

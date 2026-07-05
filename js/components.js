@@ -492,23 +492,50 @@ function CalWidget({ now, calendar, onOpen, period }) {
       })));
 }
 // 一起听·主屏音乐组件（展示型，不真放声音）：左唱片 + 正在听的歌 + 装饰进度条
-function MusicWidget({ listen, onOpen }) {
+function MusicWidget({ listen, player, onOpen }) {
   const t = useTheme();
   const data = listen || {};
-  const now = (data.songs || [])[0] || null;
-  const discImg = data.disc || (now && now.cover) || null;
+  const songs = data.songs || [];
+  // 实时反映全局播放器正在放的歌（没在放就退回第一首/空）
+  const nowId = (player && player.songId) || null;
+  const now = songs.find(s => s.id === nowId) || songs[0] || null;
+  const playing = !!(player && player.playing && now && now.id === nowId);
+  const discImg = (now && now.cover) || data.disc || null;
+  const frac = player && player.dur ? Math.max(0, Math.min(1, (player.t || 0) / player.dur)) : 0;
   return h("button", { onClick: onOpen, className: "w-full active:opacity-85 text-left",
     style: { marginTop: 12, background: "rgba(255,255,255,0.5)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.6)", borderRadius: 22, padding: "12px 14px", boxShadow: "0 8px 30px rgba(30,28,24,0.1)", display: "flex", alignItems: "center", gap: 13 } },
-    h("div", { style: { flexShrink: 0, width: 56, height: 56, borderRadius: 999, background: discImg ? "center/cover no-repeat url(" + discImg + ")" : "radial-gradient(circle at 50% 50%, #4a4a52 0 34%, #2b2b30 35%)", boxShadow: "0 3px 12px rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center" } },
+    h("div", { style: { flexShrink: 0, width: 56, height: 56, borderRadius: 999, background: discImg ? "center/cover no-repeat url(" + discImg + ")" : "radial-gradient(circle at 50% 50%, #4a4a52 0 34%, #2b2b30 35%)", boxShadow: "0 3px 12px rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center", animation: playing ? "wk-spin 9s linear infinite" : "none" } },
       h("div", { style: { width: 14, height: 14, borderRadius: 999, background: "rgba(255,255,255,0.85)", border: "3px solid rgba(0,0,0,0.25)" } })),
     h("div", { style: { flex: 1, minWidth: 0 } },
-      h("div", { style: { fontFamily: F_BODY, fontSize: 9.5, letterSpacing: "0.12em", color: t.fog, marginBottom: 2 } }, now ? "正在一起听" : "一起听"),
+      h("div", { style: { fontFamily: F_BODY, fontSize: 9.5, letterSpacing: "0.12em", color: t.fog, marginBottom: 2 } }, playing ? "正在播放" : now ? "一起听" : "一起听"),
       h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16.5, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, now ? now.title : "还没有歌"),
       h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 } }, now ? (now.artist || "未知歌手") : "点这里添加你们在听的歌"),
       h("div", { style: { height: 3, borderRadius: 999, background: "rgba(0,0,0,0.08)", marginTop: 8, position: "relative" } },
-        h("div", { style: { position: "absolute", left: 0, top: 0, bottom: 0, width: "34%", borderRadius: 999, background: t.accent } }))),
+        h("div", { style: { position: "absolute", left: 0, top: 0, bottom: 0, width: (frac ? frac * 100 : 0) + "%", borderRadius: 999, background: t.accent } }))),
     h("div", { style: { flexShrink: 0, width: 34, height: 34, borderRadius: 999, background: "rgba(0,0,0,0.05)", display: "flex", alignItems: "center", justifyContent: "center" } },
-      h("div", { style: { width: 0, height: 0, borderTop: "6px solid transparent", borderBottom: "6px solid transparent", borderLeft: "10px solid " + t.ink, marginLeft: 2 } })));
+      playing
+        ? h("div", { style: { display: "flex", gap: 2 } }, h("div", { style: { width: 3, height: 12, borderRadius: 2, background: t.ink } }), h("div", { style: { width: 3, height: 12, borderRadius: 2, background: t.ink } }))
+        : h("div", { style: { width: 0, height: 0, borderTop: "6px solid transparent", borderBottom: "6px solid transparent", borderLeft: "10px solid " + t.ink, marginLeft: 2 } })));
+}
+// 全局悬浮迷你播放器：一起听退出后仍浮在别的界面上，点开跳回播放器、就地播放/暂停/下一首
+function MiniPlayer({ song, playing, loading, onOpen, onToggle, onNext }) {
+  const t = useTheme();
+  if (!song) return null;
+  const cover = song.cover || null;
+  const stop = (e, fn) => { e.stopPropagation(); fn(); };
+  return h("div", { onClick: onOpen, className: "active:opacity-90",
+    style: { position: "fixed", right: 12, bottom: 84, zIndex: 60, display: "flex", alignItems: "center", gap: 9, maxWidth: "78vw",
+      background: "rgba(28,26,24,0.92)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderRadius: 999, padding: "6px 8px 6px 6px", boxShadow: "0 8px 26px rgba(0,0,0,0.35)" } },
+    h("div", { style: { flexShrink: 0, width: 38, height: 38, borderRadius: 999, background: cover ? "center/cover no-repeat url(" + cover + ")" : "radial-gradient(circle at 50% 50%, #55555c 0 36%, #2b2b30 37%)", animation: playing ? "wk-spin 9s linear infinite" : "none" } }),
+    h("div", { style: { minWidth: 0, maxWidth: 118 } },
+      h("div", { style: { fontFamily: F_DISPLAY, fontSize: 13, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, song.title),
+      h("div", { style: { fontFamily: F_BODY, fontSize: 10, color: "rgba(255,255,255,0.6)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, song.artist || "")),
+    h("button", { onClick: e => stop(e, onToggle), className: "active:opacity-60 shrink-0 flex items-center justify-center", style: { width: 30, height: 30 } },
+      loading ? h("span", { style: { color: "#fff", fontSize: 12 } }, "…")
+      : playing ? h("svg", { width: 18, height: 18, viewBox: "0 0 24 24" }, h("rect", { x: 6, y: 5, width: 4, height: 14, rx: 1, fill: "#fff" }), h("rect", { x: 14, y: 5, width: 4, height: 14, rx: 1, fill: "#fff" }))
+      : h("svg", { width: 18, height: 18, viewBox: "0 0 24 24" }, h("path", { d: "M8 5v14l11-7z", fill: "#fff" }))),
+    h("button", { onClick: e => stop(e, onNext), className: "active:opacity-60 shrink-0 flex items-center justify-center", style: { width: 28, height: 30, marginRight: 2 } },
+      h("svg", { width: 16, height: 16, viewBox: "0 0 24 24" }, h("path", { d: "M5 5v14l10-7z", fill: "#fff" }), h("rect", { x: 15.6, y: 5, width: 2.4, height: 14, rx: 1, fill: "#fff" }))));
 }
 // 全屏月历
 // 经期预测
@@ -680,6 +707,7 @@ function Home({
   calendar,
   period,
   listen,
+  player,
   homeCard,
   onOpenApp,
   onOpenChar,
@@ -716,7 +744,8 @@ function Home({
   ] };
   const folderPlay = { key: "f_play", zh: "玩法", apps: [
     { key: "debate", zh: "辩论", G: GSoon, soon: true },
-    { key: "pomodoro", zh: "番茄钟", G: GSoon, soon: true }
+    { key: "pomodoro", zh: "番茄钟", G: GSoon, soon: true },
+    { key: "tarot", zh: "塔罗", G: GSoon, soon: true }
   ] };
   // 注册表：所有可摆放的项（组件 w_ / app 图标 / 文件夹），供布局按 key 查
   const REG = {
@@ -882,7 +911,7 @@ function Home({
     else if (it.kind === "folder") inner = h(FolderIcon, { apps: it.folder.apps, label: it.folder.zh, onOpen: function () { if (!editMode) setOpenFolder(it.folder); } });
     else if (it.which === "card") inner = h(HomeCard, { card: homeCard, profile: profile, onEditCard: onEditCard, onEditProfile: onEditProfile });
     else if (it.which === "cal") inner = h(CalWidget, { now: now, calendar: calendar, period: period, onOpen: function () { return onOpenApp("calendar"); } });
-    else if (it.which === "music") inner = h(MusicWidget, { listen: listen, onOpen: function () { return onOpenApp("listen"); } });
+    else if (it.which === "music") inner = h(MusicWidget, { listen: listen, player: player, onOpen: function () { return onOpenApp("listen"); } });
     return h("div", {
       key: key, "data-appkey": key,
       style: {
