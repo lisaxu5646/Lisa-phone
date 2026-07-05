@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v35";
+const APP_VERSION = "v36";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -34,9 +34,11 @@ function BatteryBadge() {
 // 顶部细状态栏（在流里，不浮空、不压组件）：左版本号 + 右电池。每页都在。做完可整块去掉。
 function DevBadges() {
   const t = useTheme();
-  return h("div", { className: "shrink-0 flex items-center justify-between", style: { height: 19, padding: "0 13px", pointerEvents: "none" } },
-    h("span", { style: { fontFamily: "monospace", fontSize: 10, letterSpacing: 0.5, color: t.ink, opacity: 0.4 } }, APP_VERSION),
-    h(BatteryBadge, null));
+  // 绝对定位浮层：不占布局高度（不再压缩顶部内容），pointerEvents:none 不挡点击
+  const base = { position: "absolute", top: "calc(env(safe-area-inset-top) + 2px)", zIndex: 50, pointerEvents: "none" };
+  return h(React.Fragment, null,
+    h("span", { style: Object.assign({ left: 8, fontFamily: "monospace", fontSize: 9, letterSpacing: 0.4, color: t.ink, opacity: 0.3 }, base) }, APP_VERSION),
+    h("span", { style: Object.assign({ right: 8, display: "flex", alignItems: "center" }, base) }, h(BatteryBadge, null)));
 }
 // 一起听·本地音频存 IndexedDB（音频文件大，localStorage 5MB 存不下）。key=歌曲id，value=Blob。
 function idbAudioOpen() {
@@ -146,6 +148,11 @@ function App() {
   // 一起听（展示型，不真放声音）：{ disc:封面/唱片图 dataURL, songs:[{id,title,artist,cover,ts}] }；正在听=songs[0]
   const [listen, setListen] = useState({ disc: null, songs: [] });
   const [neteaseApi, setNeteaseApi] = useState("");
+  const listenRef = useRef(listen); listenRef.current = listen;
+  // 全局播放器：<audio> 挂在根节点 → 退出「一起听」界面也继续播（后台播放）
+  const [player, setPlayer] = useState({ songId: null, playing: false, t: 0, dur: 0, loading: false, err: null });
+  const audioElRef = useRef(null);
+  const playUrlRef = useRef(null); // 本地歌的 objectURL，切歌时回收
   // 情侣空间·甜蜜值：{ [charId]: { value:数字, last:"YYYY-MM-DD" } }，每日打卡 +0.1~1
   const [coupleSweet, setCoupleSweet] = useState({});
   // 情侣空间·详情页自定义：{ [charId]: { bg, myAvatar, charAvatar } }（默认取角色头像/我的头像，不影响原头像）
@@ -297,7 +304,7 @@ function App() {
     setCoupleAnniv(loadJSON("x_coupleAnniv", []));
     setCoupleLetters(loadJSON("x_coupleLetters", []));
     setCoupleLetterCfg(loadJSON("x_coupleLetterCfg", {}));
-    setListen(loadJSON("x_listen", { disc: null, songs: [] }));
+    { const L = loadJSON("x_listen", { disc: null, songs: [] }); setListen(L); setPlayer(p => ({ ...p, songId: L.nowId || (L.songs && L.songs[0] && L.songs[0].id) || null })); }
     setNeteaseApi(loadJSON("x_neteaseApi", ""));
     setCoupleSweet(loadJSON("x_coupleSweet", {}));
     setCoupleProfile(loadJSON("x_coupleProfile", {}));
@@ -3880,8 +3887,38 @@ function App() {
     if (coverFile) { try { cover = await resizeImageFile(coverFile, 500, 0.82); } catch (e) {} }
     saveListen(p => ({ ...p, songs: [{ id: "sg_" + Date.now(), title: tt, artist: (artist || "").trim(), cover: cover, ts: Date.now() }, ...(p.songs || [])].slice(0, 30) }));
   };
-  const playListenSong = id => saveListen(p => { const s = (p.songs || []).find(x => x.id === id); if (!s) return p; return { ...p, songs: [{ ...s, ts: Date.now() }, ...(p.songs || []).filter(x => x.id !== id)] }; });
   const removeListenSong = id => { idbAudioDel(id); saveListen(p => ({ ...p, songs: (p.songs || []).filter(x => x.id !== id) })); };
+  // ---- 全局播放器 handlers ----
+  const resolvePlayUrl = async song => {
+    if (!song) return null;
+    if (song.source === "local") { const blob = await idbAudioGet(song.id); return blob ? URL.createObjectURL(blob) : null; }
+    if (song.source === "netease") {
+      if (!neteaseApi) return null;
+      try { const r = await fetch(neteaseApi + "/song/url?id=" + song.neteaseId); const d = await r.json(); const u = d && d.data && d.data[0] && d.data[0].url; return u ? String(u).replace(/^http:/, "https:") : null; } catch (e) { return null; }
+    }
+    return null;
+  };
+  const playSong = async songId => {
+    const song = (listenRef.current.songs || []).find(s => s.id === songId);
+    if (!song) return;
+    setPlayer(p => ({ ...p, songId: songId, loading: true, playing: false, err: null }));
+    saveListen(p => ({ ...p, nowId: songId })); // 记住当前，退出再进还在
+    const url = await resolvePlayUrl(song);
+    if (playUrlRef.current) { URL.revokeObjectURL(playUrlRef.current); playUrlRef.current = null; }
+    if (!url) { setPlayer(p => ({ ...p, loading: false, playing: false, err: song.source === "netease" ? "拿不到播放地址（多半 VIP/无版权）" : "音频丢了（可能清过缓存）" })); return; }
+    if (song.source === "local") playUrlRef.current = url;
+    const el = audioElRef.current;
+    if (el) { el.src = url; el.play().then(() => setPlayer(p => ({ ...p, playing: true, loading: false }))).catch(() => setPlayer(p => ({ ...p, loading: false }))); }
+  };
+  const togglePlay = () => {
+    const el = audioElRef.current; if (!el) return;
+    if (!player.songId) { const q = listenRef.current.songs || []; if (q.length) playSong(q[0].id); return; }
+    if (el.paused) { if (!el.getAttribute("src")) return playSong(player.songId); el.play(); setPlayer(p => ({ ...p, playing: true })); }
+    else { el.pause(); setPlayer(p => ({ ...p, playing: false })); }
+  };
+  const stepSong = dir => { const q = listenRef.current.songs || []; if (!q.length) return; const i = Math.max(0, q.findIndex(s => s.id === player.songId)); playSong(q[(i + dir + q.length) % q.length].id); };
+  const seekPlayer = frac => { const el = audioElRef.current; if (el && el.duration) el.currentTime = Math.max(0, Math.min(1, frac)) * el.duration; };
+  const toggleFav = id => saveListen(p => ({ ...p, songs: (p.songs || []).map(s => s.id === id ? { ...s, fav: !s.fav } : s) }));
   // 网易云外链：贴链接/分享文案/裸ID → 抠 id，用官方 outchain iframe 播放（无需登陆；VIP/版权歌可能放不了）
   const addNeteaseSong = (input, title, artist) => {
     const nid = parseNeteaseId(input);
@@ -4892,14 +4929,18 @@ function App() {
     onSetDisc: setListenDisc,
     onAddNetease: addNeteaseSong,
     onAddLocal: addLocalSong,
-    onPlaySong: playListenSong,
+    onPlaySong: playSong,
     onRemoveSong: removeListenSong,
     onSetPartner: setListenPartner,
     onReact: reactListenSong,
-    getAudio: idbAudioGet,
     apiBase: neteaseApi,
     onSetApiBase: saveNeteaseApi,
     onAddNeteaseResult: addNeteaseResult,
+    player: player,
+    onTogglePlay: togglePlay,
+    onStep: stepSong,
+    onSeek: seekPlayer,
+    onToggleFav: toggleFav,
     gen: gen.listen
   });else if (screen === "calendar") body = h(Calendar, {
     characters: characters,
@@ -4966,7 +5007,12 @@ function App() {
       height: "env(safe-area-inset-top)"
     },
     className: "shrink-0"
-  }) : null, /*#__PURE__*/React.createElement(DevBadges, null), /*#__PURE__*/React.createElement("div", {
+  }) : null, /*#__PURE__*/React.createElement(DevBadges, null), /*#__PURE__*/React.createElement("audio", {
+    ref: audioElRef,
+    style: { display: "none" },
+    onTimeUpdate: e => setPlayer(p => ({ ...p, t: e.target.currentTime || 0, dur: e.target.duration || 0 })),
+    onEnded: () => stepSong(1)
+  }), /*#__PURE__*/React.createElement("div", {
     className: "flex-1 min-h-0 relative"
   }, body), stateCardOpen && activeChar && /*#__PURE__*/React.createElement(StateCard, {
     character: activeChar,
