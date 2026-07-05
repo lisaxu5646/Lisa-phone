@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v41";
+const APP_VERSION = "v42";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -194,6 +194,12 @@ function App() {
   carryGiftsRef.current = carryGifts;
   schedulesRef.current = schedules;
   const [unreadMap, setUnreadMap] = useState({});
+  // 角色动态保底计数：每次私聊回复给每个角色的三类动态 +1；到阈值就强制发一条（悄悄话≥15轮、朋友圈≥30轮、论坛≥50轮或3天）
+  const [ambientCount, setAmbientCount] = useState({});
+  const ambientCountRef = useRef({}); ambientCountRef.current = ambientCount;
+  // 主屏红点：角色发了朋友圈/论坛/悄悄话没看的数量，进对应界面清零
+  const [appNotif, setAppNotif] = useState({ moments: 0, forum: 0, whisper: 0 });
+  const appNotifRef = useRef({ moments: 0, forum: 0, whisper: 0 }); appNotifRef.current = appNotif;
   const [profile, setProfile] = useState({});
   const [worldbook, setWorldbook] = useState("");
   const [theme, setTheme] = useState(DEFAULT_THEME);
@@ -332,6 +338,8 @@ function App() {
     setCarry(loadJSON("x_carry", {}));
     setCarryGifts(loadJSON("x_carryGifts", {}));
     setUnreadMap(loadJSON("x_unread", {}));
+    setAmbientCount(loadJSON("x_ambientCount", {}));
+    setAppNotif(loadJSON("x_appNotif", { moments: 0, forum: 0, whisper: 0 }));
     setProfile(loadJSON("x_profile", {}));
     setHomeCard(loadJSON("x_homeCard", { name: "", sign: "", tags: [] }));
     setWorldbook(loadJSON("x_worldbook", ""));
@@ -1105,7 +1113,7 @@ function App() {
         : "";
       // 一起听邀请：偶尔主动约对方一起听歌
       const inviteHint = isListenPartner ? "" : "\n【邀你一起听歌】偶尔（想跟 " + uName + " 分享一首歌、此刻在听到好歌、或气氛正好时，很克制、别频繁、绝大多数回合都 null），你可以主动邀请一起听歌：listenInvite 填 {\"song\":\"想一起听的歌名（可留空）\",\"say\":\"邀请的话，一句\"}；不邀请就 null。";
-      const system = bundle + ("\n\n【任务】完全代入「" + char.name + "」通过手机即时通讯和用户聊天。**必须把话拆成多条短气泡：word 数组给多个元素，每条只放一两句，像真人发微信那样一句一条连着发；绝不要把一大段话塞进一个气泡。**语气自然，不要旁白/动作/括号小动作。依据关系网与好感度把握亲密度，不提前暴露未发生的剧情。若开启了时间/位置感知，可自然回应但别生硬报数据。" + callHint + proactiveHint + gapHint + wearHint + ambientHint + listenHint + inviteHint + "\n【引用】大多数情况 quote 填 null。只有当用户一次发了好几条、你明确针对其中较早的某一句作答、需要指明是哪句时，才在 quote 放那句原文；正常顺着对话回复不要引用，别每条都引用。\n若此刻你想主动转账给用户（如还钱、给心意、打赏），填 transfer:{\"amount\":数字,\"note\":\"附言\"}，否则 null。若你想把自己所在的位置发给用户（如提到你在哪），填 location:{\"name\":\"地点名\"}，否则 null。\n若此刻你想主动买一件东西送给用户（贴合人设与好感的心意/惊喜，别频繁），填 gift:{\"name\":\"礼物名\"}，否则 null。它会像快递一样过段时间送到用户手上。" + kinHint + emoteHint + "\n【语音】若你想发语音消息（懒得打字、唱一句、语气/情绪很重要、亲密时想让 Ta 听见），把要说的话放进 voice 数组——每个元素是一条语音的「转文字」内容（会显示成语音气泡＋下面转文字）；多数时候还是用文字 word，voice 只偶尔用，不发就给 []。\n【通话】若此刻你很想直接跟对方通话（想听声音、有急事、撒娇、煲电话粥），可以主动发起：call 填 \"voice\"（语音）或 \"video\"（视频），会给对方弹一张来电邀请卡；不想就 null，别频繁、偶尔为之。\n【拉黑】仅当用户言行让你极度愤怒/被深深冒犯/彻底寒心、且以你的人设你真的会「拉黑」对方时，才填 block:true 并在 blockreason 写一句原因——要非常罕见、有充分理由，绝大多数情况 block 为 false。\n【撤回】若你发出后又后悔某句、说漏了嘴、或不想让 Ta 看到，可以撤回那一句：填 recall:{\"text\":\"要撤回的那句原文（要和你 word 里的某句一致或另说一句）\",\"reason\":\"你撤回它的心里想法/原因\"}，否则一律 null，别频繁撤回。\n【朋友圈】若聊到用户的朋友圈、或你此刻想去 Ta 某条朋友圈下补一条评论/点赞（尤其你之前没评论、现在说要去评），把评论内容填进 momentComment（会真的发到 Ta 最新那条朋友圈下），否则 null。\n【输出】只输出一个 JSON，不要代码块：\n{\"word\":[\"气泡1\",\"气泡2\"],\"quote\":\"你在回应的用户那句话原文或null\",\"transfer\":null,\"location\":null,\"gift\":null,\"kinshipcard\":null,\"block\":false,\"blockreason\":null,\"recall\":null,\"momentComment\":null,\"forumPost\":null,\"whisper\":null,\"thought\":\"此刻没说出口的真实心声（点头像能看到的『心声』面板会显示它——请尽量每条都写、最多隔一两条就更新一次，别老留空或重复上一条；一般一句，情绪复杂或有心事时写得更长更细腻）\",\"moment\":\"想发的动态或null\",\"affinityDelta\":整数(-5到5通常0),\"mood\":{\"label\":\"此刻心情词\",\"baseline\":\"平复后的心情词\",\"softened\":\"半衰后的心情词\"},\"wearing\":\"此刻穿着一句\",\"action\":\"此刻在做的动作（一般一句；情境需要时可写两三句更具体）\",\"emote\":\"想发的表情关键词或null\",\"voice\":[],\"call\":null,\"songSwitch\":null,\"listenInvite\":null}").replace(/用户/g, uName);
+      const system = bundle + ("\n\n【任务】完全代入「" + char.name + "」通过手机即时通讯和用户聊天。**必须把话拆成多条短气泡：word 数组给多个元素，每条只放一两句，像真人发微信那样一句一条连着发；绝不要把一大段话塞进一个气泡。**语气自然，不要旁白/动作/括号小动作。依据关系网与好感度把握亲密度，不提前暴露未发生的剧情。若开启了时间/位置感知，可自然回应但别生硬报数据。" + callHint + proactiveHint + gapHint + wearHint + ambientHint + listenHint + inviteHint + "\n【引用】大多数情况 quote 填 null。只有当用户一次发了好几条、你明确针对其中较早的某一句作答、需要指明是哪句时，才在 quote 放那句原文；正常顺着对话回复不要引用，别每条都引用。\n若此刻你想主动转账给用户（如还钱、给心意、打赏），填 transfer:{\"amount\":数字,\"note\":\"附言\"}，否则 null。若你想把自己所在的位置发给用户（如提到你在哪），填 location:{\"name\":\"地点名\"}，否则 null。\n若此刻你想主动买一件东西送给用户（贴合人设与好感的心意/惊喜，别频繁），填 gift:{\"name\":\"礼物名\"}，否则 null。它会像快递一样过段时间送到用户手上。" + kinHint + emoteHint + "\n【语音】若你想发语音消息（懒得打字、唱一句、语气/情绪很重要、亲密时想让 Ta 听见），把要说的话放进 voice 数组——每个元素是一条语音的「转文字」内容（会显示成语音气泡＋下面转文字）；多数时候还是用文字 word，voice 只偶尔用，不发就给 []。\n【通话】若此刻你很想直接跟对方通话（想听声音、有急事、撒娇、煲电话粥），可以主动发起：call 填 \"voice\"（语音）或 \"video\"（视频），会给对方弹一张来电邀请卡；不想就 null，别频繁、偶尔为之。\n【拉黑】仅当用户言行让你极度愤怒/被深深冒犯/彻底寒心、且以你的人设你真的会「拉黑」对方时，才填 block:true 并在 blockreason 写一句原因——要非常罕见、有充分理由，绝大多数情况 block 为 false。\n【撤回】若你发出后又后悔某句、说漏了嘴、或不想让 Ta 看到，可以撤回那一句：填 recall:{\"text\":\"要撤回的那句原文（要和你 word 里的某句一致或另说一句）\",\"reason\":\"你撤回它的心里想法/原因\"}，否则一律 null，别频繁撤回。\n【朋友圈】若聊到用户的朋友圈、或你此刻想去 Ta 某条朋友圈下补一条评论/点赞（尤其你之前没评论、现在说要去评），把评论内容填进 momentComment（会真的发到 Ta 最新那条朋友圈下），否则 null。\n【输出】只输出一个 JSON，不要代码块：\n{\"word\":[\"气泡1\",\"气泡2\"],\"quote\":\"你在回应的用户那句话原文或null\",\"transfer\":null,\"location\":null,\"gift\":null,\"kinshipcard\":null,\"block\":false,\"blockreason\":null,\"recall\":null,\"momentComment\":null,\"forumPost\":null,\"whisper\":null,\"thought\":\"此刻没说出口的真实心声——【必填，每一条回复都要写，绝不许空/不许 null/不许照抄上一条】。用户点你头像的『心声』面板就靠它实时更新，所以每回合都要给一句此刻脑子里真实的念头（对刚聊的、对 TA、对当下处境的想法/情绪/吐槽/小心思都行），贴合当下、和上一条不一样；情绪复杂或有心事时可以更长更细腻\",\"moment\":\"想发的动态或null\",\"affinityDelta\":整数(-5到5通常0),\"mood\":{\"label\":\"此刻心情词\",\"baseline\":\"平复后的心情词\",\"softened\":\"半衰后的心情词\"},\"wearing\":\"此刻穿着一句\",\"action\":\"此刻在做的动作（一般一句；情境需要时可写两三句更具体）\",\"emote\":\"想发的表情关键词或null\",\"voice\":[],\"call\":null,\"songSwitch\":null,\"listenInvite\":null}").replace(/用户/g, uName);
       const g = [];
       for (const m of history) {
         if (m.role === "user") {
@@ -1244,7 +1252,7 @@ function App() {
       }]);
       // 仅当该角色开启了「自由发朋友圈」才把 Ta 想发的动态发出去
       const mo = settingsFor(charId).autoMoment && parsed.moment && String(parsed.moment).toLowerCase() !== "null" ? String(parsed.moment) : null;
-      if (mo) pMom(p => [{
+      if (mo) { pMom(p => [{
         id: "m_" + Date.now(),
         characterId: charId,
         content: mo,
@@ -1252,16 +1260,21 @@ function App() {
         liked: false,
         likeCount: 0,
         comments: []
-      }, ...p]);
+      }, ...p]); notifyApp("moments"); }
       // #A 聊天中按话题顺手发论坛帖（吐槽/分享，常跟着行程）+ 给恋人留悄悄话
+      let ambForum = false, ambWhisper = false;
       if (parsed.forumPost && parsed.forumPost.title && String(parsed.forumPost.title).toLowerCase() !== "null" && !(forumOff || []).includes(charId)) {
         const fp = parsed.forumPost;
         const board = ["吐槽", "日常", "求助"].indexOf(fp.board) >= 0 ? fp.board : "日常";
         postCharToForum(char, board, { title: String(fp.title), body: String(fp.body || "") }, "chat");
+        notifyApp("forum"); ambForum = true;
       }
       if (parsed.whisper && String(parsed.whisper).toLowerCase() !== "null" && couples[charId] && couples[charId].status === "together") {
         setWhispers(p => { const n = [{ id: "w_" + Date.now(), characterId: charId, content: String(parsed.whisper), ts: Date.now() }, ...p]; saveJSON("x_whispers", n); return n; });
+        notifyApp("whisper"); ambWhisper = true;
       }
+      // 动态保底：每轮回复计数，很久没发就强制补一条（不影响本轮已自发的）
+      if (!opts.proactive) tickAmbient(charId, { moment: !!mo, whisper: ambWhisper, forum: ambForum });
       if (typeof parsed.affinityDelta === "number") bumpAff(charId, parsed.affinityDelta, parsed.mood && parsed.mood.label);
       if (parsed.mood && parsed.mood.label) setMoodFor(charId, {
         ...parsed.mood,
@@ -2290,10 +2303,53 @@ function App() {
       else if (kind === "whisper") { const ps = characters.filter(c => couples[c.id] && couples[c.id].status === "together"); if (ps.length) await genWhisper(ps[Math.floor(Math.random() * ps.length)]); }
     } catch (e) {/* 静默 */}
   };
+  // ---- 角色动态：主屏红点通知 + 保底触发 ----
+  const notifyApp = key => setAppNotif(p => { const n = { ...p, [key]: (p[key] || 0) + 1 }; appNotifRef.current = n; saveJSON("x_appNotif", n); return n; });
+  const clearAppNotif = key => setAppNotif(p => { if (!p[key]) return p; const n = { ...p, [key]: 0 }; appNotifRef.current = n; saveJSON("x_appNotif", n); return n; });
+  const autoForumForChar = async char => {
+    if (!active || (forumOffRef.current || []).includes(char.id)) return;
+    try {
+      const d = await runProbe(active, ctxFor(char), {
+        instruction: "以「" + char.name + "」的身份，按你的人设和最近状态，去论坛随手发一个帖（吐槽/日常/求助 三选一），像真人发帖，别客服腔、别报流水账。",
+        schemaHint: "{\"board\":\"吐槽/日常/求助 之一\",\"title\":\"标题\",\"body\":\"正文2-4句\"}"
+      });
+      const board = ["吐槽", "日常", "求助"].indexOf(d && d.board) >= 0 ? d.board : "日常";
+      if (d && d.title) { postCharToForum(char, board, { title: String(d.title), body: String(d.body || "") }, "auto"); notifyApp("forum"); toast(char.name + " 在论坛发了帖"); }
+    } catch (e) {}
+  };
+  const forceAmbient = async (char, type) => {
+    try {
+      if (type === "moment") { await genMoment(char); notifyApp("moments"); toast(char.name + " 发了条朋友圈"); }
+      else if (type === "whisper") { await genWhisper(char); notifyApp("whisper"); toast(char.name + " 给你留了句悄悄话"); }
+      else if (type === "forum") { await autoForumForChar(char); }
+    } catch (e) {}
+  };
+  // 每轮私聊回复后调用：三类动态计数 + 到阈值强制发一条（posted=这条回复已自发的类型，就不重复强制）
+  const tickAmbient = (charId, posted) => {
+    const char = characters.find(c => c.id === charId);
+    if (!char) return;
+    posted = posted || {};
+    const isCouple = couples[charId] && couples[charId].status === "together";
+    const cur = ambientCountRef.current[charId] || { moment: 0, whisper: 0, forum: 0, lastForumTs: Date.now() };
+    const n = {
+      moment: posted.moment ? 0 : (cur.moment || 0) + 1,
+      whisper: posted.whisper ? 0 : (cur.whisper || 0) + 1,
+      forum: posted.forum ? 0 : (cur.forum || 0) + 1,
+      lastForumTs: posted.forum ? Date.now() : (cur.lastForumTs || Date.now())
+    };
+    const due = [];
+    if (isCouple && n.whisper >= 15) due.push("whisper");
+    if (n.moment >= 30) due.push("moment");
+    if ((n.forum >= 50 || Date.now() - (n.lastForumTs || Date.now()) >= 3 * 86400000) && !(forumOffRef.current || []).includes(charId)) due.push("forum");
+    due.forEach(k => { if (k === "whisper") n.whisper = 0; else if (k === "moment") n.moment = 0; else { n.forum = 0; n.lastForumTs = Date.now(); } });
+    const np = { ...ambientCountRef.current, [charId]: n };
+    ambientCountRef.current = np; setAmbientCount(np); saveJSON("x_ambientCount", np);
+    due.forEach(k => forceAmbient(char, k));
+  };
   useEffect(() => {
-    if (screen === "forum") autoAmbientRun("forum"); else ambientRunRef.current.forum = false;
-    if (screen === "us") autoAmbientRun("whisper"); else ambientRunRef.current.whisper = false;
-    if (screen === "messages") autoAmbientRun("moments"); else ambientRunRef.current.moments = false;
+    if (screen === "forum") { autoAmbientRun("forum"); clearAppNotif("forum"); } else ambientRunRef.current.forum = false;
+    if (screen === "us") { autoAmbientRun("whisper"); clearAppNotif("whisper"); } else ambientRunRef.current.whisper = false;
+    if (screen === "messages") { autoAmbientRun("moments"); clearAppNotif("moments"); } else ambientRunRef.current.moments = false;
   }, [screen]);
   // 打开 app 当天第一次就给所有人生成今日行程（每天一次）
   useEffect(() => {
@@ -4030,6 +4086,13 @@ function App() {
   // 顺序 → 单曲循环 → 随机 → 顺序
   const cyclePlayMode = () => saveListen(p => { const order = ["order", "one", "shuffle"]; const cur = p.playMode || "order"; return { ...p, playMode: order[(order.indexOf(cur) + 1) % 3] }; });
   const seekPlayer = frac => { const el = audioElRef.current; if (el && el.duration) el.currentTime = Math.max(0, Math.min(1, frac)) * el.duration; };
+  // 悬浮球上的叉：立刻停播 + 收起悬浮（player.songId 清空 → 悬浮不显示）。再进一起听点歌才会重新唤起。
+  const stopPlayer = () => {
+    const el = audioElRef.current;
+    if (el) { el.pause(); el.removeAttribute("src"); try { el.load(); } catch (e) {} }
+    if (playUrlRef.current) { URL.revokeObjectURL(playUrlRef.current); playUrlRef.current = null; }
+    setPlayer(p => ({ ...p, songId: null, playing: false, t: 0, dur: 0, loading: false, err: null }));
+  };
   // fav / 封面 / 改名：在「全部」库、所有歌单、nowSong 里凡是同 id 的都改（保持各处一份数据一致）
   const patchSongEverywhere = (id, patch) => saveListen(p => ({
     ...p,
@@ -4128,16 +4191,31 @@ function App() {
     try {
       // 用干净上下文：去掉手机在听/最近听歌/朋友圈等会污染推荐的字段（否则角色只会照抄用户刚搜的、或查手机里那两首）
       const cleanCtx = Object.assign({}, ctxFor(char), { phoneNote: "", listenLog: "", momentLog: "", forumEcho: "", giftLog: "", recentChat: "" });
-      let rec = await runProbe(active, cleanCtx, {
-        instruction: "你是「" + char.name + "」。**完全按你自己的人设、成长背景、性格和音乐口味**，列出整整 10 首你自己私下真会单曲循环、真实存在、能在主流音乐平台搜到的歌（华语/欧美/日韩都行，别编造不存在的歌，风格可以多样）。**注意：不要照抄任何『你手机里在听』『最近听过』『用户刚搜过或已有』的歌——那些不算，要给你发自内心喜欢的。必须给满 10 首。** 只给歌，别解释。",
-        schemaHint: "{\"songs\":[{\"title\":\"歌名1\",\"artist\":\"歌手1\"},{\"title\":\"歌名2\",\"artist\":\"歌手2\"}]}", maxTokens: 1400
-      });
-      // 容错解析：可能是 {songs:[...]}、直接数组、或 {list:[...]}；元素可能是对象或"歌名 - 歌手"字符串
-      let wantsRaw = rec && Array.isArray(rec.songs) ? rec.songs : Array.isArray(rec) ? rec : (rec && (rec.list || rec.data || rec.result)) || [];
-      const wants = (Array.isArray(wantsRaw) ? wantsRaw : []).map(w => {
-        if (typeof w === "string") { const parts = w.split(/\s*[-–—/]\s*/); return { title: (parts[0] || "").replace(/^《|》$/g, "").trim(), artist: (parts[1] || "").trim() }; }
-        return { title: String((w && (w.title || w.name || w.song)) || "").trim(), artist: String((w && (w.artist || w.singer || w.by)) || "").trim() };
-      }).filter(s => s.title).slice(0, 12);
+      // 解析：可能是 {songs:[...]}、裸数组、{list/data/result:[...]}；元素可能是对象或"歌名 - 歌手"字符串
+      const parseWants = rec => {
+        let raw = rec && Array.isArray(rec.songs) ? rec.songs : Array.isArray(rec) ? rec : (rec && (rec.list || rec.data || rec.result || rec.tracks)) || [];
+        return (Array.isArray(raw) ? raw : []).map(w => {
+          if (typeof w === "string") { const parts = w.replace(/^\d+[.、)\s]+/, "").split(/\s*[-–—/]\s*/); return { title: (parts[0] || "").replace(/^《|》$/g, "").trim(), artist: (parts[1] || "").trim() }; }
+          return { title: String((w && (w.title || w.name || w.song)) || "").trim(), artist: String((w && (w.artist || w.singer || w.by)) || "").trim() };
+        }).filter(s => s.title);
+      };
+      const probeOnce = async nudge => {
+        try {
+          const rec = await runProbe(active, cleanCtx, {
+            instruction: "你是「" + char.name + "」。**完全按你自己的人设、成长背景、性格和音乐口味**，一次性列出 **正好 10 首**（不是 2 首、不是 3 首，是满满 10 首）你自己私下真会单曲循环、真实存在、能在主流平台搜到的歌（华语/欧美/日韩都行，别编造不存在的歌，风格可多样）。**别照抄任何你手机里在听/最近听过/用户刚搜过或已有的歌，要发自内心喜欢的。songs 数组必须有 10 个元素。**" + (nudge || "") + " 只给歌，别写解释别写序号。",
+            schemaHint: "{\"songs\":[{\"title\":\"某首歌\",\"artist\":\"某歌手\"}, …一共10个… ]}", maxTokens: 1900
+          });
+          return parseWants(rec);
+        } catch (e) { return []; }
+      };
+      let wants = await probeOnce("");
+      // 太少（多半是模型只给了两三首或 JSON 截断）→ 再补一轮，凑够
+      if (wants.length < 8) {
+        const more = await probeOnce("上一次给太少了，这次务必给满 10 首不同的歌。");
+        const seen = new Set(wants.map(s => s.title));
+        more.forEach(s => { if (!seen.has(s.title)) { seen.add(s.title); wants.push(s); } });
+      }
+      wants = wants.slice(0, 12);
       if (!wants.length) { toast("没生成出歌，重试下"); return; }
       const added = [];
       for (const w of wants) {
@@ -4723,6 +4801,7 @@ function App() {
     listen: listen,
     player: player,
     homeCard: homeCard,
+    notif: appNotif,
     onOpenApp: k => k === "listen" ? goListen() : setScreen(k),
     onOpenChar: c => {
       setActiveChar(c);
@@ -5240,7 +5319,8 @@ function App() {
     loading: player.loading,
     onOpen: goListen,
     onToggle: togglePlay,
-    onNext: () => stepSong(1)
+    onNext: () => stepSong(1),
+    onClose: stopPlayer
   }) : null, stateCardOpen && activeChar && /*#__PURE__*/React.createElement(StateCard, {
     character: activeChar,
     affinity: Math.round(affOf(activeChar.id)),

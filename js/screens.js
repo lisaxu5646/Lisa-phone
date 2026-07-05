@@ -2235,10 +2235,31 @@ function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onA
   const field = { fontFamily: F_BODY, fontSize: 13.5, background: t.bg, color: t.ink, border: "1px solid " + t.line, borderRadius: 8, padding: "9px 11px", width: "100%", outline: "none" };
   const tabBtn = (k, label) => h("button", { onClick: () => setAddTab(k), className: "flex-1 py-2 active:opacity-70", style: { fontFamily: F_BODY, fontSize: 12.5, borderRadius: 8, background: addTab === k ? t.ink : t.bg, color: addTab === k ? t.bg2 : t.fog, border: "1px solid " + (addTab === k ? t.ink : t.line) } }, label);
   const ic = (kind, c, size) => { size = size || 22;
-    if (kind === "play") return h("svg", { width: size, height: size, viewBox: "0 0 24 24" }, h("path", { d: "M8 5v14l11-7z", fill: c }));
-    if (kind === "pause") return h("svg", { width: size, height: size, viewBox: "0 0 24 24" }, h("rect", { x: 6, y: 5, width: 4, height: 14, rx: 1, fill: c }), h("rect", { x: 14, y: 5, width: 4, height: 14, rx: 1, fill: c }));
-    if (kind === "prev") return h("svg", { width: size, height: size, viewBox: "0 0 24 24" }, h("rect", { x: 6, y: 5, width: 2.4, height: 14, rx: 1, fill: c }), h("path", { d: "M19 5v14l-10-7z", fill: c }));
-    return h("svg", { width: size, height: size, viewBox: "0 0 24 24" }, h("path", { d: "M5 5v14l10-7z", fill: c }), h("rect", { x: 15.6, y: 5, width: 2.4, height: 14, rx: 1, fill: c }));
+    const svg = (children, o) => h("svg", Object.assign({ width: size, height: size, viewBox: "0 0 24 24" }, o), children);
+    const stroke = { fill: "none", stroke: c, strokeWidth: 1.9, strokeLinecap: "round", strokeLinejoin: "round" };
+    if (kind === "play") return svg(h("path", { d: "M8 5v14l11-7z", fill: c }));
+    if (kind === "pause") return svg([h("rect", { key: 1, x: 6, y: 5, width: 4, height: 14, rx: 1, fill: c }), h("rect", { key: 2, x: 14, y: 5, width: 4, height: 14, rx: 1, fill: c })]);
+    if (kind === "prev") return svg([h("rect", { key: 1, x: 6, y: 5, width: 2.4, height: 14, rx: 1, fill: c }), h("path", { key: 2, d: "M19 5v14l-10-7z", fill: c })]);
+    if (kind === "next") return svg([h("path", { key: 1, d: "M5 5v14l10-7z", fill: c }), h("rect", { key: 2, x: 15.6, y: 5, width: 2.4, height: 14, rx: 1, fill: c })]);
+    // 列表循环
+    if (kind === "repeat") return svg([h("path", { key: 1, d: "M17 2l3 3-3 3", ...stroke }), h("path", { key: 2, d: "M20 5H8a4 4 0 0 0-4 4v1", ...stroke }), h("path", { key: 3, d: "M7 22l-3-3 3-3", ...stroke }), h("path", { key: 4, d: "M4 19h12a4 4 0 0 0 4-4v-1", ...stroke })]);
+    // 单曲循环（循环+中间数字1）
+    if (kind === "repeatone") return svg([h("path", { key: 1, d: "M17 2l3 3-3 3", ...stroke }), h("path", { key: 2, d: "M20 5H8a4 4 0 0 0-4 4v1", ...stroke }), h("path", { key: 3, d: "M7 22l-3-3 3-3", ...stroke }), h("path", { key: 4, d: "M4 19h12a4 4 0 0 0 4-4v-1", ...stroke }), h("text", { key: 5, x: 12, y: 15.5, fill: c, fontSize: 8, fontWeight: 700, textAnchor: "middle", fontFamily: "system-ui" }, "1")]);
+    // 随机
+    if (kind === "shuffle") return svg([h("path", { key: 1, d: "M16 3h5v5", ...stroke }), h("path", { key: 2, d: "M4 20L21 3", ...stroke }), h("path", { key: 3, d: "M21 16v5h-5", ...stroke }), h("path", { key: 4, d: "M15 15l6 6", ...stroke }), h("path", { key: 5, d: "M4 4l5 5", ...stroke })]);
+    // 队列/列表
+    if (kind === "list") return svg([h("path", { key: 1, d: "M4 6h11M4 12h11M4 18h7", ...stroke }), h("path", { key: 2, d: "M18 15l3 3-3 3", ...stroke, strokeWidth: 1.7 })]);
+    // 云（网易云来源）
+    if (kind === "cloud") return svg(h("path", { d: "M7 18h10a3.5 3.5 0 0 0 .5-6.96A5 5 0 0 0 8 9.5 4 4 0 0 0 7 18z", ...stroke }));
+    // 音符（本地来源）
+    if (kind === "note") return svg([h("path", { key: 1, d: "M9 18V6l10-2v12", ...stroke }), h("circle", { key: 2, cx: 6.5, cy: 18, r: 2.5, fill: c }), h("circle", { key: 3, cx: 16.5, cy: 16, r: 2.5, fill: c })]);
+    // 搜索
+    if (kind === "search") return svg([h("circle", { key: 1, cx: 11, cy: 11, r: 7, ...stroke }), h("path", { key: 2, d: "M20 20l-4-4", ...stroke })]);
+    // 上传
+    if (kind === "upload") return svg([h("path", { key: 1, d: "M12 16V4", ...stroke }), h("path", { key: 2, d: "M7 9l5-5 5 5", ...stroke }), h("path", { key: 3, d: "M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2", ...stroke })]);
+    if (kind === "close") return svg([h("path", { key: 1, d: "M6 6l12 12", ...stroke }), h("path", { key: 2, d: "M18 6L6 18", ...stroke })]);
+    if (kind === "heart") return svg(h("path", { d: "M12 21s-7-4.35-9.5-8.5C1 9 3 5.5 6.5 5.5c2 0 3.2 1.2 5.5 3.5 2.3-2.3 3.5-3.5 5.5-3.5C21 5.5 23 9 21.5 12.5 19 16.65 12 21 12 21z", fill: c === "solid" ? "#e0576b" : "none", stroke: c === "solid" ? "#e0576b" : c, strokeWidth: 1.7 }));
+    return svg(h("circle", { cx: 12, cy: 12, r: 8, fill: c }));
   };
   const cbtn = (child, onClick, o) => h("button", { onClick: onClick, className: "active:opacity-60 flex items-center justify-center shrink-0", style: Object.assign({ borderRadius: 999, background: (o && o.bg) || "transparent", width: (o && o.size) || 46, height: (o && o.size) || 46 }, o && o.style) }, child);
   // 歌曲行（列表用）。opts: {queue, inPlaylist(plId), canRename}
@@ -2247,7 +2268,7 @@ function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onA
       editing
         ? h("input", { value: renameText, onChange: e => setRenameText(e.target.value), onKeyDown: e => { if (e.key === "Enter") { onRenameSong(s.id, renameText); setRenameId(null); } }, style: Object.assign({ flex: 1, minWidth: 0 }, field) })
         : h("button", { onClick: () => onPlaySong(s.id, opts.queue), className: "flex items-center gap-3 flex-1 min-w-0 active:opacity-70", style: { textAlign: "left" } },
-            h("div", { style: { flexShrink: 0, width: 42, height: 42, borderRadius: 8, background: s.cover ? "center/cover no-repeat url(" + s.cover + ")" : "linear-gradient(135deg,#cfc9bd,#a8a294)", display: "flex", alignItems: "center", justifyContent: "center" } }, s.cover ? null : h("span", { style: { color: "rgba(255,255,255,0.9)", fontSize: 15 } }, s.source === "netease" ? "☁" : "♪")),
+            h("div", { style: { flexShrink: 0, width: 42, height: 42, borderRadius: 8, background: s.cover ? "center/cover no-repeat url(" + s.cover + ")" : "linear-gradient(135deg,#cfc9bd,#a8a294)", display: "flex", alignItems: "center", justifyContent: "center" } }, s.cover ? null : ic(s.source === "netease" ? "cloud" : "note", "rgba(255,255,255,0.92)", 18)),
             h("div", { className: "flex-1 min-w-0" },
               h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14.5, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, (s.id === nowId && playing ? "▶ " : "") + s.title),
               h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.artist || (s.source === "netease" ? "网易云" : "本地")))),
@@ -2288,12 +2309,12 @@ function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onA
     player && player.err ? h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.accent, marginTop: 2, textAlign: "center" } }, player.err) : null,
     h("div", { className: "flex items-center justify-center gap-3", style: { marginTop: 8 } },
       // 后退键左边：播放模式（列表循环 / 单曲循环 / 随机）
-      cbtn(h("span", { style: { fontSize: 18 } }, ({ order: "🔁", one: "🔂", shuffle: "🔀" })[playMode || "order"]), onCyclePlayMode, { size: 44, style: { background: (playMode && playMode !== "order") ? (t.accent || "#8a6d3b") + "22" : "transparent" } }),
+      cbtn(ic(({ order: "repeat", one: "repeatone", shuffle: "shuffle" })[playMode || "order"], (playMode && playMode !== "order") ? (t.accent || "#8a6d3b") : t.ink, 20), onCyclePlayMode, { size: 44, style: { background: (playMode && playMode !== "order") ? (t.accent || "#8a6d3b") + "22" : "transparent" } }),
       cbtn(ic("prev", t.ink, 24), () => onStep(-1), { size: 50 }),
       cbtn(player && player.loading ? h("span", { style: { color: t.bg2, fontSize: 13 } }, "…") : playing ? ic("pause", t.bg2, 30) : ic("play", t.bg2, 30), onTogglePlay, { bg: t.ink, size: 70 }),
       cbtn(ic("next", t.ink, 24), () => onStep(1), { size: 50 }),
       // 前进键右边：当前队列/歌单顺序
-      cbtn(h("span", { style: { fontSize: 17, color: showQueue ? (t.accent || "#8a6d3b") : t.ink } }, "☰"), () => setShowQueue(v => !v), { size: 44, style: { background: showQueue ? (t.accent || "#8a6d3b") + "22" : "transparent" } })),
+      cbtn(ic("list", showQueue ? (t.accent || "#8a6d3b") : t.ink, 20), () => setShowQueue(v => !v), { size: 44, style: { background: showQueue ? (t.accent || "#8a6d3b") + "22" : "transparent" } })),
     h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 6 } }, ({ order: "列表循环", one: "单曲循环", shuffle: "随机播放" })[playMode || "order"]),
     // 当前队列（展开）
     showQueue ? h("div", { className: "w-full", style: { marginTop: 14 } },
@@ -2321,9 +2342,9 @@ function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onA
     // 搜索栏（仿音乐 app）
     h("div", { className: "flex gap-2 items-center", style: { marginTop: 6 } },
       h("div", { className: "flex-1 flex items-center gap-2", style: { background: t.bg2, border: "1px solid " + t.line, borderRadius: 999, padding: "8px 14px" } },
-        h("span", { style: { color: t.fog, fontSize: 13 } }, "🔍"),
+        ic("search", t.fog, 15),
         h("input", { value: q, onChange: e => setQ(e.target.value), onKeyDown: e => { if (e.key === "Enter") doSearch(); }, placeholder: apiBase ? "全网 搜索歌曲 / 歌手" : "先配搜索接口↓", style: { flex: 1, background: "transparent", border: "none", outline: "none", fontFamily: F_BODY, fontSize: 13.5, color: t.ink } })),
-      h("button", { onClick: () => audioFileRef.current && audioFileRef.current.click(), className: "shrink-0 active:opacity-70 flex items-center justify-center", style: { width: 40, height: 40, borderRadius: 999, background: t.bg2, border: "1px solid " + t.line, fontSize: 16 } }, "⬆")),
+      h("button", { onClick: () => audioFileRef.current && audioFileRef.current.click(), className: "shrink-0 active:opacity-70 flex items-center justify-center", style: { width: 40, height: 40, borderRadius: 999, background: t.bg2, border: "1px solid " + t.line } }, ic("upload", t.ink, 17))),
     // 搜索结果
     apiBase && (searching || results != null) ? h("div", { style: { marginTop: 10 } },
       searching ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, padding: "6px 2px" } }, "搜索中…")

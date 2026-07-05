@@ -1259,7 +1259,7 @@
           busy ? h(Spinner, { label: "生成中…" }) : null,
           list.length ? list.map(function (f) {
             return h(FicCard, { key: f.id, fic: f, characters: characters, userName: userName, onOpen: function () { setOpenId(f.id); }, onLike: function () { likeFic(f.id); } });
-          }) : (busy ? null : h(Empty, { text: view === "shelf" ? "书架空空" : "本版还没有同人文", sub: view === "shelf" ? "收藏或发布的篇目会留在这里追更" : "点右上角 ⚙ 生成，或用底部 ＋ 自己写" }))));
+          }) : (busy ? null : h(Empty, { text: view === "shelf" ? "书架空空" : "本版还没有同人文", sub: view === "shelf" ? "收藏或发布的篇目会留在这里追更" : "点右上角齿轮生成，或用底部加号自己写" }))));
     }
 
     // 发布/我的/rp 是全屏子页（自带返回箭头回 feed），不叠底 nav；feed/shelf 才显示底 nav

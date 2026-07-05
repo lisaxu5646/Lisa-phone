@@ -525,7 +525,7 @@ function MusicWidget({ listen, player, onOpen }) {
         : h("div", { style: { width: 0, height: 0, borderTop: "6px solid transparent", borderBottom: "6px solid transparent", borderLeft: "10px solid " + t.ink, marginLeft: 2 } })));
 }
 // 全局悬浮迷你播放器：所有界面（含主屏）都浮着；可拖动换位置（存 x_miniPos）；点一下跳回播放器
-function MiniPlayer({ song, playing, loading, onOpen, onToggle, onNext }) {
+function MiniPlayer({ song, playing, loading, onOpen, onToggle, onNext, onClose }) {
   const t = useTheme();
   const [pos, setPos] = useState(function () { try { const s = JSON.parse(localStorage.getItem("x_miniPos")); if (s && typeof s.x === "number") return s; } catch (e) {} return null; });
   const elRef = useRef(null);
@@ -561,8 +561,11 @@ function MiniPlayer({ song, playing, loading, onOpen, onToggle, onNext }) {
       loading ? h("span", { style: { color: "#fff", fontSize: 12 } }, "…")
       : playing ? h("svg", { width: 18, height: 18, viewBox: "0 0 24 24" }, h("rect", { x: 6, y: 5, width: 4, height: 14, rx: 1, fill: "#fff" }), h("rect", { x: 14, y: 5, width: 4, height: 14, rx: 1, fill: "#fff" }))
       : h("svg", { width: 18, height: 18, viewBox: "0 0 24 24" }, h("path", { d: "M8 5v14l11-7z", fill: "#fff" }))),
-    h("button", { onPointerDown: e => e.stopPropagation(), onClick: e => btnStop(e, onNext), className: "active:opacity-60 shrink-0 flex items-center justify-center", style: { width: 28, height: 30, marginRight: 2 } },
-      h("svg", { width: 16, height: 16, viewBox: "0 0 24 24" }, h("path", { d: "M5 5v14l10-7z", fill: "#fff" }), h("rect", { x: 15.6, y: 5, width: 2.4, height: 14, rx: 1, fill: "#fff" }))));
+    h("button", { onPointerDown: e => e.stopPropagation(), onClick: e => btnStop(e, onNext), className: "active:opacity-60 shrink-0 flex items-center justify-center", style: { width: 28, height: 30 } },
+      h("svg", { width: 16, height: 16, viewBox: "0 0 24 24" }, h("path", { d: "M5 5v14l10-7z", fill: "#fff" }), h("rect", { x: 15.6, y: 5, width: 2.4, height: 14, rx: 1, fill: "#fff" }))),
+    // 叉：立刻停播、收起悬浮
+    onClose ? h("button", { onPointerDown: e => e.stopPropagation(), onClick: e => btnStop(e, onClose), className: "active:opacity-60 shrink-0 flex items-center justify-center", style: { width: 26, height: 30, marginRight: 2 } },
+      h("svg", { width: 14, height: 14, viewBox: "0 0 24 24" }, h("path", { d: "M6 6l12 12M18 6L6 18", stroke: "rgba(255,255,255,0.75)", strokeWidth: 2.2, strokeLinecap: "round" }))) : null);
 }
 // 全屏月历
 // 经期预测
@@ -736,6 +739,7 @@ function Home({
   listen,
   player,
   homeCard,
+  notif,
   onOpenApp,
   onOpenChar,
   onEditProfile,
@@ -842,19 +846,22 @@ function Home({
   const curLayout = buildLayout(layout);
   // 页数变化后夹住越界的历史页码
   useEffect(function () { if (page > curLayout.length - 1) goPage(curLayout.length - 1); }, []);
+  const nf = notif || {};
   const dock = [{
     key: "messages",
     zh: "信息",
     G: GMsg,
-    badge: unread
+    badge: (unread || 0) + (nf.moments || 0)
   }, {
     key: "forum",
     zh: "论坛",
-    G: GForum
+    G: GForum,
+    badge: nf.forum || 0
   }, {
     key: "us",
     zh: "情侣",
-    G: GUs
+    G: GUs,
+    badge: nf.whisper || 0
   }, {
     key: "config",
     zh: "设置",
