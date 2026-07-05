@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v42";
+const APP_VERSION = "v43";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -197,6 +197,8 @@ function App() {
   // 角色动态保底计数：每次私聊回复给每个角色的三类动态 +1；到阈值就强制发一条（悄悄话≥15轮、朋友圈≥30轮、论坛≥50轮或3天）
   const [ambientCount, setAmbientCount] = useState({});
   const ambientCountRef = useRef({}); ambientCountRef.current = ambientCount;
+  // 心声每 3 轮才写一次（每条都写会稀释回复质量）——per角色回合计数
+  const thoughtCtrRef = useRef(loadJSON("x_thoughtCtr", {}));
   // 主屏红点：角色发了朋友圈/论坛/悄悄话没看的数量，进对应界面清零
   const [appNotif, setAppNotif] = useState({ moments: 0, forum: 0, whisper: 0 });
   const appNotifRef = useRef({ moments: 0, forum: 0, whisper: 0 }); appNotifRef.current = appNotif;
@@ -1087,6 +1089,14 @@ function App() {
       const aff = Math.round(affOf(charId));
       const kinHint = hasKinship(charId) ? "\n你已经给过用户一张亲属卡了，不要再发（加额度是另一回事，由 Ta 主动申请）。kinshipcard 一律填 null。" : "\n【亲属卡】仅当此刻非常贴合你的人设、你对用户的好感足够高（约≥70，当前 " + aff + "）、且是自然贴切的时机（如宠溺、想让 Ta 花你的钱、彰显身份），你才可以主动给用户一张「亲属卡」——Ta 以后刷卡花的是你的钱。要给就填 kinshipcard:{\"limit\":额度数字(按你的人设与财力自定),\"note\":\"一句话（发卡时说的话）\"}；否则一律 null。不要轻易发，多数情况下 null。";
       const uName = profile && profile.name ? profile.name : "对方";
+      // 心声每 3 轮写一次（恒定）——其余轮次填 null，别费笔墨稀释回复
+      const tctr = (thoughtCtrRef.current[charId] || 0) + 1;
+      thoughtCtrRef.current[charId] = tctr;
+      try { saveJSON("x_thoughtCtr", thoughtCtrRef.current); } catch (e) {}
+      const wantThought = tctr % 3 === 0;
+      const thoughtSpec = wantThought
+        ? "此刻没说出口的真实心声——写一句此刻脑子里真实的念头（对刚聊的/对 TA/对当下处境的想法、情绪、吐槽、小心思都行），贴合当下、别照抄之前；情绪复杂或有心事时可更长更细腻"
+        : "这一轮不写心声，直接填 null（把精力放在把话聊好上）";
       // #2 时间流逝：隔了几个小时/几天再让 TA 回复，要意识到时间过去了，别当刚聊过
       const lastTs = history.length ? (history[history.length - 1].ts || 0) : 0;
       const gapMs = lastTs ? Date.now() - lastTs : 0;
@@ -1113,7 +1123,7 @@ function App() {
         : "";
       // 一起听邀请：偶尔主动约对方一起听歌
       const inviteHint = isListenPartner ? "" : "\n【邀你一起听歌】偶尔（想跟 " + uName + " 分享一首歌、此刻在听到好歌、或气氛正好时，很克制、别频繁、绝大多数回合都 null），你可以主动邀请一起听歌：listenInvite 填 {\"song\":\"想一起听的歌名（可留空）\",\"say\":\"邀请的话，一句\"}；不邀请就 null。";
-      const system = bundle + ("\n\n【任务】完全代入「" + char.name + "」通过手机即时通讯和用户聊天。**必须把话拆成多条短气泡：word 数组给多个元素，每条只放一两句，像真人发微信那样一句一条连着发；绝不要把一大段话塞进一个气泡。**语气自然，不要旁白/动作/括号小动作。依据关系网与好感度把握亲密度，不提前暴露未发生的剧情。若开启了时间/位置感知，可自然回应但别生硬报数据。" + callHint + proactiveHint + gapHint + wearHint + ambientHint + listenHint + inviteHint + "\n【引用】大多数情况 quote 填 null。只有当用户一次发了好几条、你明确针对其中较早的某一句作答、需要指明是哪句时，才在 quote 放那句原文；正常顺着对话回复不要引用，别每条都引用。\n若此刻你想主动转账给用户（如还钱、给心意、打赏），填 transfer:{\"amount\":数字,\"note\":\"附言\"}，否则 null。若你想把自己所在的位置发给用户（如提到你在哪），填 location:{\"name\":\"地点名\"}，否则 null。\n若此刻你想主动买一件东西送给用户（贴合人设与好感的心意/惊喜，别频繁），填 gift:{\"name\":\"礼物名\"}，否则 null。它会像快递一样过段时间送到用户手上。" + kinHint + emoteHint + "\n【语音】若你想发语音消息（懒得打字、唱一句、语气/情绪很重要、亲密时想让 Ta 听见），把要说的话放进 voice 数组——每个元素是一条语音的「转文字」内容（会显示成语音气泡＋下面转文字）；多数时候还是用文字 word，voice 只偶尔用，不发就给 []。\n【通话】若此刻你很想直接跟对方通话（想听声音、有急事、撒娇、煲电话粥），可以主动发起：call 填 \"voice\"（语音）或 \"video\"（视频），会给对方弹一张来电邀请卡；不想就 null，别频繁、偶尔为之。\n【拉黑】仅当用户言行让你极度愤怒/被深深冒犯/彻底寒心、且以你的人设你真的会「拉黑」对方时，才填 block:true 并在 blockreason 写一句原因——要非常罕见、有充分理由，绝大多数情况 block 为 false。\n【撤回】若你发出后又后悔某句、说漏了嘴、或不想让 Ta 看到，可以撤回那一句：填 recall:{\"text\":\"要撤回的那句原文（要和你 word 里的某句一致或另说一句）\",\"reason\":\"你撤回它的心里想法/原因\"}，否则一律 null，别频繁撤回。\n【朋友圈】若聊到用户的朋友圈、或你此刻想去 Ta 某条朋友圈下补一条评论/点赞（尤其你之前没评论、现在说要去评），把评论内容填进 momentComment（会真的发到 Ta 最新那条朋友圈下），否则 null。\n【输出】只输出一个 JSON，不要代码块：\n{\"word\":[\"气泡1\",\"气泡2\"],\"quote\":\"你在回应的用户那句话原文或null\",\"transfer\":null,\"location\":null,\"gift\":null,\"kinshipcard\":null,\"block\":false,\"blockreason\":null,\"recall\":null,\"momentComment\":null,\"forumPost\":null,\"whisper\":null,\"thought\":\"此刻没说出口的真实心声——【必填，每一条回复都要写，绝不许空/不许 null/不许照抄上一条】。用户点你头像的『心声』面板就靠它实时更新，所以每回合都要给一句此刻脑子里真实的念头（对刚聊的、对 TA、对当下处境的想法/情绪/吐槽/小心思都行），贴合当下、和上一条不一样；情绪复杂或有心事时可以更长更细腻\",\"moment\":\"想发的动态或null\",\"affinityDelta\":整数(-5到5通常0),\"mood\":{\"label\":\"此刻心情词\",\"baseline\":\"平复后的心情词\",\"softened\":\"半衰后的心情词\"},\"wearing\":\"此刻穿着一句\",\"action\":\"此刻在做的动作（一般一句；情境需要时可写两三句更具体）\",\"emote\":\"想发的表情关键词或null\",\"voice\":[],\"call\":null,\"songSwitch\":null,\"listenInvite\":null}").replace(/用户/g, uName);
+      const system = bundle + ("\n\n【任务】完全代入「" + char.name + "」通过手机即时通讯和用户聊天。**必须把话拆成多条短气泡：word 数组给多个元素，每条只放一两句，像真人发微信那样一句一条连着发；绝不要把一大段话塞进一个气泡。**语气自然，不要旁白/动作/括号小动作。依据关系网与好感度把握亲密度，不提前暴露未发生的剧情。若开启了时间/位置感知，可自然回应但别生硬报数据。" + callHint + proactiveHint + gapHint + wearHint + ambientHint + listenHint + inviteHint + "\n【引用】大多数情况 quote 填 null。只有当用户一次发了好几条、你明确针对其中较早的某一句作答、需要指明是哪句时，才在 quote 放那句原文；正常顺着对话回复不要引用，别每条都引用。\n若此刻你想主动转账给用户（如还钱、给心意、打赏），填 transfer:{\"amount\":数字,\"note\":\"附言\"}，否则 null。若你想把自己所在的位置发给用户（如提到你在哪），填 location:{\"name\":\"地点名\"}，否则 null。\n若此刻你想主动买一件东西送给用户（贴合人设与好感的心意/惊喜，别频繁），填 gift:{\"name\":\"礼物名\"}，否则 null。它会像快递一样过段时间送到用户手上。" + kinHint + emoteHint + "\n【语音】若你想发语音消息（懒得打字、唱一句、语气/情绪很重要、亲密时想让 Ta 听见），把要说的话放进 voice 数组——每个元素是一条语音的「转文字」内容（会显示成语音气泡＋下面转文字）；多数时候还是用文字 word，voice 只偶尔用，不发就给 []。\n【通话】若此刻你很想直接跟对方通话（想听声音、有急事、撒娇、煲电话粥），可以主动发起：call 填 \"voice\"（语音）或 \"video\"（视频），会给对方弹一张来电邀请卡；不想就 null，别频繁、偶尔为之。\n【拉黑】仅当用户言行让你极度愤怒/被深深冒犯/彻底寒心、且以你的人设你真的会「拉黑」对方时，才填 block:true 并在 blockreason 写一句原因——要非常罕见、有充分理由，绝大多数情况 block 为 false。\n【撤回】若你发出后又后悔某句、说漏了嘴、或不想让 Ta 看到，可以撤回那一句：填 recall:{\"text\":\"要撤回的那句原文（要和你 word 里的某句一致或另说一句）\",\"reason\":\"你撤回它的心里想法/原因\"}，否则一律 null，别频繁撤回。\n【朋友圈】若聊到用户的朋友圈、或你此刻想去 Ta 某条朋友圈下补一条评论/点赞（尤其你之前没评论、现在说要去评），把评论内容填进 momentComment（会真的发到 Ta 最新那条朋友圈下），否则 null。\n【输出】只输出一个 JSON，不要代码块：\n{\"word\":[\"气泡1\",\"气泡2\"],\"quote\":\"你在回应的用户那句话原文或null\",\"transfer\":null,\"location\":null,\"gift\":null,\"kinshipcard\":null,\"block\":false,\"blockreason\":null,\"recall\":null,\"momentComment\":null,\"forumPost\":null,\"whisper\":null,\"thought\":" + JSON.stringify(thoughtSpec) + ",\"moment\":\"想发的动态或null\",\"affinityDelta\":整数(-5到5通常0),\"mood\":{\"label\":\"此刻心情词\",\"baseline\":\"平复后的心情词\",\"softened\":\"半衰后的心情词\"},\"wearing\":\"此刻穿着一句\",\"action\":\"此刻在做的动作（一般一句；情境需要时可写两三句更具体）\",\"emote\":\"想发的表情关键词或null\",\"voice\":[],\"call\":null,\"songSwitch\":null,\"listenInvite\":null}").replace(/用户/g, uName);
       const g = [];
       for (const m of history) {
         if (m.role === "user") {
@@ -4202,35 +4212,37 @@ function App() {
       const probeOnce = async nudge => {
         try {
           const rec = await runProbe(active, cleanCtx, {
-            instruction: "你是「" + char.name + "」。**完全按你自己的人设、成长背景、性格和音乐口味**，一次性列出 **正好 10 首**（不是 2 首、不是 3 首，是满满 10 首）你自己私下真会单曲循环、真实存在、能在主流平台搜到的歌（华语/欧美/日韩都行，别编造不存在的歌，风格可多样）。**别照抄任何你手机里在听/最近听过/用户刚搜过或已有的歌，要发自内心喜欢的。songs 数组必须有 10 个元素。**" + (nudge || "") + " 只给歌，别写解释别写序号。",
-            schemaHint: "{\"songs\":[{\"title\":\"某首歌\",\"artist\":\"某歌手\"}, …一共10个… ]}", maxTokens: 1900
+            instruction: "你是「" + char.name + "」。**完全按你自己的人设、成长背景、性格和音乐口味**，一次性列出 **15 首**你自己私下真会单曲循环、真实存在、能在主流平台搜到的歌（华语/欧美/日韩都行，别编造不存在的歌，风格可多样）。**别照抄任何你手机里在听/最近听过/用户刚搜过或已有的歌，要发自内心喜欢的。songs 数组要尽量凑满 15 个元素。**" + (nudge || "") + " 只给歌，别写解释别写序号。",
+            schemaHint: "{\"songs\":[{\"title\":\"某首歌\",\"artist\":\"某歌手\"}]}（songs 尽量给 15 个元素）", maxTokens: 2200
           });
           return parseWants(rec);
         } catch (e) { return []; }
       };
+      // 多要一些候选（网易云搜不到会掉一部分），不够就再刷一两轮凑
       let wants = await probeOnce("");
-      // 太少（多半是模型只给了两三首或 JSON 截断）→ 再补一轮，凑够
-      if (wants.length < 8) {
-        const more = await probeOnce("上一次给太少了，这次务必给满 10 首不同的歌。");
+      let tries = 0;
+      while (wants.length < 12 && tries < 2) {
+        tries++;
+        const more = await probeOnce("上次给少了，这次再多给一些不一样的歌，把 15 首凑够。");
         const seen = new Set(wants.map(s => s.title));
-        more.forEach(s => { if (!seen.has(s.title)) { seen.add(s.title); wants.push(s); } });
+        more.forEach(s => { if (s.title && !seen.has(s.title)) { seen.add(s.title); wants.push(s); } });
       }
-      wants = wants.slice(0, 12);
+      wants = wants.slice(0, 18);
       if (!wants.length) { toast("没生成出歌，重试下"); return; }
+      const searchOne = async kw => {
+        try { const r = await fetch(neteaseApi + "/search?keywords=" + encodeURIComponent(kw) + "&limit=1&timestamp=" + Date.now()); const d = await r.json(); return (d && d.result && d.result.songs && d.result.songs[0]) || null; } catch (e) { return null; }
+      };
       const added = [];
       for (const w of wants) {
-        try {
-          const kw = (w.title + " " + (w.artist || "")).trim();
-          const r = await fetch(neteaseApi + "/search?keywords=" + encodeURIComponent(kw) + "&limit=1");
-          const d = await r.json();
-          const hit = d && d.result && d.result.songs && d.result.songs[0];
-          if (!hit) continue;
-          const nid = String(hit.id);
-          if (added.some(a => a.neteaseId === nid)) continue;
-          const cover = ((hit.album || hit.al || {}).picUrl) || null;
-          const artist = (hit.artists || hit.ar || []).map(a => a.name).filter(Boolean).join(" / ") || (w.artist || "");
-          added.push({ id: "sg_" + Date.now() + "_" + nid, source: "netease", neteaseId: nid, title: hit.name || w.title, artist, cover, ts: Date.now() });
-        } catch (e) {}
+        if (added.length >= 14) break;
+        let hit = await searchOne((w.title + " " + (w.artist || "")).trim());
+        if (!hit) hit = await searchOne(w.title); // 带歌手搜不到 → 只用歌名再试
+        if (!hit) continue;
+        const nid = String(hit.id);
+        if (added.some(a => a.neteaseId === nid)) continue;
+        const cover = ((hit.album || hit.al || {}).picUrl) || null;
+        const artist = (hit.artists || hit.ar || []).map(a => a.name).filter(Boolean).join(" / ") || (w.artist || "");
+        added.push({ id: "sg_" + Date.now() + "_" + nid, source: "netease", neteaseId: nid, title: hit.name || w.title, artist, cover, ts: Date.now() });
       }
       if (!added.length) { toast("网易云没搜到这些歌（换个接口或稍后再试）"); return; }
       saveListen(p => ({ ...p, playlists: [{ id: "pl_" + Date.now(), name: char.name + "的歌单", charId: char.id, cover: added[0].cover || null, songs: added, ts: Date.now() }, ...(p.playlists || []).filter(x => x.charId !== char.id)] }));

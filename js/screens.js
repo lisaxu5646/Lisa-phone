@@ -2453,7 +2453,7 @@ function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onA
   const navBtn = (k, label, iconEl) => h("button", { onClick: () => setNav(k), className: "flex-1 flex flex-col items-center gap-1 active:opacity-70 py-2", style: { color: nav === k ? t.ink : t.fog } }, iconEl, h("span", { style: { fontFamily: F_BODY, fontSize: 10.5 } }, label));
 
   return h("div", { className: "h-full flex flex-col relative", style: { background: t.bg } },
-    h(Head, { zh: "一起听", en: nav === "play" && now ? (idx >= 0 ? idx + 1 : 1) + " / " + (nowQueue.length || songs.length) : "Listen", onBack }),
+    h(Head, { zh: "一起听", en: nav === "play" && now ? (idx >= 0 ? idx + 1 : 1) + " / " + (nowQueue.length || songs.length) : "Listen", onBack: () => { if (openPl) setOpenPl(null); else onBack(); } }),
     h("div", { className: "flex-1 overflow-y-auto" }, nav === "play" ? playTab : nav === "home" ? homeTab : mineTab),
     pickerOverlay,
     // 底部三 tab：首页 / 播放 / 我的
