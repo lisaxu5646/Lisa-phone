@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v44";
+const APP_VERSION = "v45";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -2419,6 +2419,16 @@ function App() {
     changeWallet(tv - wallet, "手动调整余额", "manual");
   };
   const CHAR_DEFAULT_BAL = 6000; // 角色未生成钱包档案时的默认余额（转账/代付/亲属卡扣款用）
+  // 宽松解析金额：模型可能给 "¥38,400"、"3.8万"、字符串等 → 都抠成数字
+  const numClean = v => {
+    if (typeof v === "number") return isFinite(v) ? v : 0;
+    let s = String(v == null ? "" : v).replace(/[,，\s¥￥$元]/g, "");
+    let mult = 1;
+    if (/万/.test(s)) { mult = 10000; s = s.replace(/万/g, ""); }
+    if (/k/i.test(s)) { mult = 1000; s = s.replace(/k/ig, ""); }
+    const n = parseFloat((s.match(/-?\d+(\.\d+)?/) || [])[0]);
+    return isFinite(n) ? n * mult : 0;
+  };
   const r2 = n => Math.round(Number(n) * 100) / 100;
   const charBalanceOf = id => {
     const w = charWalletRef.current[id];
@@ -2452,7 +2462,7 @@ function App() {
       return await runProbe(active, ctxFor(char), {
         instruction: "推演「" + char.name + "」的财务档案。**收入来源与全部金额必须严格依据 TA 的人设、职业、身份和社会阶层来定，贴合 TA 真实的谋生方式。** incomes（1-3 项，name+category+amount 数字，category 从 TA 实际谋生方式来：工资/自由职业/接单/做生意/兼职/学生生活费/退休金/稿费/打赏 等；只有明确富家子弟/继承人/家境优渥时才可出现「家族供养/信托」，否则绝不默认套用家族收入，普通人就普通收入甚至拮据）；monthlyIncome 月收入合计；fixedMonthly 每月固定支出；baseBalance 当前存款余额（作为钱包初始余额）；investAssets 理财持有资产（普通人可能很少或为 0）；notes 各部分批注（income/savings/invest/spending，每条一句符合人设的旁白）。所有金额纯数字不带符号，务必与身份匹配、不要人人都很有钱。",
         schemaHint: "{\"incomes\":[{\"name\":\"公司月薪\",\"category\":\"工资\",\"amount\":11000}],\"monthlyIncome\":11000,\"fixedMonthly\":6800,\"baseBalance\":38400,\"investAssets\":15000,\"notes\":{\"income\":\"...\",\"savings\":\"...\",\"invest\":\"...\",\"spending\":\"...\"}}",
-        maxTokens: 1400
+        maxTokens: 2000
       });
     } catch (e) {
       toast(char.name + " 资产生成失败：" + e.message);
@@ -2465,8 +2475,12 @@ function App() {
     if (ex && ex.init) return true;
     setGen(g => ({ ...g, cwallet: char.id }));
     try {
-      const prof = await genWalletProfile(char);
-      const base = prof && Number(prof.baseBalance) ? Number(prof.baseBalance) : CHAR_DEFAULT_BAL;
+      let prof = await genWalletProfile(char);
+      let base = prof ? numClean(prof.baseBalance) : 0;
+      // 没抠出存款（解析失败/被截断）→ 再试一次，别让仨角色都掉到默认 6000
+      if (!base) { const prof2 = await genWalletProfile(char); if (prof2 && numClean(prof2.baseBalance)) { prof = prof2; base = numClean(prof2.baseBalance); } }
+      // 还是没有：从月收入推一个（几个月存款），实在没有才用带随机的默认（避免人人 6000 整）
+      if (!base) { const mi = prof ? numClean(prof.monthlyIncome) : 0; base = mi ? Math.round(mi * (1.5 + Math.random() * 3)) : CHAR_DEFAULT_BAL + Math.floor(Math.random() * 9000); }
       setCharWallet(p => {
         const cur = p[char.id] || { ledger: [], createdTs: Date.now() };
         const prior = (cur.ledger || []).filter(e => e.kind !== "init"); // 首开前已发生的转账等
@@ -2478,10 +2492,10 @@ function App() {
         const n = { ...p, [char.id]: {
           init: true,
           balance: bal,
-          incomes: (prof && prof.incomes) || [],
-          monthlyIncome: prof ? Number(prof.monthlyIncome) || 0 : 0,
-          fixedMonthly: prof ? Number(prof.fixedMonthly) || 0 : 0,
-          investAssets: prof ? Number(prof.investAssets) || 0 : 0,
+          incomes: ((prof && prof.incomes) || []).map(x => ({ ...x, amount: numClean(x.amount) })),
+          monthlyIncome: prof ? numClean(prof.monthlyIncome) : 0,
+          fixedMonthly: prof ? numClean(prof.fixedMonthly) : 0,
+          investAssets: prof ? numClean(prof.investAssets) : 0,
           notes: (prof && prof.notes) || {},
           ledger: reflow.reverse(),
           // 设成前一天，这样初始化当天的日常消费也会被 catchUp 补上（否则设立那天永远空白）
@@ -2507,10 +2521,10 @@ function App() {
       setCharWallet(p => {
         const cur = p[char.id]; if (!cur) return p;
         const n = { ...p, [char.id]: { ...cur,
-          incomes: prof.incomes || cur.incomes || [],
-          monthlyIncome: Number(prof.monthlyIncome) || 0,
-          fixedMonthly: Number(prof.fixedMonthly) || 0,
-          investAssets: Number(prof.investAssets) || 0,
+          incomes: (prof.incomes ? prof.incomes.map(x => ({ ...x, amount: numClean(x.amount) })) : cur.incomes) || [],
+          monthlyIncome: numClean(prof.monthlyIncome),
+          fixedMonthly: numClean(prof.fixedMonthly),
+          investAssets: numClean(prof.investAssets),
           notes: prof.notes || cur.notes || {}
         } };
         saveJSON("x_charWallet", n);
