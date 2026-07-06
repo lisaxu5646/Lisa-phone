@@ -273,9 +273,20 @@
           (pages[pg] || []).forEach(function (txt, pi) { flat.push({ page: pg, para: pi, text: txt }); });
         }
         if (!flat.length) { props.toast && props.toast("这一段没有正文"); return; }
-        const prior = (book.annotations || []).filter(function (a) { return a.page >= pageIdx && a.page <= endP && a.charId === partner.id; });
-        const notes = await genAnnotations(props.active, partner, props.profile, props.worldbook, flat.map(function (f) { return f.text; }), book.perPass || 3, prior);
+        const want = book.perPass || 3;
+        const texts = flat.map(function (f) { return f.text; });
+        // 已有的（本范围内、同角色）批注，作为「别重复」的底子
+        const priorNotes = (book.annotations || []).filter(function (a) { return a.page >= pageIdx && a.page <= endP && a.charId === partner.id; }).map(function (a) { return { note: a.note }; });
+        // 数量不够就自动补一轮：把已批的告诉它别重复，再要剩下的。按次计费、输出免费，多调一两次不心疼。
+        let notes = [];
+        for (let round = 0; round < 3 && notes.length < want; round++) {
+          const need = want - notes.length;
+          const got = await genAnnotations(props.active, partner, props.profile, props.worldbook, texts, need, priorNotes.concat(notes));
+          if (!got.length) break; // 这轮一条都没补出来，别再空转
+          notes = notes.concat(got);
+        }
         if (!notes.length) { props.toast && props.toast("Ta 没批出新东西，换一段再试"); return; }
+        notes = notes.slice(0, want);
         const add = notes.map(function (nn) {
           const f = flat[nn.i] || flat[0];
           return { id: "an_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6), page: f.page, para: f.para, note: nn.note, charId: partner.id, charName: partner.name, ts: Date.now() };
