@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.16";
+const APP_VERSION = "v46.17";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -5003,18 +5003,40 @@ function App() {
   const doImport = file => {
     const r = new FileReader();
     r.onload = e => {
+      let parsed;
       try {
-        const parsed = JSON.parse(e.target.result);
-        if (!parsed.__archive || !parsed.data) {
-          toast("文件格式不对");
-          return;
-        }
-        Object.keys(localStorage).filter(k => k.startsWith("x_")).forEach(k => localStorage.removeItem(k));
-        Object.entries(parsed.data).forEach(([k, v]) => localStorage.setItem(k, v));
+        parsed = JSON.parse(e.target.result);
+      } catch (err) {
+        toast("导入失败：文件损坏或不是备份文件");
+        return;
+      }
+      if (!parsed.__archive || !parsed.data) {
+        toast("文件格式不对");
+        return;
+      }
+      // 先清本地 x_ 键
+      Object.keys(localStorage).filter(k => k.startsWith("x_")).forEach(k => localStorage.removeItem(k));
+      // 逐键写入：单键失败（多半是超了浏览器单站点 ~5MB 上限）不整体中断，记下漏掉的，尽量恢复其余
+      const failed = [];
+      Object.entries(parsed.data).forEach(([k, v]) => {
+        try { localStorage.setItem(k, v); }
+        catch (err) { failed.push({ k, size: (v || "").length }); }
+      });
+      if (failed.length) {
+        // 按占用从大到小，方便一眼看出是谁把空间撑爆（多半是含大量图片的键）
+        failed.sort((a, b) => b.size - a.size);
+        const KB = n => Math.round(n / 1024);
+        const list = failed.slice(0, 6).map(f => "· " + f.k + "（约 " + KB(f.size) + "KB）").join("\n");
+        window.alert(
+          "已尽量恢复，但有 " + failed.length + " 项没装下——这台设备/这个网址的浏览器本地存储约 5MB 上限，这份备份超了。\n\n" +
+          "没恢复的（占用最大的几项）：\n" + list +
+          (failed.length > 6 ? "\n…等共 " + failed.length + " 项" : "") +
+          "\n\n这些多半是含大量图片的数据（头像/壁纸/朋友圈图/表情包）。要全恢复，需在这台设备上清掉图片或分批导入。\n（注意：一起读的书正文、语音音频存在浏览器 IndexedDB，本就不进备份文件，换设备要重传。）"
+        );
+        setTimeout(() => location.reload(), 400);
+      } else {
         toast("导入成功，正在重载…");
         setTimeout(() => location.reload(), 800);
-      } catch (err) {
-        toast("导入失败：文件损坏");
       }
     };
     r.readAsText(file);
