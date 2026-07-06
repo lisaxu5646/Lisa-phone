@@ -2197,7 +2197,7 @@ function Us({ characters, couples, whispers, onBack, onInvite, onUnlink, onGenWh
 // CONFIG
 // ============================================================
 // 一起听（展示型）：自定义唱片封面 + 添加"正在听"的歌（歌名/歌手/封面）+ 歌单，不真放声音
-function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onAddNetease, onAddLocal, onPlaySong, onRemoveSong, onSetPartner, apiBase, onSetApiBase, cookie, onSetCookie, onTestLogin, onAddNeteaseResult, onPlayResult, onAddResultToPlaylist, onCreatePlaylist, onDeletePlaylist, onAddToPlaylist, onRemoveFromPlaylist, onRenameSong, onGenCharPlaylist, onSetAutoComment, player, onTogglePlay, onStep, onSeek, onToggleFav, playMode, onCyclePlayMode, gen, genCharPl }) {
+function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onAddNetease, onAddLocal, onPlaySong, onRemoveSong, onSetPartner, apiBase, onSetApiBase, cookie, onSetCookie, onTestLogin, onAddNeteaseResult, onPlayResult, onAddResultToPlaylist, onCreatePlaylist, onDeletePlaylist, onRenamePlaylist, onAddToPlaylist, onRemoveFromPlaylist, onRenameSong, onGenCharPlaylist, onSetAutoComment, player, onTogglePlay, onStep, onSeek, onToggleFav, playMode, onCyclePlayMode, gen, genCharPl }) {
   const t = useTheme();
   const data = listen || {};
   const songs = data.songs || [];
@@ -2430,29 +2430,33 @@ function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onA
 
   // ============ 我的 tab（歌单）============
   const favs = songs.filter(s => s.fav);
-  const openPlObj = playlists.find(p => p.id === openPl) || null;
+  const isFavView = openPl === "__fav__";
+  const openPlObj = isFavView ? { id: "__fav__", name: "我喜欢的音乐", songs: favs } : (playlists.find(p => p.id === openPl) || null);
   const mineTab = h("div", { className: "px-6 pb-6" },
     openPlObj
-      ? h("div", null, // 歌单详情
+      ? h("div", null, // 歌单详情（含「我喜欢的音乐」）
           h("div", { className: "flex items-center gap-2", style: { marginTop: 8, marginBottom: 12 } },
             h("button", { onClick: () => setOpenPl(null), className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 13, color: t.fog } }, "‹ 歌单"),
-            h("div", { style: { fontFamily: F_DISPLAY, fontSize: 18, color: t.ink, flex: 1, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, openPlObj.name),
-            h("button", { onClick: () => { onDeletePlaylist(openPlObj.id); setOpenPl(null); }, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 12, color: t.fog } }, "删除")),
+            h("div", { className: "flex-1 min-w-0 flex items-center justify-center gap-1.5" },
+              h("div", { style: { fontFamily: F_DISPLAY, fontSize: 18, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, openPlObj.name),
+              !isFavView ? h("button", { onClick: () => { const nv = window.prompt("歌单改名", openPlObj.name); if (nv && nv.trim()) onRenamePlaylist(openPlObj.id, nv.trim()); }, className: "shrink-0 active:opacity-60", style: { fontSize: 12.5, color: t.fog, padding: "0 2px" } }, "✎") : null),
+            !isFavView ? h("button", { onClick: () => { onDeletePlaylist(openPlObj.id); setOpenPl(null); }, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 12, color: t.fog } }, "删除") : h("div", { style: { width: 28 } })),
           (openPlObj.songs || []).length
-            ? h("div", { className: "space-y-2" }, (openPlObj.songs || []).map(s => songRow(s, { queue: (openPlObj.songs || []).map(x => x.id), inPlaylist: openPlObj.id })))
-            : h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog, padding: "16px 0", lineHeight: 1.8 } }, "这个歌单还没歌。去「首页」搜歌/在歌里点＋加进来——下面也能从「全部」挑。"),
-          // 从全部歌里挑加入（复制一份进歌单，和「全部」互不影响）
-          songs.length ? h("div", { style: { marginTop: 16 } },
+            ? h("div", { className: "space-y-2" }, (openPlObj.songs || []).map(s => songRow(s, { queue: (openPlObj.songs || []).map(x => x.id), inPlaylist: isFavView ? null : openPlObj.id })))
+            : h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog, padding: "16px 0", lineHeight: 1.8 } }, isFavView ? "还没有收藏的歌。听到喜欢的点一下 ♡ 就会收进这里。" : "这个歌单还没歌。去「首页」搜歌/在歌里点＋加进来——下面也能从「全部」挑。"),
+          // 从全部歌里挑加入（复制一份进歌单，和「全部」互不影响）——收藏歌单不需要
+          (!isFavView && songs.length) ? h("div", { style: { marginTop: 16 } },
             h(Eyebrow, { style: { marginBottom: 8 } }, "从全部歌加入"),
             h("div", { className: "flex flex-wrap gap-2" }, songs.filter(s => !(openPlObj.songs || []).some(x => (s.neteaseId && x.neteaseId === s.neteaseId) || x.id === s.id)).map(s => h("button", { key: s.id, onClick: () => onAddToPlaylist(openPlObj.id, s), className: "active:opacity-70", style: { fontFamily: F_BODY, fontSize: 12, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 999, padding: "6px 12px" } }, "＋ " + s.title)))) : null)
       : h("div", null,
-          // 我喜欢的音乐
-          h("button", { onClick: () => favs.length && onPlaySong(favs[0].id, favs.map(s => s.id)), className: "w-full flex items-center gap-3 active:opacity-80", style: { marginTop: 8, background: t.bg2, border: "1px solid " + t.line, borderRadius: 16, padding: "12px 14px" } },
-            h("div", { style: { flexShrink: 0, width: 52, height: 52, borderRadius: 12, background: "linear-gradient(135deg,#e0576b,#f0a8c0)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: "#fff" } }, "♥"),
-            h("div", { className: "flex-1 min-w-0 text-left" },
-              h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, "我喜欢的音乐"),
-              h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, marginTop: 2 } }, favs.length + " 首 · 收藏歌单")),
-            h("div", { style: { flexShrink: 0, width: 36, height: 36, borderRadius: 999, background: t.ink, display: "flex", alignItems: "center", justifyContent: "center" } }, ic("play", t.bg2, 18))),
+          // 我喜欢的音乐（点左侧打开看列表；右侧圆钮直接播放）
+          h("div", { className: "w-full flex items-center gap-3", style: { marginTop: 8, background: t.bg2, border: "1px solid " + t.line, borderRadius: 16, padding: "12px 14px" } },
+            h("button", { onClick: () => setOpenPl("__fav__"), className: "flex items-center gap-3 flex-1 min-w-0 active:opacity-80 text-left" },
+              h("div", { style: { flexShrink: 0, width: 52, height: 52, borderRadius: 12, background: "linear-gradient(135deg,#e0576b,#f0a8c0)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: "#fff" } }, "♥"),
+              h("div", { className: "flex-1 min-w-0" },
+                h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, "我喜欢的音乐"),
+                h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, marginTop: 2 } }, favs.length + " 首 · 收藏歌单"))),
+            h("button", { onClick: () => favs.length && onPlaySong(favs[0].id, favs.map(s => s.id)), className: "shrink-0 active:opacity-70", style: { width: 36, height: 36, borderRadius: 999, background: t.ink, display: "flex", alignItems: "center", justifyContent: "center" } }, ic("play", t.bg2, 18))),
           // 创建歌单
           h("div", { className: "flex gap-2", style: { marginTop: 14 } },
             h("input", { value: plName, onChange: e => setPlName(e.target.value), placeholder: "新建歌单名", style: field }),

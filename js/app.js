@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.26";
+const APP_VERSION = "v46.27";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -4379,6 +4379,7 @@ function App() {
   const cloneSong = s => ({ ...s, id: (s.id || "sg_") + "_pl" + Math.random().toString(36).slice(2, 6) });
   const createPlaylist = (name, songObjs, extra) => { const id = "pl_" + Date.now(); saveListen(p => ({ ...p, playlists: [{ id, name: (name || "新歌单").trim() || "新歌单", songs: (songObjs || []).map(cloneSong), ts: Date.now(), ...(extra || {}) }, ...(p.playlists || [])] })); return id; };
   const deletePlaylist = id => saveListen(p => ({ ...p, playlists: (p.playlists || []).filter(x => x.id !== id) }));
+  const renamePlaylist = (id, name) => { const nm = (name || "").trim(); if (nm) saveListen(p => ({ ...p, playlists: (p.playlists || []).map(x => x.id === id ? { ...x, name: nm } : x) })); };
   const addToPlaylist = (plId, song) => { if (!song) return; saveListen(p => ({ ...p, playlists: (p.playlists || []).map(pl => pl.id === plId ? ((pl.songs || []).some(s => (song.neteaseId && s.neteaseId === song.neteaseId) || s.id === song.id) ? pl : { ...pl, songs: [...(pl.songs || []), cloneSong(song)] }) : pl) })); toast("已加入歌单"); };
   const removeFromPlaylist = (plId, songId) => saveListen(p => ({ ...p, playlists: (p.playlists || []).map(pl => pl.id === plId ? { ...pl, songs: (pl.songs || []).filter(s => s.id !== songId) } : pl) }));
   // 开关：让一起听的角色在聊天界面自行评论正在听的歌（关=不主动提，省 api）
@@ -5549,6 +5550,7 @@ function App() {
     onAddResultToPlaylist: addResultToPlaylist,
     onCreatePlaylist: createPlaylist,
     onDeletePlaylist: deletePlaylist,
+    onRenamePlaylist: renamePlaylist,
     onAddToPlaylist: addToPlaylist,
     onRemoveFromPlaylist: removeFromPlaylist,
     onRenameSong: renameSong,
