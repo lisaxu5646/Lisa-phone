@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.31";
+const APP_VERSION = "v46.32";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -236,6 +236,7 @@ function App() {
   const sending = _curLane ? !!busyLanes[_curLane] : false;
   const [gen, setGen] = useState({});
   const [stateCardOpen, setStateCardOpen] = useState(false);
+  const [stateCardChar, setStateCardChar] = useState(null); // 心声卡要显示谁（群聊点头像时=该成员；私聊=null→用 activeChar）
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   const [call, setCall] = useState(null); // {participants:[char], mode:"voice"|"video", groupId, msgs:[]}
   const callRef = useRef(null);
@@ -1641,12 +1642,21 @@ function App() {
               }]);
             }
           }
-          // 记忆互通：这次发言影响该成员对用户的实时好感与心情
+          // 记忆互通：这次发言影响该成员对用户的实时好感与心情，并把心声写进【和私聊同一套】的实时状态里（双向影响、可变化）
           if (gs.memoryInterop) {
             const moodLabel = arr[i].mood && String(arr[i].mood).toLowerCase() !== "null" ? String(arr[i].mood).trim() : null;
             const aDelta = typeof arr[i].affinityDelta === "number" ? arr[i].affinityDelta : Number(arr[i].affinityDelta);
             if (spk && !isNaN(aDelta)) bumpAff(spk.id, aDelta || 0, moodLabel);
             if (spk && moodLabel) setMoodFor(spk.id, { label: moodLabel, ts: Date.now() });
+            // 心声 → 共享 states[spk.id]（就是私聊心声卡读的那套）；有 thought 才进历史
+            const gThink = arr[i].thought && String(arr[i].thought).toLowerCase() !== "null" ? String(arr[i].thought).trim() : null;
+            if (spk && gThink) {
+              const ns = { ...(states[spk.id] || {}), thought: gThink, mood: moodLabel || (states[spk.id] || {}).mood, ts: Date.now() };
+              setStateFor(spk.id, ns);
+              pushStateHist(spk.id, ns);
+            } else if (spk && moodLabel) {
+              setStateFor(spk.id, { ...(states[spk.id] || {}), mood: moodLabel, ts: Date.now() });
+            }
           }
           // 成员主动发起通话邀请
           const gcm = arr[i].call && ["voice", "video"].includes(String(arr[i].call).toLowerCase()) ? String(arr[i].call).toLowerCase() : null;
@@ -5198,7 +5208,7 @@ function App() {
     onRespondUnblock: (cid, accept) => respondUnblockFromChar(activeChar.id, cid, accept),
     profile: profile,
     disp: { myAvatar: !!settingsFor(activeChar.id).showMyAvatar, time: !!settingsFor(activeChar.id).showTime, timeSec: !!settingsFor(activeChar.id).timeSec, read: settingsFor(activeChar.id).showRead !== false, chatBg: settingsFor(activeChar.id).chatBg || "" },
-    onOpenState: () => setStateCardOpen(true),
+    onOpenState: () => { setStateCardChar(null); setStateCardOpen(true); },
     schedNow: schedNowBriefFor(activeChar),
     onOpenSched: () => { setSelSched(activeChar.id); setScreen("lifestyle"); },
     onLongPress: handleMsgAction,
@@ -5258,6 +5268,7 @@ function App() {
     onMsgAction: (act, idx) => handleGroupMsgAction(activeGroup.id, act, idx),
     onDeleteMessages: indices => deleteGroupMsgs(activeGroup.id, indices),
     onSaveSettings: patch => saveGroupSettings(activeGroup.id, patch),
+    onOpenMemberState: memberId => { const c = characters.find(x => x.id === memberId); if (c) { setStateCardChar(c); setStateCardOpen(true); } },
     onStartPoll: (title, options, anon) => startPoll(activeGroup.id, title, options, anon),
     onGenVotes: idx => genPollVotes(activeGroup.id, idx),
     onVote: (idx, optIdx) => castVote(activeGroup.id, idx, optIdx, profile.name || "我"),
@@ -5291,7 +5302,7 @@ function App() {
       setScreen("thread");
     },
     onSaveRemark: saveRemark,
-    onOpenState: () => setStateCardOpen(true),
+    onOpenState: () => { setStateCardChar(null); setStateCardOpen(true); },
     directives: directives[activeChar.id] || [],
     onRemoveDirective: dirId => removeDirective(activeChar.id, dirId)
   });else if (screen === "ties") body = /*#__PURE__*/React.createElement(Ties, {
@@ -5491,6 +5502,7 @@ function App() {
     characters: characters,
     profile: profile,
     worldbook: worldbook,
+    rels: rels,
     toast: toast,
     onBack: () => setScreen("home")
   });else if (screen === "fanfic") body = h(FanficApp, {
@@ -5651,14 +5663,17 @@ function App() {
     onToggle: togglePlay,
     onNext: () => stepSong(1),
     onClose: stopPlayer
-  }) : null, stateCardOpen && activeChar && /*#__PURE__*/React.createElement(StateCard, {
-    character: activeChar,
-    affinity: Math.round(affOf(activeChar.id)),
-    mood: moods[activeChar.id],
-    state: states[activeChar.id],
-    history: stateHist[activeChar.id] || [],
-    onClose: () => setStateCardOpen(false)
-  }), chatSettingsOpen && activeChar && /*#__PURE__*/React.createElement(ChatSettings, {
+  }) : null, (() => {
+    const scc = stateCardChar || activeChar;
+    return stateCardOpen && scc && /*#__PURE__*/React.createElement(StateCard, {
+      character: scc,
+      affinity: Math.round(affOf(scc.id)),
+      mood: moods[scc.id],
+      state: states[scc.id],
+      history: stateHist[scc.id] || [],
+      onClose: () => { setStateCardOpen(false); setStateCardChar(null); }
+    });
+  })(), chatSettingsOpen && activeChar && /*#__PURE__*/React.createElement(ChatSettings, {
     character: activeChar,
     settings: settingsFor(activeChar.id),
     memory: memories[activeChar.id],

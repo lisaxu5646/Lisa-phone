@@ -64,8 +64,20 @@
     "【输出】只输出 JSON：{\"scene\":\"梦境叙事\",\"options\":[{\"text\":\"…\",\"kind\":\"accord\"},{\"text\":\"…\",\"kind\":\"accord\"},{\"text\":\"…\",\"kind\":\"resist\"}]}。别加解释。";
 
   function charBlock(session) {
-    return "【做这场梦的人是「" + session.charName + "」】\n· 人设：" + (session.charPersona || "（暂无设定）").replace(/\s+/g, " ").slice(0, 900) +
+    let s = "【做这场梦的人是「" + session.charName + "」】\n· 人设：" + (session.charPersona || "（暂无设定）").replace(/\s+/g, " ").slice(0, 900) +
       (session.voiceRef ? "\n\n【Ta 近期的语气 / 近况，仅作参考】\n" + session.voiceRef : "");
+    const guests = (session.guests || []).filter(g => g && g.name);
+    if (guests.length) {
+      s += "\n\n【这场梦里还会出现这些人（" + session.charName + " 梦见的其他角色）】\n" +
+        "他们要作为真正的角色进入梦境，不是背景板。梦怎么呈现他们——样子、态度、在梦里对你或对 " + session.charName + " 做什么——都要顺着「" + session.charName + "」此刻对他们的真实感觉长出来（爱慕会美化、忌惮会扭曲、愧疚会纠缠、思念会朦胧、憎恶会狰狞）。";
+      guests.forEach((g, i) => {
+        s += "\n\n" + (i + 1) + ".「" + g.name + "」\n· 人设：" + (g.persona || "（暂无设定）").replace(/\s+/g, " ").slice(0, 500);
+        if (g.relText) s += "\n· " + session.charName + " 此刻对 Ta 的看法/关系：" + g.relText;
+        else s += "\n· （没有设定 " + session.charName + " 和 Ta 认识）——请你读两人的人设，合理判断此刻 " + session.charName + " 会怎么看待、怎么感觉 Ta，再据此把 Ta 编进梦里，别生硬。";
+        if (g.voiceRef) s += "\n· Ta 近期的语气 / 近况（仅参考）：\n" + g.voiceRef;
+      });
+    }
+    return s;
   }
 
   // ---- 模型：编织第一幕 ----
@@ -137,7 +149,7 @@
 
     if (view === "setup") {
       return h(Setup, {
-        characters: props.characters, profile: props.profile, toast: props.toast,
+        characters: props.characters, profile: props.profile, rels: props.rels, toast: props.toast,
         onCancel: () => setView("home"),
         onCreate: session => { persist([session].concat(loadSaves())); setView(session.id); }
       });
@@ -194,8 +206,18 @@
   function Setup(props) {
     const t = useTheme();
     const [charId, setCharId] = useState("");
+    const [guestIds, setGuestIds] = useState([]);       // 客串角色（最多 2）
+    const [injectChat, setInjectChat] = useState(true); // 是否注入最近聊天记录
     const [kw, setKw] = useState(["", "", ""]);
     const [starting, setStarting] = useState(false);
+
+    // 选做梦人：若把某人设成做梦人，就从客串里剔除
+    const pickDreamer = id => { setCharId(prev => prev === id ? "" : id); setGuestIds(prev => prev.filter(x => x !== id)); };
+    const toggleGuest = id => setGuestIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= 2) { props.toast && props.toast("最多带 2 个客串角色"); return prev; }
+      return prev.concat(id);
+    });
 
     const start = async () => {
       if (!charId) { props.toast && props.toast("先挑一个人，进 Ta 的梦"); return; }
@@ -203,11 +225,20 @@
       try {
         const c = props.characters.find(x => x.id === charId);
         const uName = (props.profile && props.profile.name) || "我";
+        const rels = props.rels || {};
+        const guests = guestIds.map(gid => {
+          const g = props.characters.find(x => x.id === gid);
+          if (!g) return null;
+          const r = rels[c.id + "->" + g.id];                 // 做梦人对客串的看法（有向）
+          const relText = r && r.label ? (r.label + (r.note ? "（" + r.note + "）" : "")) : "";
+          return { id: g.id, name: g.name, persona: g.persona || "", relText: relText, voiceRef: injectChat ? recentChatSnippet(g.id, uName, g.name) : "" };
+        }).filter(Boolean);
         const session = {
           id: "dm_" + Date.now(),
           charId: c.id, charName: c.name, charPersona: c.persona || "",
           keywords: kw.map(x => x.trim()).filter(Boolean),
-          voiceRef: recentChatSnippet(c.id, uName, c.name),
+          guests: guests, injectChat: injectChat,
+          voiceRef: injectChat ? recentChatSnippet(c.id, uName, c.name) : "",
           scenes: [], status: "dreaming", ending: "",
           createdTs: Date.now(), lastTs: Date.now()
         };
@@ -224,9 +255,23 @@
         h("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 22 } },
           props.characters.map(c => {
             const on = charId === c.id;
-            return h("button", { key: c.id, onClick: () => setCharId(on ? "" : c.id), className: "active:opacity-70",
+            return h("button", { key: c.id, onClick: () => pickDreamer(c.id), className: "active:opacity-70",
               style: { fontFamily: F_BODY, fontSize: 13, color: on ? "#fff" : t.ink, background: on ? ACCENT : t.bg2, border: "1px solid " + (on ? ACCENT : t.line), borderRadius: 999, padding: "8px 15px" } }, c.name);
           })),
+        // 客串角色：选了做梦人才出现；梦里会带上这些人（含做梦人对 Ta 的看法）
+        charId ? h("div", { style: label }, "梦里还会梦见谁（选 0~2 个，可不选）") : null,
+        charId ? h("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 } },
+          props.characters.filter(c => c.id !== charId).map(c => {
+            const on = guestIds.includes(c.id);
+            return h("button", { key: c.id, onClick: () => toggleGuest(c.id), className: "active:opacity-70",
+              style: { fontFamily: F_BODY, fontSize: 13, color: on ? "#fff" : t.ink, background: on ? "#8478a0" : t.bg2, border: "1px solid " + (on ? "#8478a0" : t.line), borderRadius: 999, padding: "8px 15px" } }, c.name);
+          })) : null,
+        // 注入最近聊天记录开关
+        h("label", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "11px 13px", background: t.bg2, border: "1px solid " + t.line, borderRadius: 11, marginBottom: 22, cursor: "pointer" } },
+          h("div", null,
+            h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.ink } }, "注入最近的聊天记录"),
+            h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 2, lineHeight: 1.5 } }, "把 Ta" + (guestIds.length ? "和客串角色" : "") + "最近的聊天当语气/近况参考，梦更贴近当下")),
+          h("input", { type: "checkbox", checked: injectChat, onChange: e => setInjectChat(e.target.checked), style: { width: 20, height: 20, flexShrink: 0, accentColor: ACCENT } })),
         h("div", { style: label }, "递三个关键词（可留空，让梦自由生长）"),
         h("div", { style: { display: "flex", flexDirection: "column", gap: 9, marginBottom: 8 } },
           [0, 1, 2].map(i => h("input", {

@@ -4574,6 +4574,7 @@ function GroupThread({
   onMsgAction,
   onDeleteMessages,
   onSaveSettings,
+  onOpenMemberState,
   onStartPoll,
   onVote,
   onSendRedPacket,
@@ -4650,6 +4651,11 @@ function GroupThread({
   const doDelete = () => { if (selIds.length) onDeleteMessages && onDeleteMessages(selIds); exitSel(); };
   const memberById = id => characters.find(c => c.id === id);
   const members = (group.memberIds || []).map(memberById).filter(Boolean);
+  // 记忆互通时：成员头像可点，开心声卡（和私聊同一套 states）。没开互通就是普通头像。
+  const canPeek = gsp.memoryInterop && onOpenMemberState;
+  const mAvatar = (character, size) => (canPeek && character && character.id)
+    ? h("button", { onClick: () => onOpenMemberState(character.id), className: "active:opacity-60", style: { flexShrink: 0, lineHeight: 0, padding: 0, border: "none", background: "none" }, title: "看 " + (character.name || "") + " 的心声" }, h(Avatar, { character: character, size: size || 34, radius: 8 }))
+    : h(Avatar, { character: character, size: size || 34, radius: 8 });
   const openRp = i => {
     const rp = messages[i];
     if (rp.byMe || rp.claims.some(c => c.me) || rp.claims.length >= rp.count) {
@@ -4827,7 +4833,7 @@ function GroupThread({
       isU: m.role === "user"
     });
     if (m.kind === "emote") return h("div", { key: i, className: "py-1 flex items-start gap-2 " + (m.role === "user" ? "justify-end" : "justify-start") },
-      m.role !== "user" && h(Avatar, { character: memberById(m.senderId) || { name: m.senderName, color: t.tint }, size: 34, radius: 8 }),
+      m.role !== "user" && mAvatar(memberById(m.senderId) || { name: m.senderName, color: t.tint }),
       h("div", {
         className: "flex flex-col " + (m.role === "user" ? "items-end" : "items-start"),
         onTouchStart: selMode ? undefined : () => startPress(i), onTouchEnd: endPress,
@@ -4845,7 +4851,7 @@ function GroupThread({
       m.role === "user" && m.senderName && h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, margin: "0 4px 2px" } }, m.senderName),
       h(FicShareCard, { m: m, isU: m.role === "user" }));
     if (m.kind === "voice") return h("div", { key: i, className: "py-1 flex items-start gap-2 " + (m.role === "user" ? "justify-end" : "justify-start") },
-      m.role !== "user" && h(Avatar, { character: memberById(m.senderId) || { name: m.senderName, color: t.tint }, size: 34, radius: 8 }),
+      m.role !== "user" && mAvatar(memberById(m.senderId) || { name: m.senderName, color: t.tint }),
       h("div", {
         className: "flex flex-col " + (m.role === "user" ? "items-end" : "items-start"),
         onTouchStart: selMode ? undefined : () => startPress(i), onTouchEnd: endPress,
@@ -4857,7 +4863,7 @@ function GroupThread({
         h(VoiceMsg, { m: m, isU: m.role === "user" })),
       m.role === "user" && gsp.showMyAvatar && h(Avatar, { character: meAv, size: 34, radius: 8 }));
     if (m.kind === "callinvite") return h("div", { key: i, className: "py-1 flex items-start gap-2 " + (m.role === "user" ? "justify-end" : "justify-start") },
-      m.role !== "user" && h(Avatar, { character: memberById(m.senderId) || { name: m.senderName, color: t.tint }, size: 34, radius: 8 }),
+      m.role !== "user" && mAvatar(memberById(m.senderId) || { name: m.senderName, color: t.tint }),
       h("div", { className: "flex flex-col " + (m.role === "user" ? "items-end" : "items-start") },
         m.role !== "user" && m.senderName && h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, margin: "0 4px 2px" } }, m.senderName),
         h(CallInviteCard, { m: m, isU: m.role === "user", onAccept: onAcceptCall, onDecline: onDeclineCall })));
@@ -4912,11 +4918,7 @@ function GroupThread({
     return h("div", {
       key: i,
       className: "flex items-start gap-2 " + (isU ? "justify-end" : "justify-start")
-    }, !isU && h(Avatar, {
-      character: c,
-      size: 34,
-      radius: 8
-    }), h("div", {
+    }, !isU && mAvatar(c), h("div", {
       className: "flex flex-col",
       style: {
         alignItems: isU ? "flex-end" : "flex-start",
