@@ -108,11 +108,12 @@
       "你在收束「" + session.charName + "」的这场梦。" + uName + " 刚做了一个选择——「" + resistText + "」——它恰好触到了 " + session.charName + " 内心最抗拒、不愿被戳破的东西。梦承受不住，开始碎裂。\n\n" +
       charBlock(session) +
       "\n\n【梦到破碎前】\n" + transcript(session, uName) +
-      "\n\n写梦碎的这一幕（120~240字，第二人称『你』）：从那个选择的瞬间起，梦境如何变质、扭曲、崩塌；" + session.charName + " 的潜意识如何反应（退缩、失控、痛楚或愤怒，看人设）；最后 " + uName + " 被逐出梦、猛地惊醒。写完梦就结束了，不要再给选项。\n" +
-      "【输出】只输出 JSON：{\"collapse\":\"梦碎叙事\"}。别加解释。";
+      "\n\n① 写梦碎的这一幕（collapse，120~240字，第二人称『你』）：从那个选择的瞬间起，梦境如何变质、扭曲、崩塌；" + session.charName + " 的潜意识如何反应（退缩、失控、痛楚或愤怒，看人设）；最后 " + uName + " 被逐出梦、猛地惊醒。\n" +
+      "② 再抽离出来，说清这个选择为什么是错的（why，40~90字，跳出梦、用旁白口吻）：「" + resistText + "」触到了 " + session.charName + " 的什么逆鳞/软肋/不愿面对的真相，为什么在 Ta 的梦里这条路走不通。要具体贴人设，别空泛。\n" +
+      "【输出】只输出 JSON：{\"collapse\":\"梦碎叙事\",\"why\":\"为什么这个选择戳破了梦\"}。别加别的。";
     const raw = await callAI(active, sys, [{ role: "user", content: "梦碎。" }], { maxTokens: 3000 });
     const p = extractJSON(raw) || {};
-    return String(p.collapse || raw || "梦在你眼前碎成光斑，你猛地醒来。").trim();
+    return { collapse: String(p.collapse || raw || "梦在你眼前碎成光斑，你猛地醒来。").trim(), why: String(p.why || "").trim() };
   }
 
   // ============================================================
@@ -291,10 +292,10 @@
         // 梦碎
         setBusy(true); setPhaseMsg("有什么裂开了…");
         try {
-          const collapse = await weaveShatter(props.active, sess2, props.worldbook, uName(), chosen.text);
-          props.onPatch({ scenes: marked, status: "broken", ending: collapse });
+          const r = await weaveShatter(props.active, sess2, props.worldbook, uName(), chosen.text);
+          props.onPatch({ scenes: marked, status: "broken", ending: r.collapse, whyWrong: r.why, wrongText: chosen.text });
         } catch (e) {
-          props.onPatch({ scenes: marked, status: "broken", ending: "梦在你眼前碎成光斑，你猛地醒来，心还在跳。" });
+          props.onPatch({ scenes: marked, status: "broken", ending: "梦在你眼前碎成光斑，你猛地醒来，心还在跳。", whyWrong: "", wrongText: chosen.text });
         }
         setBusy(false); setPhaseMsg("");
         return;
@@ -324,48 +325,78 @@
 
     const wakeUp = () => { if (window.confirm("主动醒来，离开这场梦？")) props.onPatch({ status: "left" }); };
 
+    // 回档：退回到第 k 幕的决策点，清掉这之后的所有进展 + 结局，重新选
+    const rewindTo = k => {
+      if (busy) return;
+      const later = scenes.length - 1 - k;
+      const tail = later > 0 ? "，这之后的 " + later + " 幕会被抹去" : "";
+      if (!window.confirm("回到第 " + (k + 1) + " 幕重新选" + tail + "？")) return;
+      const kept = scenes.slice(0, k + 1).map((sc, i) => i === k ? Object.assign({}, sc, { chosen: null }) : sc);
+      props.onPatch({ scenes: kept, status: "dreaming", ending: "", whyWrong: "", wrongText: "" });
+    };
+
     // 上一幕已选好、但还没有下一幕（续写失败留下的中间态）
     const needRetry = dreaming && cur && cur.chosen != null;
 
     const wakeBtn = dreaming ? h("button", { onClick: wakeUp, className: "active:opacity-60",
       style: { fontFamily: F_BODY, fontSize: 12, color: t.fog } }, "醒来") : null;
 
+    // 底部控制区（正常流式布局，不再 absolute 浮盖——否则最后一幕会被盖住刷不到底）
+    const controls = dreaming ? h("div", { className: "shrink-0 px-5", style: { paddingTop: 8, paddingBottom: "calc(12px + env(safe-area-inset-bottom))", borderTop: "1px solid " + t.line, background: t.bg } },
+      busy
+        ? h("div", { className: "w-full", style: { fontFamily: F_BODY, fontSize: 13.5, fontWeight: 600, color: t.sub, textAlign: "center", padding: "13px 0", background: t.bg2, border: "1px solid " + t.line, borderRadius: 12 } }, phaseMsg || "…")
+        : awaitingPick
+          ? h("div", { style: { display: "flex", flexDirection: "column", gap: 9 } },
+            cur.options.map((op, i) => h("button", {
+              key: i, onClick: () => pick(i), className: "w-full active:opacity-70",
+              style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.5, textAlign: "left", color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 12, padding: "13px 15px" }
+            }, op.text)))
+          : needRetry
+            ? h("button", { onClick: retryNext, className: "w-full active:opacity-80",
+              style: { fontFamily: F_BODY, fontSize: 14, fontWeight: 700, color: "#fff", background: ACCENT, borderRadius: 12, padding: "13px 0" } }, "↻ 梦卡住了，继续做梦")
+            : null) : null;
+
     return h("div", { className: "h-full flex flex-col" },
       h(Head, { zh: s.charName + " 的梦", en: "Dream", onBack: props.onBack, right: wakeBtn }),
-      // 梦境流
-      h("div", { ref: feedRef, className: "flex-1 overflow-y-auto px-5", style: { paddingBottom: dreaming ? 20 : 30 } },
-        scenes.map((sc, i) => h("div", { key: i, style: { marginBottom: 22 } },
-          h("div", { style: { fontFamily: F_BODY, fontSize: 10, fontWeight: 700, letterSpacing: 1, color: t.fog, marginBottom: 8 } }, "第 " + (i + 1) + " 幕"),
-          h("div", { style: { fontFamily: F_BODY, fontSize: 14.5, lineHeight: 1.85, color: t.ink, whiteSpace: "pre-wrap" } }, sc.text),
-          // 已做出的选择回显
-          sc.chosen != null && sc.options && sc.options[sc.chosen]
-            ? h("div", { style: { marginTop: 12, paddingLeft: 12, borderLeft: "2px solid " + ACCENT, fontFamily: F_BODY, fontSize: 13, lineHeight: 1.6, color: ACCENT } },
-              "你选择了：" + sc.options[sc.chosen].text)
-            : null
-        )),
+      // 梦境流（flex-1 撑满剩余高度，底部控制区是同级 shrink-0，滚动能到底不被盖）
+      h("div", { ref: feedRef, className: "flex-1 overflow-y-auto px-5", style: { paddingBottom: 24 } },
+        scenes.map((sc, i) => {
+          const decided = sc.chosen != null && sc.options && sc.options[sc.chosen];
+          return h("div", { key: i, style: { marginBottom: 22 } },
+            h("div", { style: { fontFamily: F_BODY, fontSize: 10, fontWeight: 700, letterSpacing: 1, color: t.fog, marginBottom: 8 } }, "第 " + (i + 1) + " 幕"),
+            h("div", { style: { fontFamily: F_BODY, fontSize: 14.5, lineHeight: 1.85, color: t.ink, whiteSpace: "pre-wrap" } }, sc.text),
+            // 已做出的选择回显 + 回档
+            decided
+              ? h("div", { style: { marginTop: 12, paddingLeft: 12, borderLeft: "2px solid " + ACCENT },
+                  onClick: () => rewindTo(i) },
+                h("div", { style: { fontFamily: F_BODY, fontSize: 13, lineHeight: 1.6, color: ACCENT } }, "你选择了：" + sc.options[sc.chosen].text),
+                h("button", { onClick: e => { e.stopPropagation(); rewindTo(i); }, className: "active:opacity-60",
+                  style: { marginTop: 4, fontFamily: F_BODY, fontSize: 11.5, color: t.fog } }, "↩ 从这里重选"))
+              : null);
+        }),
         // 梦碎 / 醒来 结局
         s.status === "broken"
           ? h("div", { style: { marginTop: 4, marginBottom: 20 } },
             h("div", { style: { fontFamily: F_BODY, fontSize: 10, fontWeight: 700, letterSpacing: 1, color: "#a24a4a", marginBottom: 8 } }, "梦　碎"),
             h("div", { style: { fontFamily: F_BODY, fontSize: 14.5, lineHeight: 1.85, color: t.ink, whiteSpace: "pre-wrap" } }, s.ending),
-            h("div", { style: { marginTop: 16, textAlign: "center", fontFamily: F_DISPLAY, fontSize: 14, fontStyle: "italic", color: t.fog } }, "你被赶出了这场梦。"))
+            // 为什么这个选项是错的
+            s.whyWrong
+              ? h("div", { style: { marginTop: 14, padding: "12px 14px", background: "rgba(162,74,74,0.07)", border: "1px solid rgba(162,74,74,0.25)", borderRadius: 12 } },
+                h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, fontWeight: 700, letterSpacing: .5, color: "#a24a4a", marginBottom: 6 } }, "为什么这条路走不通"),
+                s.wrongText ? h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.sub, marginBottom: 6, fontStyle: "italic" } }, "「" + s.wrongText + "」") : null,
+                h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, lineHeight: 1.7, color: t.ink } }, s.whyWrong))
+              : null,
+            h("div", { style: { marginTop: 16, textAlign: "center", fontFamily: F_DISPLAY, fontSize: 14, fontStyle: "italic", color: t.fog } }, "你被赶出了这场梦。"),
+            // 梦碎后回到那个决策点重来
+            scenes.length ? h("button", { onClick: () => rewindTo(scenes.length - 1), className: "w-full active:opacity-80",
+              style: { marginTop: 16, fontFamily: F_BODY, fontSize: 14, fontWeight: 700, color: "#fff", background: ACCENT, borderRadius: 12, padding: "12px 0" } }, "↩ 回到刚才的决策点重选") : null)
           : s.status === "left"
-            ? h("div", { style: { marginTop: 8, marginBottom: 24, textAlign: "center", fontFamily: F_DISPLAY, fontSize: 14, fontStyle: "italic", color: t.fog } }, "你选择了醒来，梦轻轻合上。")
+            ? h("div", { style: { marginTop: 8, marginBottom: 24, textAlign: "center" } },
+              h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14, fontStyle: "italic", color: t.fog, marginBottom: 14 } }, "你选择了醒来，梦轻轻合上。"),
+              scenes.length ? h("button", { onClick: () => rewindTo(scenes.length - 1), className: "active:opacity-70",
+                style: { fontFamily: F_BODY, fontSize: 12.5, color: ACCENT } }, "↩ 回到最后的决策点重进梦") : null)
             : null),
-      // 底部：选项 / 生成中 / 重试
-      dreaming ? h("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "10px 16px calc(12px + env(safe-area-inset-bottom))", background: "linear-gradient(to top," + t.bg + " 76%,transparent)" } },
-        busy
-          ? h("div", { className: "w-full", style: { fontFamily: F_BODY, fontSize: 13.5, fontWeight: 600, color: t.sub, textAlign: "center", padding: "13px 0", background: t.bg2, border: "1px solid " + t.line, borderRadius: 12 } }, phaseMsg || "…")
-          : awaitingPick
-            ? h("div", { style: { display: "flex", flexDirection: "column", gap: 9 } },
-              cur.options.map((op, i) => h("button", {
-                key: i, onClick: () => pick(i), className: "w-full active:opacity-70",
-                style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.5, textAlign: "left", color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 12, padding: "13px 15px" }
-              }, op.text)))
-            : needRetry
-              ? h("button", { onClick: retryNext, className: "w-full active:opacity-80",
-                style: { fontFamily: F_BODY, fontSize: 14, fontWeight: 700, color: "#fff", background: ACCENT, borderRadius: 12, padding: "13px 0" } }, "↻ 梦卡住了，继续做梦")
-              : null) : null);
+      controls);
   }
 
   window.Dream = Dream;
