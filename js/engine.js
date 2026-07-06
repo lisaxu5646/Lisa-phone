@@ -402,13 +402,13 @@ function splitRedPacket(total, count) {
 async function summarizeGroup(p, ctx, msgs) {
   const text = msgs.map(m => (m.role === "user" ? ctx.profile && ctx.profile.name || "用户" : m.role === "narration" ? "【旁白】" : m.senderName || "某人") + ": " + (m.content || "")).join("\n");
   const system = "把下面这段群聊浓缩成一句到几句第三人称的记忆，抓住关键事件、谁和谁的互动、达成的约定或情绪转折。简洁、具体、可复用。只输出正文。";
-  return await callAI(p, system, [{ role: "user", content: "【群聊】\n" + text }], { maxTokens: 500 });
+  return await callAI(p, system, [{ role: "user", content: "【群聊】\n" + text }], { maxTokens: 3000 });
 }
 // 从一段对话里抽取结构化记忆条目（自动生成，用户可再编辑/删除）
 async function extractMemories(p, ctx, msgs) {
   const text = msgs.map(m => (m.role === "user" ? (ctx.profile && ctx.profile.name || "用户") : ctx.char.name) + ": " + m.content).join("\n");
   const system = "你是记忆整理助手。从下面这段「" + (ctx.profile && ctx.profile.name || "用户") + "」与「" + ctx.char.name + "」的对话里，抽取值得长期记住的关键事实：约定、偏好、身份/背景信息、重要事件、情感承诺、未完成的事。每条一句话、第三人称、具体可复用；忽略寒暄与无信息量的闲聊。为每条配 1~3 个中文标签。\n【输出】只输出合法 JSON 数组，无 markdown：\n[{\"text\":\"一句话事实\",\"tags\":[\"标签1\",\"标签2\"]}]\n没有值得记的就输出 []。";
-  const raw = await callAI(p, system, [{ role: "user", content: "【对话】\n" + text }], { maxTokens: 1200 });
+  const raw = await callAI(p, system, [{ role: "user", content: "【对话】\n" + text }], { maxTokens: 3500 });
   const parsed = extractJSON(raw);
   return Array.isArray(parsed) ? parsed.filter(x => x && x.text) : [];
 }
@@ -476,7 +476,7 @@ async function summarizeOffline(p, ctx, session) {
     return userName + "：" + (m.content || "");
   }).join("\n");
   const system = "把下面这段『" + userName + "』与『" + ctx.char.name + "』的线下相处，浓缩成1~3句第三人称记忆：他们在哪、一起做了什么、关键互动或情绪转折、达成的约定。具体、可复用。只输出正文，不要多余解释。";
-  return (await callAI(p, system, [{ role: "user", content: "【线下经过】\n" + text }], { maxTokens: 500 })).trim();
+  return (await callAI(p, system, [{ role: "user", content: "【线下经过】\n" + text }], { maxTokens: 3000 })).trim();
 }
 // ------- 群聊线下模式（多角色同处一地的面对面叙事）-------
 // 把群聊线下 msgs 映射成 API 对话：char beat 归 assistant（带发言人名），narration/user 归 user，合并连发
@@ -553,7 +553,7 @@ async function summarizeOfflineGroup(p, ctx, session) {
     return userName + "：" + (m.content || "");
   }).join("\n");
   const system = "把下面『" + userName + "』与" + names + "的这段线下相处，浓缩成1~3句第三人称记忆：他们在哪、一起做了什么、谁和谁有关键互动或情绪转折、达成的约定。具体、可复用。只输出正文，不要多余解释。";
-  return (await callAI(p, system, [{ role: "user", content: "【线下经过】\n" + text }], { maxTokens: 600 })).trim();
+  return (await callAI(p, system, [{ role: "user", content: "【线下经过】\n" + text }], { maxTokens: 3000 })).trim();
 }
 // 生成一段静音 WAV 的 data URI（用于后台保活：循环播放占住 iOS 音频会话）
 function makeSilentWav(seconds) {
@@ -700,7 +700,8 @@ async function summarizeChat(p, ctx, olderMsgs) {
     role: "user",
     content: "【新对话】\n" + text
   }], {
-    maxTokens: 2600
+    // 记忆库是累积合并旧+新的整份记忆，越攒越长；2600 会把旧记忆截断丢掉——放宽到 8000（思考型模型还要留思考预算）
+    maxTokens: 8000
   });
 }
 // ============================================================
