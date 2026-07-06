@@ -69,13 +69,6 @@
     return { byName: out, myOptions: myOpts.length ? myOpts : ["支持", "反对"] };
   }
 
-  // ---- 模型：随机生成一个（放飞局的）获胜条件 ----
-  async function genWinCondition(active, topic) {
-    const sys = AC() + "给下面这场『放飞辩论』随机拟一个有点意外、好玩、但能判的获胜条件（不是比谁对，而是比某种表现）。比如『谁把对方逗笑谁赢』『谁最后成功把话题带跑偏谁赢』『谁的歪理最自洽谁赢』这种。\n【辩题】" + topic + "\n只输出这一句获胜条件本身，别加引号别解释。";
-    // 思考型模型给 200 会被想没了正文，放宽（输出免费）
-    return (await callAI(active, sys, [{ role: "user", content: "拟一个。" }], { maxTokens: 2000 })).replace(/```/g, "").replace(/^["「『]|["」』]$/g, "").trim();
-  }
-
   // ---- 模型：一轮一次调用 —— 同时生成【所有角色发言(按序)】+【场下观众弹幕】 ----
   //   我(用户)本轮已先发言，这里让台上角色依次接话、彼此也能对线，再刷观众席。
   //   按次计费 → 一轮一发省钱；输出免费 + 思考型模型 → maxTokens 给足，避免长发言被截断。
@@ -236,19 +229,10 @@
     const [picked, setPicked] = useState([]); // charId[]
     const [mode, setMode] = useState("serious"); // serious | free
     const [winCond, setWinCond] = useState("");
-    const [genning, setGenning] = useState(false);
     const [inject, setInject] = useState(false);
     const [starting, setStarting] = useState(false);
 
     const toggle = id => setPicked(p => p.includes(id) ? p.filter(x => x !== id) : (p.length >= 3 ? (props.toast && props.toast("最多选 3 个角色"), p) : p.concat(id)));
-
-    const rollWin = async () => {
-      if (!topic.trim()) { props.toast && props.toast("先填辩题"); return; }
-      setGenning(true);
-      try { setWinCond(await genWinCondition(props.active, topic.trim())); }
-      catch (e) { props.toast && props.toast("生成失败：" + (e.message || "重试")); }
-      setGenning(false);
-    };
 
     const start = async () => {
       if (!topic.trim()) { props.toast && props.toast("先填辩题"); return; }
@@ -306,12 +290,10 @@
               style: { textAlign: "left", padding: "11px 13px", borderRadius: 11, border: "1.5px solid " + (mode === m[0] ? t.accent : t.line), background: mode === m[0] ? t.accent + "12" : t.bg2 } },
               h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, fontWeight: 700, color: mode === m[0] ? t.accent : t.ink } }, m[1]),
               h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 2 } }, m[2])))),
-        // 放飞：获胜条件
+        // 放飞：获胜条件（可自定；留空则结算时系统临场定，不额外花 API）
         mode === "free" ? h("div", { style: { marginBottom: 20 } },
-          h("div", { style: label }, "获胜条件（放飞局自定，或让系统随机拟一个）"),
-          h("textarea", { value: winCond, onChange: e => setWinCond(e.target.value), placeholder: "例：谁先把对方逗笑 / 谁成功把话题带跑偏…（留空=判定时系统临场定）", rows: 2, style: Object.assign({}, field, { resize: "none", marginBottom: 8 }) }),
-          h("button", { onClick: rollWin, disabled: genning, className: "active:opacity-70",
-            style: { fontFamily: F_BODY, fontSize: 12.5, color: t.tint, background: "none", border: "1px solid " + t.line, borderRadius: 9, padding: "7px 13px" } }, genning ? "拟题中…" : "🎲 随机生成一个")) : null,
+          h("div", { style: label }, "获胜条件（可自定，留空=判定时系统临场定）"),
+          h("textarea", { value: winCond, onChange: e => setWinCond(e.target.value), placeholder: "例：谁先把对方逗笑 / 谁成功把话题带跑偏…（不填也行，结算时系统会定标准）", rows: 2, style: Object.assign({}, field, { resize: "none" }) })) : null,
         // 注入聊天
         h("button", { onClick: () => setInject(v => !v), className: "active:opacity-70",
           style: { display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "11px 13px", borderRadius: 11, border: "1px solid " + t.line, background: t.bg2, marginBottom: 4 } },
