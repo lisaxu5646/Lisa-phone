@@ -114,39 +114,28 @@
     return { turns: turns, crowd: crowd };
   }
 
-  // ---- 模型：结束时的胜负判定 ----
-  async function genVerdict(active, session, uName) {
-    const roster = session.parts.map(p => p.name + "（立场：" + (p.stance || "—") + "）").join("；");
-    const sys = AC() +
-      "你是这场辩论的裁判。辩题：「" + session.topic + "」。参赛各方：" + roster + "。\n" +
-      (session.mode === "free"
-        ? "本场是放飞局，胜负标准就按这一条来评：「" + (session.winCond || "谁整体最出彩谁赢") + "」。别用常规辩论对错来评。"
-        : "按正规辩论评判：论点是否成立、论据是否扎实、有没有有效反驳对方、逻辑与说服力、临场应对。看谁整体更胜一筹。") +
-      "\n\n【全程实录】\n" + fullTranscript(session, uName) +
-      "\n\n给出唯一胜者（可以是台上任何一方，包括「" + uName + "」）和判词。判词要具体点到谁的哪些发言、对着评判标准说，别和稀泥。\n" +
-      "【输出】只输出 JSON：{\"winner\":\"胜者名字\",\"reason\":\"判词，2~4句\"}。";
-    const raw = await callAI(active, sys, [{ role: "user", content: "宣布结果。" }], { maxTokens: 4000 });
-    const p = extractJSON(raw) || {};
-    return { winner: String(p.winner || "").trim() || "平局", reason: String(p.reason || raw || "").trim() };
-  }
-
-  // ---- 模型：判定后【只有角色】各自发表感言（我/用户不生成） ----
-  async function genClosings(active, session, verdict, uName) {
+  // ---- 模型：结束结算 —— 一次调用出【胜负判定 + 各角色赛后感言】（省一次 API；玩家不生成感言）----
+  async function genResult(active, session, uName) {
     const chars = session.parts.filter(p => p.kind === "char");
-    const roster = chars.map(c => "「" + c.name + "」（立场：" + (c.stance || "—") + "；人设：" + (c.persona || "").replace(/\s+/g, " ").slice(0, 120) + "）").join("\n");
+    const charRoster = chars.map(c => "「" + c.name + "」（立场：" + (c.stance || "—") + "；人设：" + (c.persona || "").replace(/\s+/g, " ").slice(0, 120) + "）").join("\n");
     const sys = AC() +
-      "一场辩论刚出结果。辩题：「" + session.topic + "」。判定结果——胜者：" + verdict.winner + "；判词：" + verdict.reason + "。\n" +
-      "现在请台上每个角色各发表一句赛后感言，【完全按各自人设反应】：赢的人可能得意/谦逊/意犹未尽，输的人可能不服/服气/找补/摆烂，取决于 Ta 的性格和这场表现。别都写成一个腔调。\n" +
-      "⚠只给下面列出的角色写，【绝对不要】给「" + uName + "」（那是真人玩家，不用 Ta 的感言）写任何东西。\n\n【台上角色】\n" + roster +
-      "\n\n【输出】只输出 JSON：{\"closings\":[{\"name\":\"角色名\",\"text\":\"感言，1~3句\"}]}，只含上面这些角色、每个一条。";
-    // 放宽 token：思考型模型 + 多角色，别让感言写一半被截断（输出免费）
-    const raw = await callAI(active, sys, [{ role: "user", content: "各角色各说一句（别写玩家的）。" }], { maxTokens: Math.min(8000, 1600 + chars.length * 700) });
-    const p = extractJSON(raw);
-    const arr = p && Array.isArray(p.closings) ? p.closings : [];
+      "你是这场辩论的裁判兼主持。辩题：「" + session.topic + "」。参赛各方及立场：" + session.parts.map(p => p.name + "（" + (p.stance || "—") + "）").join("；") + "。\n" +
+      (session.mode === "free"
+        ? "本场是放飞局，胜负标准就按这一条来评：「" + (session.winCond || "谁整体最出彩谁赢") + "」，别用常规辩论对错来评。"
+        : "按正规辩论评判：论点是否成立、论据是否扎实、有没有有效反驳对方、逻辑与说服力、临场应对，看谁整体更胜一筹。") +
+      "\n\n【全程实录】\n" + fullTranscript(session, uName) +
+      "\n\n【要一次做两件事】\n" +
+      "1) 判出唯一胜者（可以是台上任何一方，包括玩家「" + uName + "」）+ 写判词：具体点到谁的哪些发言、对着评判标准说，别和稀泥。\n" +
+      "2) 然后台上【每个角色】各发一句赛后感言，完全按各自人设反应赢/输（得意/谦逊/意犹未尽/不服/找补/摆烂…别一个腔调）。⚠只给下面这些角色写，【绝对不要】给玩家「" + uName + "」写感言。\n\n【台上角色】\n" + charRoster +
+      "\n\n【输出】只输出 JSON：{\"winner\":\"胜者名字\",\"reason\":\"判词2~4句\",\"closings\":[{\"name\":\"角色名\",\"text\":\"感言1~3句\"}]}。closings 只含上面这些角色、每人一条。";
+    // 放宽 token：判词 + 多角色感言一次出，思考型模型别写一半被截断（输出免费）
+    const raw = await callAI(active, sys, [{ role: "user", content: "宣布结果，并让各角色各说一句赛后感言（别写玩家的）。" }], { maxTokens: Math.min(12000, 3500 + chars.length * 900) });
+    const p = extractJSON(raw) || {};
     const charNames = chars.map(c => c.name);
-    // 兜底：即便模型手滑给玩家写了，也过滤掉——只保留台上角色的
-    return arr.map(c => ({ name: String((c && c.name) || "").trim(), text: String((c && c.text) || "").trim() }))
+    const closings = (Array.isArray(p.closings) ? p.closings : [])
+      .map(c => ({ name: String((c && c.name) || "").trim(), text: String((c && c.text) || "").trim() }))
       .filter(c => c.text && c.name !== uName && charNames.indexOf(c.name) >= 0);
+    return { winner: String(p.winner || "").trim() || "平局", reason: String(p.reason || raw || "").trim(), closings: closings };
   }
 
   // ============================================================
@@ -396,13 +385,11 @@
     // 结束判定
     const endDebate = async () => {
       if (!window.confirm("结束辩论并由系统判定胜负？")) return;
-      setBusy(true); setPhaseMsg("裁判正在合议…");
+      setBusy(true); setPhaseMsg("裁判合议、选手准备感言…");
       try {
-        const verdict = await genVerdict(props.active, s, uName);
-        setPhaseMsg("选手准备赛后感言…");
-        let closings = [];
-        try { closings = await genClosings(props.active, s, verdict, uName); } catch (e) {}
-        patch({ status: "ended", verdict: verdict, closings: closings });
+        // 判定 + 各角色感言合并成一次调用（省一次 API）
+        const r = await genResult(props.active, s, uName);
+        patch({ status: "ended", verdict: { winner: r.winner, reason: r.reason }, closings: r.closings });
       } catch (e) { props.toast && props.toast("判定失败：" + (e.message || "重试")); }
       setBusy(false); setPhaseMsg("");
     };
