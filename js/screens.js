@@ -4221,7 +4221,7 @@ function EmoteMatrix({ packs, characters, onBack, onAddPack, onUpdatePack, onDel
               const on = selEmotes.includes(em.id);
               return h("button", { key: em.id, onClick: () => { if (!selMode) return; setSelEmotes(s => s.includes(em.id) ? s.filter(x => x !== em.id) : [...s, em.id]); }, className: "text-left active:opacity-80", style: { border: "1px solid " + (on ? t.accent : t.line), borderRadius: 12, overflow: "hidden", background: t.bg2 } },
                 h("div", { style: { width: "100%", aspectRatio: "1", background: t.line, position: "relative" } },
-                  h("img", { src: em.url, style: { width: "100%", height: "100%", objectFit: "cover", display: "block" }, onError: e => { e.target.style.display = "none"; } }),
+                  h("img", { src: em.url, referrerPolicy: "no-referrer", loading: "lazy", style: { width: "100%", height: "100%", objectFit: "cover", display: "block" }, onError: e => { e.target.style.display = "none"; } }),
                   selMode && h("span", { style: { position: "absolute", top: 5, right: 5, width: 20, height: 20, borderRadius: 999, background: on ? t.accent : "rgba(0,0,0,0.4)", color: "#fff", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" } }, on ? "✓" : "")),
                 h("div", { className: "truncate", style: { fontFamily: F_BODY, fontSize: 11, color: t.sub, padding: "5px 7px" } }, em.keyword));
             })),
@@ -4264,7 +4264,7 @@ function Favorites({ favorites, characters, onBack, onDelete }) {
               h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, (f.role === "user" ? "我" : c.name) + " · " + fmtStamp(f.ts)),
               h("button", { onClick: () => onDelete(f.id), className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 11.5, color: t.accent } }, "移除")),
             f.kind === "emote" && f.url
-              ? h("img", { src: f.url, style: { maxWidth: 110, maxHeight: 110, borderRadius: 10, display: "block" }, onError: e => { e.target.style.display = "none"; } })
+              ? h("img", { src: f.url, referrerPolicy: "no-referrer", loading: "lazy", style: { maxWidth: 110, maxHeight: 110, borderRadius: 10, display: "block" }, onError: e => { e.target.style.display = "none"; } })
               : h("div", { style: { fontFamily: F_BODY, fontSize: 14.5, color: t.ink, lineHeight: 1.65, whiteSpace: "pre-wrap" } }, f.content || "（无文本内容）")))));
   }
   const chars = (characters || []).filter(c => byChar[c.id] && byChar[c.id].length);
