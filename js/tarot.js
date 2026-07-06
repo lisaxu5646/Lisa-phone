@@ -3,7 +3,7 @@
 // 四种玩法（都靠全局 callAI + ANTI_CLICHE，存 localStorage x_tarot_saves 随云同步）：
 //   · reading  角色为你解牌：你问一件事，选一个角色，Ta 用自己的口吻按牌面为你解读
 //   · relation 关系占卜：为「你和某角色」抽牌，牌面暗暗被真实好感/关系上色，不露数字
-//   · daily    每日一牌：今天一张牌，角色给你一句当日签（可一次抽全部角色，同一天固定不变）
+//   · daily    每日一牌：一天只【一张】牌（全体共用，当天固定），各角色解读同一张给你当日签（可一次生成全部角色）
 //   · forchar  给角色算一卦：替某角色抽 Ta 此刻的近况/心结/走向，旁白式解读，可转发给 Ta
 // 78 张莱德-韦特牌（22 大阿卡纳 + 56 小阿卡纳），每张牌都是【本地随机】抽出，模型只解读不挑牌。
 // ============================================================
@@ -69,7 +69,7 @@
     },
     daily: {
       zh: "每日一牌", en: "Card of the Day", icon: "☀",
-      blurb: "今天翻一张牌，让 Ta 给你一句当日签（可一次抽全部角色，同一天固定不变）",
+      blurb: "今天翻【一张】牌，各角色都解读这同一张、给你当日签（可一次生成全部角色，同一天固定不变）",
       spread: ["今日"],
       needChar: true, daily: true
     },
@@ -84,13 +84,22 @@
   function loadSaves() { return loadJSON("x_tarot_saves", []); }
   function saveSaves(l) { saveJSON("x_tarot_saves", l); }
   const todayKey = () => { const d = new Date(); return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate(); };
+  // 今天的那一张牌：一天只抽一张，全体角色共用；当天固定不变（存 x_tarot_dayCard）
+  function todayCard() {
+    const tk = todayKey();
+    const stored = loadJSON("x_tarot_dayCard", null);
+    if (stored && stored.dayKey === tk && stored.card) return stored.card;
+    const card = draw(1)[0];
+    saveJSON("x_tarot_dayCard", { dayKey: tk, card: card });
+    return card;
+  }
 
   // ============================================================
   // 模型：解一副牌（reading / relation / forchar）
   // 返回 {reads:[{pos,text}], summary, charThought}
   // ============================================================
   async function readSpread(active, ctx) {
-    const { mode, cards, spread, charName, charPersona, uName, question, relText, band, voiceRef, worldbook } = ctx;
+    const { mode, cards, spread, charName, charPersona, uName, question, relText, band, voiceRef, mood, worldbook } = ctx;
     const cardList = cards.map((c, i) => (i + 1) + "、【" + spread[i] + "】" + cardLabel(c)).join("\n");
     let voice, view, thoughtAsk;
     if (mode === "reading") {
@@ -111,6 +120,7 @@
 
     const sys = AC() + NAC() + HONEST + "\n\n" + voice + "\n\n" +
       "【角色资料】「" + charName + "」：" + (charPersona || "（暂无设定）").replace(/\s+/g, " ").slice(0, 800) +
+      (mood ? "\n\n【Ta 此刻的心情：" + mood + "】顺带透一点即可，别喧宾夺主、牌义才是主角。" : "") +
       (voiceRef ? "\n\n【Ta 近期的语气 / 近况，仅参考】\n" + voiceRef : "") +
       (worldbook && worldbook.trim() ? "\n\n【世界书】\n" + worldbook.trim().slice(0, 500) : "") +
       "\n\n" + view +
@@ -128,17 +138,16 @@
   }
 
   // ============================================================
-  // 模型：每日一牌 · 一次给全部（或多个）角色 —— 一次调用返回每人一句当日签
-  // 牌仍是每人本地各抽一张；只把「解读」批量交给模型，省调用。
-  // 返回按传入顺序对齐的 [{text}]
+  // 模型：每日一牌 —— 今天【同一张牌】，多个角色各自解读；一次调用返回每人一句当日签
+  // 注入很克制（只给此刻心情一词 + 很短的近况），避免喧宾夺主把解读搞乱。返回按传入顺序对齐 [{text}]
   // ============================================================
-  async function readDailyAll(active, list, uName, worldbook) {
-    const block = list.map((it, i) => (i + 1) + "、「" + it.name + "」\n  抽到的牌：" + cardLabel(it.card) + "\n  人设：" + (it.persona || "（暂无设定）").replace(/\s+/g, " ").slice(0, 260) + (it.voiceRef ? "\n  近况参考：" + it.voiceRef.replace(/\n/g, "；").slice(0, 160) : "")).join("\n\n");
+  async function readDailyForCard(active, card, list, uName, worldbook) {
+    const block = list.map((it, i) => (i + 1) + "、「" + it.name + "」\n  人设：" + (it.persona || "（暂无设定）").replace(/\s+/g, " ").slice(0, 260) + (it.mood ? "\n  此刻心情：" + it.mood : "") + (it.voiceRef ? "\n  近况一瞥：" + it.voiceRef.replace(/\n/g, "；").slice(0, 90) : "")).join("\n\n");
     const sys = AC() + NAC() + HONEST + "\n\n" +
-      "下面每个角色今天各抽到了一张塔罗牌。请【分别以每位角色本人的口吻】，给 " + uName + " 递一句今天的当日签——短，像随口说的一两句，结合各自抽到的那张牌（含正/逆位）与人设，别混淆、别串味、别写成一个人的腔调。\n\n" +
-      "【角色与各自的牌】\n" + block +
-      "\n\n【输出】只输出 JSON，readings 数组和上面角色顺序【一一对应、数量一致】：{\"readings\":[{\"name\":\"角色名\",\"text\":\"这位角色的当日签\"}...]}。别加解释、别加代码块。";
-    const raw = await callAI(active, sys, [{ role: "user", content: "开始发签。" }], { maxTokens: 3800 });
+      "今天的塔罗牌是【同一张】：" + cardLabel(card) + "。请【分别以下面每位角色本人的口吻】，就【这同一张牌】给 " + uName + " 递一句今天的当日签——短，像随口说的一两句，结合这张牌（含正/逆位）与各自人设" + (list.some(it => it.mood) ? "（有此刻心情就顺带透一点，但别喧宾夺主，牌义才是主角）" : "") + "，别混淆、别串味、别把几个人写成同一个腔调、也别千篇一律。\n\n" +
+      "【要解读这张牌的角色】\n" + block +
+      "\n\n【输出】只输出 JSON，readings 数组和上面角色顺序【一一对应、数量一致】：{\"readings\":[{\"name\":\"角色名\",\"text\":\"这位角色对今天这张牌的当日签\"}...]}。别加解释、别加代码块。";
+    const raw = await callAI(active, sys, [{ role: "user", content: "开始发签。" }], { maxTokens: 4000 });
     const p = extractJSON(raw) || {};
     const arr = Array.isArray(p.readings) ? p.readings : [];
     // 优先按 name 对齐，兜底按顺序
@@ -184,7 +193,7 @@
     const histLine = s => {
       const m = MODES[s.mode] || {};
       const subt = s.mode === "daily"
-        ? (s.all ? "全部角色 · " + ((s.entries || []).length) + " 人" : (s.entries && s.entries[0] ? s.entries[0].charName : s.charName))
+        ? (s.card ? s.card.name : "每日一牌") + " · " + ((s.entries || []).length) + " 人解读"
         : (s.mode === "reading" && s.question ? "问：" + s.question : s.charName);
       return h("div", {
         key: s.id,
@@ -199,7 +208,7 @@
           h("span", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, subt),
           h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.fog, flexShrink: 0 } }, fmtDate(s.ts))),
         h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
-          (s.mode === "daily" ? (s.entries || []).map(e => e.card && e.card.name).filter(Boolean) : (s.cards || []).map(c => c.name)).join(" · ")));
+          (s.mode === "daily" ? (s.card ? [cardLabel(s.card)] : []) : (s.cards || []).map(c => c.name)).join(" · ")));
     };
 
     return h("div", { className: "h-full flex flex-col" },
@@ -243,45 +252,39 @@
     const uName = (props.profile && props.profile.name) || "我";
     const isDailyAll = m.daily && dailyAll;
 
+    const moodOf = id => { const mo = props.moods && props.moods[id]; return mo && mo.label ? String(mo.label) : ""; };
+
     const go = async () => {
       if (!isDailyAll && !charId) { props.toast && props.toast("先选一个角色"); return; }
       if (m.needQ && !q.trim()) { props.toast && props.toast("写下你想问的事"); return; }
       const rels = props.rels || {};
 
-      // 每日一牌 · 全部角色：同一天已抽过就直接取；否则一次批量生成
-      if (isDailyAll) {
+      // 每日一牌：一天只抽【一张】牌（全体共用），各角色解读【同一张】。
+      // 同一天已抽的角色直接取旧解读；新角色（含点「全部角色」补齐没解过的人）追加进同一天的会话。
+      if (m.daily) {
         const tk = todayKey();
-        const exist = loadSaves().find(s => s.mode === "daily" && s.all && s.dayKey === tk);
-        if (exist) { props.onDone(exist); return; }
-        if (!props.characters.length) { props.toast && props.toast("先去『名录』建个角色"); return; }
-        setBusy(true); setPhase("正在为每位角色各抽一张…");
+        const card = todayCard(); // 今天这张牌，抽一次后当天固定
+        const existing = loadSaves().find(s => s.mode === "daily" && s.dayKey === tk);
+        const c0 = props.characters.find(x => x.id === charId);
+        const wantChars = isDailyAll ? props.characters : (c0 ? [c0] : []);
+        if (!wantChars.length) { props.toast && props.toast("先去『名录』建个角色"); return; }
+        const have = {}; (existing && existing.entries || []).forEach(e => { have[e.charId] = true; });
+        const toGen = wantChars.filter(x => !have[x.id]);
+        if (!toGen.length && existing) { props.onDone(existing); return; } // 想看的人都解过了 → 直接看
+        setBusy(true); setPhase(existing ? "解读今天这张牌…" : "正在翻开今天的牌…");
         try {
-          const list = props.characters.map(c => ({ id: c.id, name: c.name, persona: c.persona || "", card: draw(1)[0], voiceRef: recentChat(c.id, uName, c.name) }));
-          setPhase(list.length + " 位角色的牌都摊开了，正在发签…");
-          const outs = await readDailyAll(props.active, list, uName, props.worldbook);
-          const entries = list.map((it, i) => ({ charId: it.id, charName: it.name, card: it.card, text: outs[i] ? outs[i].text : "" }));
-          props.onDone({ id: "tr_" + Date.now(), mode: "daily", all: true, dayKey: tk, entries: entries, ts: Date.now() });
+          const list = toGen.map(x => ({ id: x.id, name: x.name, persona: x.persona || "", mood: moodOf(x.id), voiceRef: recentChat(x.id, uName, x.name) }));
+          const outs = await readDailyForCard(props.active, card, list, uName, props.worldbook);
+          const newEntries = toGen.map((x, i) => ({ charId: x.id, charName: x.name, text: outs[i] ? outs[i].text : "" }));
+          const merged = (existing && existing.entries || []).concat(newEntries);
+          props.onDone({ id: "tr_daily_" + tk, mode: "daily", dayKey: tk, card: card, entries: merged, all: isDailyAll || !!(existing && existing.all), ts: Date.now() });
         } catch (e) { props.toast && props.toast("牌没摊开：" + (e.message || "重试")); setBusy(false); setPhase(""); }
         return;
       }
 
       const c = props.characters.find(x => x.id === charId);
-      // 每日一牌 · 单个角色：同一天同一角色 → 直接取已有的
-      if (m.daily) {
-        const tk = todayKey();
-        const exist = loadSaves().find(s => s.mode === "daily" && !s.all && s.charId === charId && s.dayKey === tk);
-        if (exist) { props.onDone(exist); return; }
-      }
-
       setBusy(true); setPhase("正在洗牌…");
       try {
-        if (m.daily) {
-          const card = draw(1)[0];
-          setPhase(c.name + "正在给你今天这张牌…");
-          const outs = await readDailyAll(props.active, [{ id: c.id, name: c.name, persona: c.persona || "", card: card, voiceRef: recentChat(c.id, uName, c.name) }], uName, props.worldbook);
-          props.onDone({ id: "tr_" + Date.now(), mode: "daily", all: false, charId: c.id, charName: c.name, dayKey: todayKey(), entries: [{ charId: c.id, charName: c.name, card: card, text: outs[0] ? outs[0].text : "" }], ts: Date.now() });
-          return;
-        }
         const cards = draw(m.spread.length);
         setPhase("牌已摊开，" + c.name + "正在解读…");
         const r1 = rels[c.id + "->me"], r2 = rels["me->" + c.id];
@@ -292,7 +295,7 @@
           charName: c.name, charPersona: c.persona || "", uName: uName,
           question: q.trim(), relText: relText,
           band: (props.modeKey === "relation" || props.modeKey === "reading") ? affBand(aff) : "",
-          voiceRef: recentChat(c.id, uName, c.name), worldbook: props.worldbook
+          voiceRef: recentChat(c.id, uName, c.name), mood: moodOf(c.id), worldbook: props.worldbook
         });
         props.onDone({
           id: "tr_" + Date.now(), mode: props.modeKey, charId: c.id, charName: c.name,
@@ -317,8 +320,8 @@
         m.daily ? h("button", { onClick: () => setDailyAll(v => !v), className: "w-full active:opacity-80",
           style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "11px 13px", background: isDailyAll ? "rgba(74,63,107,0.08)" : t.bg2, border: "1px solid " + (isDailyAll ? ACCENT : t.line), borderRadius: 11, marginBottom: 16 } },
           h("div", { style: { textAlign: "left" } },
-            h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.ink } }, "一次抽全部角色"),
-            h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 2, lineHeight: 1.5 } }, "每人各抽一张、一次生成全部（省次数），进去可挨个看")),
+            h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.ink } }, "让全部角色都解读"),
+            h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 2, lineHeight: 1.5 } }, "所有人解读今天【同一张】牌，一次生成全部（省次数），进去挨个看")),
           h("div", { style: { width: 20, height: 20, flexShrink: 0, borderRadius: 6, border: "1px solid " + (isDailyAll ? ACCENT : t.line), background: isDailyAll ? ACCENT : "transparent", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 } }, isDailyAll ? "✓" : "")) : null,
         isDailyAll ? null : h("div", { style: label }, props.modeKey === "forchar" ? "替谁算" : props.modeKey === "relation" ? "算你和谁" : "请谁替你解牌"),
         isDailyAll ? null : h("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 22 } },
@@ -331,7 +334,7 @@
         m.needQ ? h("textarea", { value: q, onChange: e => setQ(e.target.value), rows: 3, placeholder: m.qHint,
           style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.6, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 11, padding: "11px 13px", width: "100%", outline: "none", resize: "none", marginBottom: 8 } }) : null,
         h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, lineHeight: 1.7 } },
-          isDailyAll ? "每位角色各抽 1 张牌。" : "会摊开 " + m.spread.length + " 张牌：" + m.spread.join(" · ") + "。",
+          m.daily ? "今天只有【一张】牌，所有人解读同一张。" : "会摊开 " + m.spread.length + " 张牌：" + m.spread.join(" · ") + "。",
           h("br"), "牌是随机抽出的，模型只解读、不挑牌。")
       ),
       h("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "10px 20px calc(10px + env(safe-area-inset-bottom))", background: "linear-gradient(to top," + t.bg + " 78%,transparent)" } },
@@ -357,19 +360,21 @@
         h("div", { style: { marginTop: 6, fontFamily: F_BODY, fontSize: small ? 9 : 10, color: c.rev ? "#e0a3a3" : "rgba(244,239,228,0.7)", border: "1px solid rgba(184,145,80,0.4)", borderRadius: 999, padding: "1px 8px" } }, c.rev ? "逆位" : "正位")),
       pos ? h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, textAlign: "center", marginTop: 6 } }, pos) : null);
 
-    // ---- 每日一牌：一张或多张（全部角色）----
+    // ---- 每日一牌：今天【一张】牌，各角色解读同一张 ----
     if (s.mode === "daily") {
       const entries = s.entries || [];
+      const dc = s.card || (entries[0] && entries[0].card); // 兼容旧数据（旧版每人各一张时取第一张）
       return h("div", { className: "h-full flex flex-col" },
         h(Head, { zh: m.zh, en: m.en, onBack: props.onBack }),
         h("div", { className: "flex-1 overflow-y-auto px-5 pb-10" },
-          h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginBottom: 16 } }, fmtDate(s.ts) + (s.all ? " · 全部角色的今日签" : "")),
-          entries.map((e, i) => h("div", { key: i, style: { display: "flex", gap: 14, marginBottom: 20, alignItems: "flex-start" } },
-            e.card ? cardTile(e.card, "", i, true) : null,
-            h("div", { style: { flex: 1, minWidth: 0, paddingTop: 4 } },
-              h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink, marginBottom: 2 } }, e.charName),
-              e.card ? h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginBottom: 6 } }, cardLabel(e.card)) : null,
-              h("div", { style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.8, color: t.ink } }, e.text))))));
+          h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginBottom: 14, textAlign: "center" } }, fmtDate(s.ts) + " · 今天的牌"),
+          // 今天这一张牌（全体共用）
+          dc ? h("div", { style: { display: "flex", justifyContent: "center", marginBottom: 8 } }, cardTile(dc, "", 0, false)) : null,
+          dc ? h("div", { style: { textAlign: "center", fontFamily: F_BODY, fontSize: 12, color: t.sub, marginBottom: 22 } }, cardLabel(dc)) : null,
+          h("div", { style: { fontFamily: F_BODY, fontSize: 11, fontWeight: 700, color: t.sub, marginBottom: 12, letterSpacing: .3 } }, "各人怎么看这张牌"),
+          entries.map((e, i) => h("div", { key: i, style: { marginBottom: 15, paddingBottom: 15, borderBottom: i < entries.length - 1 ? "1px solid " + t.line : "none" } },
+            h("div", { style: { fontFamily: F_DISPLAY, fontSize: 15.5, color: t.ink, marginBottom: 3 } }, e.charName),
+            h("div", { style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.8, color: t.ink } }, e.text)))));
     }
 
     // ---- reading / relation / forchar ----
