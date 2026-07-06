@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.33";
+const APP_VERSION = "v46.34";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -3486,6 +3486,25 @@ function App() {
       if (say.length) pChat(toChar.id, p => [...p, ...say.map(s => ({ role: "assistant", content: String(s), ts: Date.now(), read: false }))]);
     } catch (e) {/* 卡已在，反应失败静默 */}
   };
+  // 塔罗「给角色算一卦」转发给对应角色：把这一卦发进 Ta 的私聊，让 Ta 读后反应
+  const forwardTarotToChat = async (session) => {
+    const toChar = characters.find(c => c.id === session.charId);
+    if (!toChar) { toast("找不到这个角色"); return; }
+    const cardsTxt = (session.cards || []).map((c, i) => ((session.spread || [])[i] ? session.spread[i] + "：" : "") + c.name + (c.rev ? "（逆位）" : "（正位）")).join("；");
+    const readTxt = (session.reads || []).map(r => (r.pos ? r.pos + "—" : "") + r.text).join("\n");
+    const summary = session.summary || "";
+    const shareText = "【塔罗 · 我替你算了一卦】\n" + cardsTxt + (summary ? "\n\n" + summary : "");
+    pChat(toChar.id, p => [...p, { role: "user", content: shareText, ts: Date.now(), read: false }]);
+    toast("已把这一卦转发给 " + (toChar.remark || toChar.name));
+    if (!active) return;
+    const instruction = "有人（用户）替你算了一卦塔罗，把结果发给你看了。抽到的牌与解读：\n牌：" + cardsTxt + "\n解读：\n" + readTxt + (summary ? "\n收束：" + summary : "") +
+      "\n\n你【读到一份替你自己算的命卦】，按你的人设和此刻心情真实反应（信或不信、在意哪一句、被说中了还是嗤之以鼻、追问、或借机说点心里话都行，1-3 句可多气泡），别客服腔、别复述全文。";
+    try {
+      const react = await runProbe(active, ctxFor(toChar), { instruction: instruction, schemaHint: "{\"say\":[\"气泡1\",\"气泡2\"]}", maxTokens: 900 });
+      const say = react && Array.isArray(react.say) ? react.say : (react && react.say ? [react.say] : []);
+      if (say.length) pChat(toChar.id, p => [...p, ...say.map(s => ({ role: "assistant", content: String(s), ts: Date.now(), read: false }))]);
+    } catch (e) {/* 卡已在，反应失败静默 */}
+  };
   const forwardFicToGroup = (fic, group) => {
     const excerpt = ((fic.chapters || [])[0] || {}).content || fic.body || "";
     const cpNames = (fic.cp || []).map(id => { const c = characters.find(x => x.id === id); return c ? c.name : null; }).filter(Boolean);
@@ -5518,6 +5537,7 @@ function App() {
     affinities: affinities,
     moods: moods,
     toast: toast,
+    onForwardToChat: forwardTarotToChat,
     onBack: () => setScreen("home")
   });else if (screen === "fanfic") body = h(FanficApp, {
     active: active,

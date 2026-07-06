@@ -16,9 +16,13 @@
   const FANFIC_ANTI_CLICHE =
     "【同人文 · 反陈词滥调（写 prose 时持续生效，优先级同去人机味）】\n" +
     "· 禁用这批被写烂的意象词及其近义堆砌：形容皮肤/身体用「白玉／羊脂／凝脂／欺霜赛雪／白皙如瓷」；形容头发用「瀑布般／如瀑／墨色的瀑布」；缠绕纠缠一律不用「藤蔓／藤蔓般缠绕／attach 藤蔓」；还有「琉璃／碎钻／星辰大海／灵魂深处／宿命／劫」这类空转大词。\n" +
+    "· 【尤其禁掉这批同人烂梗动作/称呼，一次都别出现】：把头/脸「埋进颈窝／埋在颈间／蹭颈窝」、把对方或自己比作「小兽／幼兽／大型犬／奶狗／小奶猫」、「低吼一声／喉间溢出／闷哼／黏腻的气音」、「危险地眯起眼／勾唇一笑／挑眉」、「收紧的手臂／禁锢／圈进怀里／扣住后颈」、「耳尖泛红／红透了耳根」。要写亲密与情绪，请另找只属于这两个人、这个场景的具体动作。\n" +
     "· 别写「不知是不是错觉」「仿佛过了一个世纪」「时间仿佛静止」「空气都凝固了」这类填充句。\n" +
     "· 感官与比喻要落在这两个人此刻的具体处境上（这间屋子、这件衣服、他手边的东西），不要通用言情模板。\n" +
     "· 台词要有人味、有停顿、有言外之意，别让人物开口就是散文腔或宣言腔。";
+  // 尾部再压一遍（放输出指令后，利用模型对结尾的注意力）——item：整篇再加一次八股提醒
+  const FANFIC_ANTI_CLICHE_TAIL =
+    "\n\n【落笔前再自检一遍】通篇不许出现：埋进颈窝、小兽/幼兽/大型犬、低吼一声/喉间溢出、勾唇/挑眉、圈进怀里/扣住后颈、耳尖泛红，以及白玉凝脂、如瀑长发、藤蔓般缠绕、星辰大海、灵魂深处这类烂词。发现自己要写这些，就换成此情此景独有的具体细节。";
 
   // world book 亲密场景「设定层」补充（拼进当前 tab 世界观之后）——中文比喻词表走「可用」方向，
   // 上面 FANFIC_ANTI_CLICHE 走「禁用」方向，两头夹。
@@ -36,7 +40,7 @@
     { id: "tab_apoc", name: "末世", desc: "末世/废土背景。资源匮乏、丧尸或灾变、幸存者据点。危险与依赖并存，感情在生死边缘发生，冷硬底色。", seed: true },
     { id: "tab_abo", name: "ABO", desc: "ABO 世界观。Alpha/Beta/Omega 三分性别、信息素、易感期/发情期、标记。设定内自洽，信息素与本能是核心张力。", seed: true },
     { id: "tab_endless", name: "无限流", desc: "无限流。主角被卷入一个个副本/试炼世界，规则残酷、通关或死。悬疑惊悚打底，感情在极限处境里淬出来。", seed: true },
-    { id: "tab_ancient", name: "古风", desc: "古风架空。朝堂、江湖、深宅、边关。用文白相间的语感，讲究身份、礼数、隐忍与克制，别掉现代词。", seed: true },
+    { id: "tab_ancient", name: "古风", desc: "古风架空。朝堂、江湖、深宅、边关。\n【文风必须真的古】要有半文半白的古白话语感（近《红楼》《金瓶》话本、明清世情小说的腔调），不是套了古装的现代小说：\n· 叙述与对白都用文白相间的句子，多用四字短语、对仗与留白；句子偏短，忌长句欧化从句。\n· 称谓、器物、时辰、礼数都用古时说法（妾身/在下/郎君/娘子、更漏/时辰、案几/罗帐/袖中、拱手/敛衽），第一/第二人称少用「你我」多用身份称谓。\n· 严禁现代词与翻译腔：像「感觉/情绪/状态/氛围/空气/时间仿佛静止/心脏/大脑/紧张/放松/关系/沟通/瞬间/画面」这类词一律换成古意表达或删去。\n· 情感靠动作、景物、器物与欲言又止来递，隐忍克制，别直白宣泄、别现代心理描写。", seed: true },
     { id: "tab_era", name: "年代", desc: "年代文。上世纪某个年代（六七十年代/九十年代）背景，粮票、大院、国营厂、书信。质朴、有时代颗粒感。", seed: true },
     { id: "tab_hk", name: "港片", desc: "港片质感。八九十年代香港，警匪、江湖义气、霓虹与雨夜、茶餐厅。粤味台词、宿命感、江湖儿女的克制深情。", seed: true }
   ];
@@ -103,7 +107,8 @@
     if (c.isMe) return "「" + c.name + "」是读者本人（我）" + (c.persona && c.persona.trim() ? "，按这份面具人设来写：\n" + c.persona.trim() : "，没有填写人设——可自由发挥其性格，别硬套设定");
     return "「" + c.name + "」严格贴合角色卡：\n" + (c.persona && c.persona.trim() ? c.persona.trim() : "（暂无设定，可据名字合理发挥）");
   }
-  function cpBlock(cpChars) {
+  function cpBlock(cpChars, opts) {
+    opts = opts || {};
     if (!cpChars || !cpChars.length)
       return "【CP】未指定具体 CP——写原创向/群像向短篇，主角自拟，别硬凑现有角色。";
     if (cpChars.length === 1) {
@@ -111,7 +116,15 @@
       return "【CP：" + c.name + " × 原创对象】\n主角一方：" + sideDesc(c) + "\n另一方是一个由你设定的原创角色（自由发挥，贴合本世界观基调）。";
     }
     const a = cpChars[0], b = cpChars[1];
-    return "【CP：" + a.name + " × " + b.name + "】\n两位主角各自守住各自设定、别互相同化。\n· " + sideDesc(a) + "\n· " + sideDesc(b);
+    const bothChars = !a.isMe && !b.isMe; // 两个都是角色（没有「我」）
+    // 带上我：写成 A × 我 × B 三人同框
+    if (bothChars && opts.includeMe) {
+      const meName = opts.meName || "我";
+      return "【CP：" + a.name + " × " + meName + "（读者本人/我） × " + b.name + "】\n这是三人同框：把『我』作为真正的第三方写进去，三个人彼此之间都有关系张力，别把『我』写成旁观者或工具人。\n· " + sideDesc(a) + "\n· 「" + meName + "」是读者本人（我）" + (opts.mePersona && opts.mePersona.trim() ? "，按这份面具人设来写：\n" + opts.mePersona.trim() : "，没填人设就自由发挥其性格") + "\n· " + sideDesc(b);
+    }
+    // 只他俩 CP：即便角色卡写了「我男朋友」，也不把「我」带进文里
+    const soloTail = bothChars ? "\n【只写这两人】这是 " + a.name + " × " + b.name + " 的双人同人文，读者/『我』不出场、不作为角色写进去；就算某人的设定里写了 TA 是「我的男朋友/恋人」，本篇也只聚焦他们两人彼此，别把「我」拉进来凑三人。" : "";
+    return "【CP：" + a.name + " × " + b.name + "】\n两位主角各自守住各自设定、别互相同化。\n· " + sideDesc(a) + "\n· " + sideDesc(b) + soloTail;
   }
 
   // 素材来源：把 CP 角色的私聊记录抽尾巴当写作素材（item 6：生成素材来源人设聊天）
@@ -148,7 +161,7 @@
     parts.push(INTIMACY_WORLDNOTE);
     if (opts.style && opts.style.trim()) parts.push("【预设文风（作者本次的写作风格要求，优先满足）】\n" + opts.style.trim());
     if (worldbook && worldbook.trim()) parts.push("【全局世界书（可作背景参考，与本版世界观冲突时以本版为准）】\n" + worldbook.trim());
-    parts.push(cpBlock(cpChars));
+    parts.push(cpBlock(cpChars, opts));
     if (opts.chatMaterial && opts.chatMaterial.trim()) parts.push(opts.chatMaterial.trim());
     return parts.join("\n\n");
   }
@@ -162,7 +175,8 @@
     const sys = buildGenSystem(tab, cpChars, userName, worldbook, opts) + "\n\n" +
       "【输出】只输出一个合法 JSON 数组，无 markdown 无多余文字。数组恰好 " + n + " 个元素（务必凑满 " + n + " 篇）：\n" +
       "[{\"title\":\"标题\",\"author\":\"作者笔名（同人圈作者马甲/太太笔名，别用真名别带@）\",\"tags\":[\"标签\",\"标签\"],\"body\":\"正文（成篇散文，务必写足、有剧情，约 " + minWords + " 字以上，分段用\\n\\n）\",\"endHook\":\"结尾锚点：一句话描述这篇结束在什么处境/悬念，供日后续写接续\"}]\n" +
-      "每篇 title 别重复、别都一个套路；author 每篇各不同；tags 2-4 个（如『破镜重圆』『HE』『pwp』『情有独钟』等同人圈标签）。别为了凑数量把正文压短——宁可写满。";
+      "每篇 title 别重复、别都一个套路；author 每篇各不同；tags 2-4 个（如『破镜重圆』『HE』『pwp』『情有独钟』等同人圈标签）。别为了凑数量把正文压短——宁可写满。" +
+      FANFIC_ANTI_CLICHE_TAIL;
     const user = "写 " + n + " 篇" + (tab.mixed ? "（世界观每篇随机挑）" : "【" + tab.name + "】世界观下") + "的同人文。别都同一个梗、同一种基调，冷暖虐甜各来一点，每篇都要写出剧情别烂尾。";
     async function once(extra) {
       const raw = await callAI(active, sys + (extra || ""), [{ role: "user", content: user }], { maxTokens: Math.min(20000, 1200 + n * perFic) });
@@ -205,7 +219,8 @@
       "【前情摘要（历章锚点，不含全文，你据此自然接续、保持人物与线索一致）】\n" + (priorHooks || "（这是第一章）") + "\n" +
       "【上一章的结尾锚点（从这里直接往下写）】\n" + (last.endHook || "（无，请自然开新章）") + "\n\n" +
       "【输出】只输出一个合法 JSON 对象，无 markdown：\n" +
-      "{\"content\":\"这一章正文（成篇散文，承接上一章锚点往下推进、有实质剧情进展，约 " + minWords + " 字以上，分段用\\n\\n）\",\"endHook\":\"本章新的结尾锚点，供再下一章接续\"}";
+      "{\"content\":\"这一章正文（成篇散文，承接上一章锚点往下推进、有实质剧情进展，约 " + minWords + " 字以上，分段用\\n\\n）\",\"endHook\":\"本章新的结尾锚点，供再下一章接续\"}" +
+      FANFIC_ANTI_CLICHE_TAIL;
     const raw = await callAI(active, sys, [{ role: "user", content: "续写《" + fic.title + "》的下一章。" }], { maxTokens: Math.min(12000, perFic + 1500) });
     let d = extractJSON(raw);
     if (!d && typeof repairJSON === "function") { try { d = JSON.parse(repairJSON(raw)); } catch (e) {} }
@@ -254,7 +269,7 @@
       "【输出】只输出合法 JSON 数组，2-4 条回复这条评论的话（自然接话/共鸣/抬杠/补充/玩梗）：\n" +
       "[{\"author\":\"马甲\",\"content\":\"回复\",\"isAuthor\":false}]\n" +
       "**其中让作者「" + authorName + "」本人至少回一条**（那条 author 写「" + authorName + "」、isAuthor 设 true）。别都一个腔调，别客服腔。";
-    const raw = await callAI(active, sys, [{ role: "user", content: "针对这条评论生成回复。" }], { maxTokens: 1200 });
+    const raw = await callAI(active, sys, [{ role: "user", content: "针对这条评论生成回复。" }], { maxTokens: 4000 });
     let d = extractJSON(raw);
     if (!d && typeof repairJSON === "function") { try { d = JSON.parse(repairJSON(raw)); } catch (e) {} }
     const arr = Array.isArray(d) ? d : (d && Array.isArray(d.items) ? d.items : []);
@@ -488,6 +503,7 @@
     const [sel, setSel] = useState([]); // 选中的 CP preset id 或角色 id（这里存最终 cp 数组）
     const [pickA, setPickA] = useState(""), [pickB, setPickB] = useState("");
     const [styleIds, setStyleIds] = useState(cfg0.activeStyleIds || []); // 本次生效的文风（默认=上次选的）
+    const [includeMe, setIncludeMe] = useState(false); // 俩角色 CP 时：带上「我」写成 A×我×B
     function toggleStyle(id) { setStyleIds(function (prev) { return prev.indexOf(id) >= 0 ? prev.filter(function (x) { return x !== id; }) : prev.concat([id]); }); }
     const cps = props.cps, characters = props.characters;
     // 最终 cp：优先用手动选（pickA/pickB，可为角色/我/原创空），否则用点选的 preset
@@ -496,6 +512,8 @@
       if (manual.length) return manual;
       return sel;
     }
+    // 两个都是角色（都不是「我」/原创）时才给「带上我」开关
+    function twoRealChars() { const cc = chosenCP(); return cc.length === 2 && cc.every(function (x) { return x && x !== "me"; }); }
     return h("div", { className: "fixed inset-0 z-50 flex items-end", style: { background: "rgba(0,0,0,0.35)" }, onClick: props.onClose },
       h("div", { onClick: function (e) { e.stopPropagation(); }, className: "w-full rounded-t-3xl px-6 pt-5 pb-8", style: { background: t.bg, maxHeight: "82vh", overflowY: "auto" } },
         h("div", { style: { fontFamily: F_DISPLAY, fontSize: 21, color: t.ink, marginBottom: 4 } }, "生成配置"),
@@ -538,9 +556,17 @@
             characters.map(function (c) { return h("option", { key: c.id, value: c.id }, c.name); }))),
         h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginBottom: 6 } }, "选「我」时按你在设置里的面具人设来写，没填则自由发挥"),
 
+        // 俩角色 CP：带不带上「我」（否则默认只写他俩，即便设定里写了 TA 是我男朋友也不把我带进去）
+        twoRealChars() ? h("button", { onClick: function () { setIncludeMe(function (v) { return !v; }); }, className: "w-full active:opacity-80",
+          style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", background: includeMe ? "rgba(0,0,0,0.04)" : t.bg2, border: "1px solid " + (includeMe ? t.ink : t.line), borderRadius: 12, marginTop: 4, marginBottom: 14 } },
+          h("div", { style: { textAlign: "left" } },
+            h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.ink } }, includeMe ? "带上我（他俩 × 我 的三人）" : "只写他俩的 CP"),
+            h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 2, lineHeight: 1.5 } }, includeMe ? "把「我」作为第三方写进文里" : "只聚焦这两个角色，就算设定写了 TA 是我男朋友也不把我带进去")),
+          h("div", { style: { width: 20, height: 20, flexShrink: 0, borderRadius: 6, border: "1px solid " + (includeMe ? t.ink : t.line), background: includeMe ? t.ink : "transparent", color: t.bg2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 } }, includeMe ? "✓" : "")) : null,
+
         h("div", { className: "flex items-center gap-3" },
-          h("button", { onClick: function () { setN(3); setSel([]); setPickA(""); setPickB(""); }, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 13.5, color: t.sub, padding: "10px 18px", borderRadius: 12, border: "1px solid " + t.line } }, "重置"),
-          h("button", { onClick: function () { props.onConfirm(n, chosenCP(), styleIds); }, className: "flex-1 active:opacity-80", style: { fontFamily: F_BODY, fontSize: 14, color: t.bg2, background: t.ink, padding: "11px", borderRadius: 12 } }, "确定生成"))));
+          h("button", { onClick: function () { setN(3); setSel([]); setPickA(""); setPickB(""); setIncludeMe(false); }, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 13.5, color: t.sub, padding: "10px 18px", borderRadius: 12, border: "1px solid " + t.line } }, "重置"),
+          h("button", { onClick: function () { props.onConfirm(n, chosenCP(), styleIds, twoRealChars() && includeMe); }, className: "flex-1 active:opacity-80", style: { fontFamily: F_BODY, fontSize: 14, color: t.bg2, background: t.ink, padding: "11px", borderRadius: 12 } }, "确定生成"))));
   }
 
   // ---------- 新建/编辑自定义世界观 tab ----------
@@ -566,13 +592,22 @@
   function Reader(props) {
     const t = useTheme();
     const f = props.fic;
-    const [busy, setBusy] = useState("");
+    const [busy, setBusy] = useState("");         // 内联小操作（发书评/回复）
+    const [busyChap, setBusyChap] = useState(false); // 追更（可与刷书评并行）
+    const [busyRev, setBusyRev] = useState(false);   // 刷书评（可与追更并行）
     const [replyTo, setReplyTo] = useState(null); // review id
     const [replyText, setReplyText] = useState("");
     const [newComment, setNewComment] = useState("");
     const [fwdOpen, setFwdOpen] = useState(false);
     const [chapIdx, setChapIdx] = useState(0); // 章节翻页当前页
     const swipeRef = React.useRef(0);
+    // 翻到/生成新章后跳到该章开头（别落在中间，省得往回翻）
+    const chapRef = React.useRef(null);
+    const firstChap = React.useRef(true);
+    React.useEffect(function () {
+      if (firstChap.current) { firstChap.current = false; return; }
+      if (chapRef.current) chapRef.current.scrollIntoView({ behavior: "auto", block: "start" });
+    }, [chapIdx]);
     const chars = cpChars(f.cp, props.characters, props.profile);
     function goChap(to) { const chs = f.chapters || []; if (to >= 0 && to < chs.length) setChapIdx(to); }
     const authorName = f.author || (f.source === "user" ? (props.userName || "我") : "佚名");
@@ -580,25 +615,27 @@
     function genOpts() { const cfg = window.Fanfic.loadCfg(); return { style: window.Fanfic.activeStyleText(cfg), perFic: cfg.perFic, chatMaterial: window.Fanfic.chatMaterialFor(chars) }; }
 
     async function addChapter() {
-      setBusy("chap");
+      if (busyChap) return;
+      setBusyChap(true);
       const newIdx = (f.chapters || []).length; // 新章的索引
       try {
         const ch = await window.Fanfic.genNextChapter(props.active, f, props.tab, chars, props.userName, props.worldbook, genOpts());
         props.onUpdate(f.id, function (fic) { fic.chapters = (fic.chapters || []).concat([ch]); fic.updatedAt = Date.now(); return fic; });
-        setChapIdx(newIdx); // 翻到新章
+        setChapIdx(newIdx); // 翻到新章（useEffect 会跳到章首）
         props.toast && props.toast("已更新一章");
         // item 8：新章推给曾被转发看过这篇的角色（不麻烦的轻量版）
         if (props.onChapterShared && (f.sharedTo || []).length) props.onChapterShared(f, ch, newIdx + 1);
       } catch (e) { props.toast && props.toast(String(e.message || e)); }
-      setBusy("");
+      setBusyChap(false);
     }
     async function loadReviews() {
-      setBusy("rev");
+      if (busyRev) return;
+      setBusyRev(true);
       try {
         const rv = await window.Fanfic.genReviews(props.active, f, props.tab, props.worldbook);
         props.onUpdate(f.id, function (fic) { fic.reviews = (fic.reviews || []).concat(rv); return fic; });
       } catch (e) { props.toast && props.toast(String(e.message || e)); }
-      setBusy("");
+      setBusyRev(false);
     }
     // 我发一条顶层书评 → 生成 NPC（含作者）回复挂它下面
     async function postComment() {
@@ -611,6 +648,7 @@
       try {
         const reps = await window.Fanfic.genReplyToUser(props.active, f, props.tab, txt, "");
         if (reps.length) props.onUpdate(f.id, function (fic) { (fic.reviews || []).forEach(function (r) { if (r.id === rvId) r.replies = (r.replies || []).concat(reps); }); return fic; });
+        else props.toast && props.toast("读者们暂时没接话，点这条书评可再催一次");
       } catch (e) { props.toast && props.toast(String(e.message || e)); }
       setBusy("");
     }
@@ -629,6 +667,7 @@
       try {
         const reps = await window.Fanfic.genReplyToUser(props.active, f, props.tab, txt, ctx);
         if (reps.length) props.onUpdate(f.id, function (fic) { (fic.reviews || []).forEach(function (r) { if (r.id === rvId) r.replies = (r.replies || []).concat(reps); }); return fic; });
+        else props.toast && props.toast("没人接话，稍后再试一次");
       } catch (e) { props.toast && props.toast(String(e.message || e)); }
       setBusy("");
     }
@@ -662,7 +701,9 @@
             h("div", { style: { fontFamily: F_DISPLAY, fontSize: 13, color: t.fog } }, "第 " + (idx + 1) + " / " + chs.length + " 章"),
             btn("下一章 ›", idx + 1, idx >= chs.length - 1)) : null; };
           return h("div", {
+            ref: chapRef,
             className: "mb-6",
+            style: { scrollMarginTop: 8 },
             onTouchStart: function (e) { swipeRef.current = e.touches[0].clientX; },
             onTouchEnd: function (e) { const dx = e.changedTouches[0].clientX - swipeRef.current; if (Math.abs(dx) < 50) return; if (dx < 0) goChap(idx + 1); else goChap(idx - 1); }
           },
@@ -672,13 +713,13 @@
         })(),
 
         // 追更按钮
-        h("button", { onClick: addChapter, disabled: !!busy, className: "w-full active:opacity-70 mb-8", style: { fontFamily: F_BODY, fontSize: 13.5, color: t.sub, padding: "11px", borderRadius: 12, border: "1px dashed " + t.line, opacity: busy ? 0.5 : 1 } },
-          busy === "chap" ? "续写中…" : "＋ 追更下一章"),
+        h("button", { onClick: addChapter, disabled: busyChap, className: "w-full active:opacity-70 mb-8", style: { fontFamily: F_BODY, fontSize: 13.5, color: t.sub, padding: "11px", borderRadius: 12, border: "1px dashed " + t.line, opacity: busyChap ? 0.5 : 1 } },
+          busyChap ? "续写中…" : "＋ 追更下一章"),
 
         // 书评区
         h("div", { className: "flex items-center justify-between mb-3" },
           h("div", { style: { fontFamily: F_DISPLAY, fontSize: 17, color: t.ink } }, "书评 · " + (f.reviews || []).length),
-          h("button", { onClick: loadReviews, disabled: !!busy, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 12, color: t.accent } }, busy === "rev" ? "召唤读者中…" : "刷出书评")),
+          h("button", { onClick: loadReviews, disabled: busyRev, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 12, color: t.accent } }, busyRev ? "召唤读者中…" : "刷出书评")),
         // 我直接写书评
         h("div", { className: "flex items-center gap-2 mb-4" },
           h("input", { value: newComment, onChange: function (e) { setNewComment(e.target.value); }, onKeyDown: function (e) { if (e.key === "Enter") postComment(); }, placeholder: "写条书评…", className: "flex-1 outline-none", style: { fontFamily: F_BODY, fontSize: 12.5, padding: "8px 11px", borderRadius: 10, background: t.bg2, color: t.ink, border: "1px solid " + t.line } }),
@@ -879,7 +920,7 @@
         h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginBottom: 10 } }, "在这里建好文风预设；每次生成时在齿轮弹窗里按需勾选（可多选），随时换。"),
         adding ? h("div", { className: "rounded-2xl px-4 py-3 mb-4", style: { background: t.bg2, border: "1px solid " + t.line } },
           h("input", { value: label, onChange: function (e) { setLabel(e.target.value); }, placeholder: "文风名（如 冷冽白描 / 治愈慢热 / 港风）", className: "w-full outline-none mb-2", style: { fontFamily: F_BODY, fontSize: 13, padding: "7px 10px", borderRadius: 8, background: t.bg, color: t.ink, border: "1px solid " + t.line } }),
-          h("textarea", { value: text, onChange: function (e) { setText(e.target.value); }, rows: 3, placeholder: "文风描述，如：多用短句白描、冷色调意象、情绪藏在动作里、少直白抒情…", className: "w-full outline-none resize-none mb-3", style: { fontFamily: F_BODY, fontSize: 13, lineHeight: 1.6, padding: "9px 11px", borderRadius: 8, background: t.bg, color: t.ink, border: "1px solid " + t.line } }),
+          h("textarea", { value: text, onChange: function (e) { setText(e.target.value); }, rows: 7, placeholder: "文风描述，越具体越好，想写多长写多长（无字数限制）：多用短句白描、冷色调意象、情绪藏在动作里、少直白抒情、禁用某些词……", className: "w-full outline-none resize-y mb-3", style: { fontFamily: F_BODY, fontSize: 13, lineHeight: 1.6, padding: "9px 11px", borderRadius: 8, background: t.bg, color: t.ink, border: "1px solid " + t.line, minHeight: 120 } }),
           h("button", { onClick: addStyle, className: "w-full active:opacity-80", style: { fontFamily: F_BODY, fontSize: 13, color: t.bg2, background: t.ink, padding: "9px", borderRadius: 10 } }, "保存文风")) : null,
         (cfg.styles || []).length ? (cfg.styles || []).map(function (s) {
           return h("div", { key: s.id, className: "rounded-xl px-4 py-3 mb-2", style: { background: t.bg2, border: "1px solid " + t.line } },
@@ -1149,7 +1190,7 @@
     }
     function toggleShelf(id) {
       updateFic(id, function (f) { f.onShelf = !f.onShelf; return f; });
-      props.toast && props.toast("已" + (loadFics().find(function (f) { return f.id === id; }).onShelf ? "取消收藏" : "收藏"));
+      props.toast && props.toast("已" + (loadFics().find(function (f) { return f.id === id; }).onShelf ? "收藏" : "取消收藏"));
     }
 
     // 点赞（切换）
@@ -1162,7 +1203,7 @@
     function chapterShared(fic, ch, chapNo) { props.onNotifyChapter && props.onNotifyChapter(fic, ch, chapNo, fic.sharedTo || []); }
 
     // 生成
-    async function doGen(n, cp, styleIds) {
+    async function doGen(n, cp, styleIds, includeMe) {
       setGearOpen(false); setBusy(true);
       props.toast && props.toast("生成中…（" + n + " 篇）");
       try {
@@ -1176,7 +1217,8 @@
         } else styleText = activeStyleText(cfg);
         // 推荐(mixed)版：把其它世界观当池子供每篇随机取
         const worldPool = curTab.mixed ? tabs.filter(function (x) { return !x.mixed; }) : null;
-        const opts = { style: styleText, perFic: cfg.perFic, chatMaterial: chatMaterialFor(chars), worldPool: worldPool };
+        const opts = { style: styleText, perFic: cfg.perFic, chatMaterial: chatMaterialFor(chars), worldPool: worldPool,
+          includeMe: !!includeMe, meName: (props.profile && props.profile.name) || userName || "我", mePersona: (props.profile && props.profile.persona) || "" };
         const arr = await window.Fanfic.genBatch(props.active, curTab, chars, n, userName, props.worldbook, opts);
         const now = Date.now();
         const made = arr.map(function (x, i) {
