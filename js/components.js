@@ -3837,9 +3837,14 @@ function EmoteBubble({ url, keyword, max }) {
     h("div", { style: { fontSize: 22, opacity: 0.45, lineHeight: 1 } }, "🖼"),
     h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.sub, textAlign: "center", lineHeight: 1.3, wordBreak: "break-all", maxHeight: 30, overflow: "hidden" } }, kw),
     h("div", { style: { fontFamily: F_BODY, fontSize: 9, color: t.fog } }, "图裂了"));
+  // 无尺寸的 SVG data URI（只有 viewBox、没 width/height）在只给 maxWidth/maxHeight 的 img 里没有固有尺寸→0×0 看不见。
+  // 给 SVG 显式 width（height:auto 按 viewBox 比例走）兜底，raster 图仍按固有尺寸 max 内约束、保持长宽比。
+  const isSvg = /^data:image\/svg/i.test(url || "");
+  const style = isSvg
+    ? { width: max, height: "auto", maxWidth: max, maxHeight: max, borderRadius: 12, display: "block", objectFit: "contain" }
+    : { maxWidth: max, maxHeight: max, borderRadius: 12, display: "block", objectFit: "contain" };
   return h("img", { src: url, alt: kw, title: kw, referrerPolicy: "no-referrer", loading: "lazy",
-    style: { maxWidth: max, maxHeight: max, borderRadius: 12, display: "block", objectFit: "contain" },
-    onError: () => setBroken(true) });
+    style: style, onError: () => setBroken(true) });
 }
 function menuItemsForKind(m) {
   const full = [["copy", "复制", "Copy"], ["fav", "收藏", "Save"], ["edit", "编辑", "Edit"], ["quote", "引用", "Quote"], ["multi", "多选", "Select"], ["recall", "撤回", "Recall"], ["reroll", "重Roll", "Reroll"]];

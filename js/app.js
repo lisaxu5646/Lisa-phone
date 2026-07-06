@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.23";
+const APP_VERSION = "v46.24";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -59,7 +59,8 @@ function parseNeteaseId(input) {
 }
 // 内置默认表情：手画 SVG 表情脸，编码成 data URI（不依赖图床，开箱即用）
 function buildDefaultEmotes() {
-  const face = inner => "data:image/svg+xml," + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='45' fill='#F4C64B' stroke='#1b1a17' stroke-width='3'/>" + inner + "</svg>");
+  // ⚠必须带 width/height：只有 viewBox 的 SVG 在聊天气泡(EmoteBubble 只给 maxWidth/maxHeight、无尺寸容器)里没有固有尺寸→渲染成 0×0 看不见
+  const face = inner => "data:image/svg+xml," + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'><circle cx='50' cy='50' r='45' fill='#F4C64B' stroke='#1b1a17' stroke-width='3'/>" + inner + "</svg>");
   const S = "fill='none' stroke='#1b1a17' stroke-width='4.5' stroke-linecap='round' stroke-linejoin='round'";
   const eyeDot = "<circle cx='36' cy='44' r='5'/><circle cx='64' cy='44' r='5'/>";
   const defs = [
@@ -337,7 +338,12 @@ function App() {
     setWallet(loadJSON("x_wallet", 200));
     setWalletLog(loadJSON("x_walletLog", []));
     setCharWallet(loadJSON("x_charWallet", {}));
-    setEmotePacks(loadJSON("x_emotePacks", [{ id: "ep_default", name: "默认表情包", global: true, mine: true, charIds: [], emotes: buildDefaultEmotes() }]));
+    // 迁移：旧版内置 SVG 表情的 url 没写 width/height→聊天里 0×0 看不见。按 id 把 em_def_* 的 url 换成修好的，保留用户自建/删改
+    const _defUrl = {}; buildDefaultEmotes().forEach(e => { _defUrl[e.id] = e.url; });
+    const _packs = loadJSON("x_emotePacks", [{ id: "ep_default", name: "默认表情包", global: true, mine: true, charIds: [], emotes: buildDefaultEmotes() }])
+      .map(pk => ({ ...pk, emotes: (pk.emotes || []).map(e => (_defUrl[e.id] && e.url !== _defUrl[e.id]) ? { ...e, url: _defUrl[e.id] } : e) }));
+    setEmotePacks(_packs);
+    saveJSON("x_emotePacks", _packs);
     setFavorites(loadJSON("x_favorites", []));
     setKinshipCards(loadJSON("x_kinshipCards", []));
     setInventory(loadJSON("x_inventory", []));
