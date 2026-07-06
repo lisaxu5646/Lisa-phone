@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.35";
+const APP_VERSION = "v46.36";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -1212,7 +1212,7 @@ function App() {
       const isCouple = couples[charId] && couples[charId].status === "together";
       const ambientBits = [];
       if (_s.autoMoment) ambientBits.push("发条朋友圈(moment)");
-      if (isCouple) ambientBits.push("给 Ta 留句悄悄话(whisper，一句心里话)");
+      if (isCouple) ambientBits.push("给 Ta 贴一张悄悄话便签(whisper)——恋爱向、藏着心意、想对 Ta 说却没在聊天里直接说出口的话（跟上面的『心声/念头』不是一回事：心声是你脑内的真实想法，这个是你想让 Ta 悄悄收到的情话/在乎）");
       const ambientHint = ambientBits.length
         ? "\n【顺手发点动态（很克制：绝大多数回合都别发、全填 null；只在话题正戳到、或你今天行程里发生了值得说的事、有感而发时，偶尔来一条）】你可以顺手：" + ambientBits.join("；") + "；像真人随手发，别为发而发、别频繁。"
         : "";
@@ -1598,7 +1598,10 @@ function App() {
       const asPrivate = gs.spectate && members.length === 2;
       let dir;
       if (asPrivate) dir = "这是「" + members[0].name + "」和「" + members[1].name + "」之间的私下对话（不是群聊，他们也不知道有任何外人在旁观）。用户以【旁白】推动场景。让两人自然地你来我往、多轮对话。";else if (gs.spectate) dir = "这是一个群聊，成员们并不知道有任何外人在旁观。用户以【旁白】推动剧情。让成员们围绕旁白与彼此的关系自然互动。";else dir = "你在导演一个群聊，用户也是群里的一员。";
-      const common = "\n\n【很重要】角色不是轮流回答用户的话，而是会顺着彼此刚说的话发散、接梗、跑题、互相调侃或反驳，像真实群聊那样你一言我一语。不是每人每轮都要说话，按情境选合适的人发言，一次产出 2-5 条。";
+      // 一轮的条数随人数放宽：人少几条就够，人多（拉了一堆人）要多聊几个来回、别草草收场
+      const nMin = Math.min(3, members.length);
+      const nMax = Math.min(14, Math.max(5, members.length * 2));
+      const common = "\n\n【很重要】角色不是轮流回答用户的话，而是会顺着彼此刚说的话发散、接梗、跑题、互相调侃或反驳，像真实群聊那样你一言我一语。不是每人每轮都要说话，按情境选合适的人发言，一次产出 " + nMin + "~" + nMax + " 条；现在群里在场 " + members.length + " 人，人多就多聊几个来回、让在场的人都有戏，别三两句就收场。";
       const gEmotes = emotesForGroup(group.memberIds);
       const gEmoteHint = gEmotes.length ? "\n【表情包】成员可以在情绪合适时偶尔甩一张表情（别频繁）。可用关键词：" + gEmotes.map(e => e.keyword).join(" / ") + "。要发就在该成员那条发言对象里加 emote 字段填一个关键词（与列出的完全一致）。" : "";
       // 记忆互通时：让成员带出没说出口的心声，并给出好感/心情变化
@@ -1617,7 +1620,8 @@ function App() {
         role: "user",
         content: userContent
       }], {
-        maxTokens: 3000
+        // token 随人数放宽：人多一轮更长，别被 3000 截断（封顶 10000）
+        maxTokens: Math.min(10000, 3200 + members.length * 900)
       });
       const arr = extractJSON(raw);
       if (Array.isArray(arr)) {
@@ -3821,8 +3825,8 @@ function App() {
     }));
     try {
       const d = await runProbe(active, ctxFor(char), {
-        instruction: "你们已是恋人。以「" + char.name + "」身份，在你俩私密的「便签墙」上悄悄贴一张给用户的小纸条——一句心里话/此刻的念头，真挚贴合人设，1-2句、别太长。",
-        schemaHint: "{\"whisper\":\"心里话\"}"
+        instruction: "你们已是恋人。以「" + char.name + "」身份，在你俩私密的「便签墙」上悄悄贴一张给用户的小纸条——写一句恋爱向、藏着心意、想对 Ta 说却又没在聊天里直接说出口的悄悄话（不是脑内碎碎念的心声，是想让 Ta 悄悄收到的情话/在乎），真挚贴人设，1-2句、别太长。",
+        schemaHint: "{\"whisper\":\"给 Ta 的悄悄情话\"}"
       });
       // 贴到便签墙（authorId=角色，默认盖着，点开才看得到），不再进无处可见的 whispers 数组
       setCoupleNotes(p => {
@@ -4569,8 +4573,8 @@ function App() {
     setGen(g => ({ ...g, coupleNote: true }));
     try {
       const d = await runProbe(active, ctxFor(char), {
-        instruction: "你们是恋人。以「" + char.name + "」身份，在你俩私密的「便签墙」上悄悄贴一张小纸条给用户——一句很短的悄悄话/此刻的念头/想对 TA 说的话，贴合人设与此刻心情，别喊口号，别超过 25 字。",
-        schemaHint: "{\"note\":\"一句悄悄话\"}"
+        instruction: "你们是恋人。以「" + char.name + "」身份，在你俩私密的「便签墙」上悄悄贴一张小纸条给用户——一句恋爱向、藏着心意、想对 TA 说却没在聊天里直接说出口的悄悄话（不是脑内碎碎念的心声，是想让 TA 悄悄收到的情话/在乎），贴合人设与此刻心情，别喊口号，别超过 25 字。",
+        schemaHint: "{\"note\":\"给 TA 的悄悄情话\"}"
       });
       setCoupleNotes(p => {
         const n = [{ id: "note_" + Date.now(), characterId: char.id, authorId: char.id, content: (d.note || "").trim(), style: Math.floor(Math.random() * 5), createdAt: Date.now(), replies: [] }, ...p];
