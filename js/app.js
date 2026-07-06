@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.28";
+const APP_VERSION = "v46.29";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -1176,19 +1176,21 @@ function App() {
         ? "\n【block 拉黑】仅当此刻用户踩中你雷点/说错话、让你以你的人设真的动了「拉黑」的念头，才 block:true 并在 blockreason 写一句原因——极罕见、要有充分理由；否则 block:false、blockreason:null。"
         : "";
       const uName = profile && profile.name ? profile.name : "对方";
-      // 心声每 3 轮写一次（恒定）——其余轮次填 null，别费笔墨稀释回复
+      // 时间流逝以「角色上次开口」为基准算间隔（用户回来连发几条也算得准，不会被自己刚发的消息归零）
+      const lastAsstTs = (function () { for (let i = history.length - 1; i >= 0; i--) { if (history[i].role === "assistant") return history[i].ts || 0; } return 0; })();
+      const gapMs = lastAsstTs ? Date.now() - lastAsstTs : 0;
+      const gapHrs = Math.round(gapMs / 3600000);
+      const gapReopen = gapMs > 3 * 3600000; // 隔 3 小时+ 再开口 ≈ 重开一段话，强制刷新一次心声/心情（反映时间+行程变化）
+      // 心声每 3 轮写一次（恒定）——其余轮次填 null，别费笔墨稀释回复；隔久重开时额外强制刷一次
       const tctr = (thoughtCtrRef.current[charId] || 0) + 1;
       thoughtCtrRef.current[charId] = tctr;
       try { saveJSON("x_thoughtCtr", thoughtCtrRef.current); } catch (e) {}
-      // 第 1 轮也写一次（否则新角色前两轮心声/历史全空，看着像坏了），之后每 3 轮一次
-      const wantThought = tctr === 1 || tctr % 3 === 0;
+      // 第 1 轮也写一次（否则新角色前两轮心声/历史全空，看着像坏了），之后每 3 轮一次；隔几小时重开也刷
+      const wantThought = tctr === 1 || tctr % 3 === 0 || gapReopen;
       const thoughtSpec = wantThought
-        ? "此刻没说出口的真实心声——写一句此刻脑子里真实的念头（对刚聊的/对 TA/对当下处境的想法、情绪、吐槽、小心思都行），贴合当下、别照抄之前；情绪复杂或有心事时可更长更细腻"
+        ? "此刻没说出口的真实心声——写一句此刻脑子里真实的念头（对刚聊的/对 TA/对当下处境的想法、情绪、吐槽、小心思都行），贴合当下、别照抄之前；情绪复杂或有心事时可更长更细腻" + (gapReopen ? "。（你俩隔了一阵没聊、这次算重新开个话题：这条心声顺带反映这段时间过去、结合你今天的行程/作息，此刻你的状态和心情有什么变化）" : "")
         : "这一轮不写心声，直接填 null（把精力放在把话聊好上）";
-      // #2 时间流逝：隔了几个小时/几天再让 TA 回复，要意识到时间过去了，别当刚聊过
-      const lastTs = history.length ? (history[history.length - 1].ts || 0) : 0;
-      const gapMs = lastTs ? Date.now() - lastTs : 0;
-      const gapHrs = Math.round(gapMs / 3600000);
+      // #2 时间流逝：隔了几个小时/几天再让 TA 回复，要意识到时间过去了，别当刚聊过（gapMs 已按角色上次开口算好）
       const gapHint = gapMs > 2 * 3600000
         ? "\n\n【时间过去了】距你俩上一条消息已过去约 " + (gapHrs < 24 ? gapHrs + " 小时" : Math.round(gapHrs / 24) + " 天") + "（现在是 " + new Date().toLocaleString("zh-CN", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" }) + "）。别当作刚刚才聊过——自然体现这段时间流逝：接上之前没做完/说要去做的事（如说了熬夜跑代码，第二天就『我真去跑了，不然真要睡实验室』）、问对方这段时间干嘛了、或顺势换个话题，贴合此刻时间点（深夜/清晨/工作时间/饭点）和你的人设。"
         : "";
