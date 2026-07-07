@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.45";
+const APP_VERSION = "v46.47";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -883,6 +883,11 @@ function App() {
     pOffline(charId, list => list.map(s => !s.endTs ? { ...s, customNotes: [...(s.customNotes || []), note] } : s));
     toast("已加入提示");
   };
+  // 线下进行中随时切换文风（不同剧情段落用不同笔调）
+  const offlineSetStyle = (charId, patch) => {
+    pOffline(charId, list => list.map(s => !s.endTs ? { ...s, styleKey: patch.styleKey, stylePrompt: patch.stylePrompt != null ? patch.stylePrompt : "" } : s));
+    toast("文风已切换 · 下次演绎生效");
+  };
   const endOffline = async charId => {
     const char = characters.find(c => c.id === charId);
     const sess = (offlinesRef.current[charId] || []).find(s => !s.endTs);
@@ -919,6 +924,7 @@ function App() {
     rels,
     chars: characters,
     worldbook,
+    timeAware: prefs.timeAware,
     // 记忆分区：不互通的群是封闭空间，线下也不读全局记忆库（不让外部记忆流入）
     memLib: gsFor(group.id).memoryInterop ? memLibRef.current : null
   });
@@ -1018,6 +1024,10 @@ function App() {
     pGOffline(groupId, list => list.map(s => s.id === sess.id ? { ...s, msgs: truncated } : s));
     if (!truncated.length) { toast("这条前面没有内容可续写"); return; }
     await genGroupOfflineFrom(group, { ...sess, msgs: truncated });
+  };
+  const groupOfflineSetStyle = (groupId, patch) => {
+    pGOffline(groupId, list => list.map(s => !s.endTs ? { ...s, styleKey: patch.styleKey, stylePrompt: patch.stylePrompt != null ? patch.stylePrompt : "" } : s));
+    toast("文风已切换 · 下次演绎生效");
   };
   const groupOfflineAddNote = (groupId, note) => {
     pGOffline(groupId, list => list.map(s => !s.endTs ? { ...s, customNotes: [...(s.customNotes || []), note] } : s));
@@ -5883,6 +5893,7 @@ function App() {
     onSend: txt => offlineSend(offlineChar.id, txt),
     onReply: txt => offlineReply(offlineChar.id, txt),
     onAddNote: n => offlineAddNote(offlineChar.id, n),
+    onChangeStyle: patch => offlineSetStyle(offlineChar.id, patch),
     onEditMsg: (mid, txt) => offlineEditMsg(offlineChar.id, mid, txt),
     onRerollMsg: mid => offlineRerollMsg(offlineChar.id, mid),
     onDelMsg: mid => offlineDelMsg(offlineChar.id, mid),
@@ -5899,6 +5910,7 @@ function App() {
     onSend: txt => groupOfflineSend(offlineGroup.id, txt),
     onReply: txt => groupOfflineReply(offlineGroup.id, txt),
     onAddNote: n => groupOfflineAddNote(offlineGroup.id, n),
+    onChangeStyle: patch => groupOfflineSetStyle(offlineGroup.id, patch),
     onEditMsg: (mid, txt) => groupOfflineEditMsg(offlineGroup.id, mid, txt),
     onRerollMsg: mid => groupOfflineRerollMsg(offlineGroup.id, mid),
     onDelMsg: mid => groupOfflineDelMsg(offlineGroup.id, mid),

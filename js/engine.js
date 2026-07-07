@@ -245,7 +245,9 @@ const NARRATIVE_ANTI_CLICHE = `【线下叙事 · 反陈词滥调（写第三人
 · 禁用这批被写烂的意象词及其近义堆砌：形容皮肤/身体的「白玉／羊脂／凝脂／欺霜赛雪／白皙如瓷」；形容头发的「瀑布般／如瀑／墨色的瀑布」；缠绕纠缠一律不用「藤蔓／藤蔓般缠绕」；以及「琉璃／碎钻／星辰大海／灵魂深处／宿命／劫」这类空转大词。
 · 别写「不知是不是错觉」「仿佛过了一个世纪」「时间仿佛静止」「空气都凝固了」这类填充句；别用「仿佛…又仿佛…」这种排比强行煽情。
 · 感官与比喻要落在此刻这几个人的具体处境上（这间屋子、这张桌子、他手边的东西、身上这件衣服），不要套通用言情/网文模板。
-· 台词要有人味、有停顿、有言外之意，可以被打断、可以跑题，别让人物一开口就是散文腔或宣言腔；多人同处时别写成一人一句轮流表态，要有人抢话、有人走神、有人只做动作不说话。`;
+· 台词要有人味、有停顿、有言外之意，可以被打断、可以跑题，别让人物一开口就是散文腔或宣言腔；多人同处时别写成一人一句轮流表态，要有人抢话、有人走神、有人只做动作不说话。
+· 【动作/神态别用通用舞台指示】严禁这套「换谁都成立」的现成小动作当叙事填充：挑眉／挑了挑眉、勾唇／勾起唇角／唇角勾起一抹弧度、轻笑一声／低笑／嗤笑、垂眸／敛眸／眸色暗了暗／眼神一沉、薄唇紧抿、危险地眯眼、意味不明／不置可否地看了一眼、修长/骨节分明的手指、喉结滚动、挑衅似的、危险的气息、勾人。每一个动作和表情都必须由此刻的具体心理和情境长出来，并且带上【这个角色特有】的习惯、身体记忆或他在意的细节——写只有他会做、只对这个人才做的具体小动作，而不是贴一个通用标签。
+· 【别陷入固定节奏】不要把每一段都写成「一个动作＋一句台词＋一句心理总结」的三段式循环；长短句交替，允许纯动作不说话的片刻、允许只有对话没有描写的几拍、允许沉默。描写角色的行为要像观察一个真人当下的即兴反应，而不是套一个"角色本该有的样子"的模板。`;
 // 世界书执行准则——焊死在内置最前（仅在挂了世界书时推入），要求严格遵循世界书框架
 const WORLDBOOK_RULE = `【世界书执行准则（最高优先级 · 全程持续生效）】
 - 世界书定义了本次交互的世界观、设定与创作框架，是必须严格遵循的前提，不是可选的背景参考。
@@ -452,8 +454,10 @@ async function generateOffline(p, ctx, session) {
   const styleText = session.stylePrompt != null ? session.stylePrompt : offlineStyleText(session.styleKey);
   const notes = (session.customNotes || []).filter(Boolean);
   const system = buildBundle(ctx) +
+    "\n\n" + NARRATIVE_ANTI_CLICHE +
     "\n\n" + INTIMATE_ANTI_CLICHE +
     "\n\n【当前场景：线下面对面】你和" + userName + "此刻身处同一个地方，面对面相处（不是隔着手机聊天）。用第一人称『我』完全代入「" + char.name + "」，称对方为『你』。把这一刻演绎成有画面感的叙事：融合【动作描写】【神态与心理描写】【环境旁白】与【对话】，写成一小段（约2到6句）。对话用引号包住。自然推进、不出戏、不提前跳到未发生的剧情。" +
+    (ctx.timeAware !== false ? "\n【时间感】你清楚现在的真实时间（见上文），让当下的时段自然渗进场景——天色光线、周围的动静、店家开没开、你此刻该困该饿还是精神，都照这个钟走；别报时刻表，也别把深夜写成白天。" : "") +
     (styleText ? "\n【文风要求】" + styleText : "") +
     narrativeDirective(session.narr) +
     (session.minWords ? "\n【篇幅要求】scene 正文至少写约 " + session.minWords + " 字，充分展开描写，别写得太短。" : "") +
@@ -508,13 +512,26 @@ async function generateOfflineGroup(p, ctx, session) {
   const relLines = members.map(c => directedRelationLines(c, ctx.rels, ctx.chars, ctx.profile)).join("\n");
   const memLibText = Array.isArray(ctx.memLib) ? formatMemLib(ctx.memLib) : (ctx.memLib || "");
   const now = new Date();
+  // 时间感知（跟随全局开关）：给出真实时间；在场角色若各设了时区，附上各自当地时刻
+  let timeBlock = "";
+  if (ctx.timeAware !== false) {
+    timeBlock = "\n\n【当前真实时间】" + now.toLocaleString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long", hour: "2-digit", minute: "2-digit" });
+    const tzLines = members.map(c => {
+      if (c.tz === undefined || c.tz === null || String(c.tz).trim() === "") return "";
+      const off = parseFloat(c.tz); if (isNaN(off)) return "";
+      const local = new Date(now.getTime() + off * 3600000);
+      return "· " + c.name + "（UTC" + (off >= 0 ? "+" + off : off) + "）当地约 " + local.toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+    }).filter(Boolean);
+    if (tzLines.length) timeBlock += "\n（在场有人处在别的时区，各自按自己那边的钟和作息想事情、说话）\n" + tzLines.join("\n");
+    timeBlock += "\n让当下的时段自然渗进场景（天色、周围动静、各人此刻的状态），别报时刻表。";
+  }
   const system =
     ANTI_CLICHE +
     "\n\n" + INTIMATE_ANTI_CLICHE +
     "\n\n" + NARRATIVE_ANTI_CLICHE +
     (ctx.worldbook && ctx.worldbook.trim() ? "\n\n" + WORLDBOOK_RULE : "") +
     "\n\n" + CHARCARD_RULE +
-    "\n\n【当前真实时间】" + now.toLocaleString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long", hour: "2-digit", minute: "2-digit" }) +
+    timeBlock +
     "\n\n【在场角色】\n" + memberDesc +
     (ctx.profile && (ctx.profile.name || ctx.profile.persona) ? "\n\n【用户「" + userName + "」的设定】\n" + (ctx.profile.persona || "（未填写）") : "") +
     "\n\n【在场角色间的关系（有方向）】\n" + relLines +

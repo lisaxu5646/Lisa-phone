@@ -4143,6 +4143,7 @@ function OfflineMode({
   onSend,
   onReply,
   onAddNote,
+  onChangeStyle,
   onEditMsg,
   onRerollMsg,
   onDelMsg,
@@ -4153,7 +4154,7 @@ function OfflineMode({
   const cName = char.remark || char.name;
   const [view, setView] = useState(activeSession ? "live" : "setup");
   const [opening, setOpening] = useState("");
-  const [styleKey, setStyleKey] = useState("default");
+  const [styleKey, setStyleKey] = useState(activeSession && activeSession.styleKey ? activeSession.styleKey : "default");
   const [input, setInput] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
@@ -4161,6 +4162,7 @@ function OfflineMode({
   const [readView, setReadView] = useState(null); // 回看往期
   const [customStyles, setCustomStyles] = useState(() => loadJSON("x_offlineStyles", []));
   const [styleSheet, setStyleSheet] = useState(false); // 新建自定义预设
+  const [custOpen, setCustOpen] = useState(false);     // 设置里内联新建自定义文风
   const [cName2, setCName2] = useState("");
   const [cPrompt, setCPrompt] = useState("");
   const os = settings || {};
@@ -4176,10 +4178,10 @@ function OfflineMode({
   const persRow = (label, val, set, opts) => h("div", { className: "flex items-center justify-between pt-3" },
     h("span", { style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.sub } }, label),
     h("div", { className: "flex gap-1" }, opts.map(o => h("button", { key: o.v, onClick: () => set(o.v), style: { fontFamily: F_BODY, fontSize: 12, padding: "5px 11px", borderRadius: 999, background: val === o.v ? t.ink : "transparent", color: val === o.v ? t.bg2 : t.fog, border: "1px solid " + (val === o.v ? t.ink : t.line) } }, o.t))));
-  const offlineSetSheet = setOpen && onSaveSettings && h(Sheet, { onClose: () => setSetOpen(false), tall: true },
+  const offlineSetSheet = () => setOpen && onSaveSettings && h(Sheet, { onClose: () => setSetOpen(false), tall: true },
     h("div", { className: "flex items-center justify-between mb-1" },
       h("span", { style: { fontFamily: F_DISPLAY, fontSize: 22, color: t.ink } }, "线下设置"),
-      h("button", { onClick: () => { onSaveSettings({ maxTokens: sMax, minWords: sMinW, memN: sMemN, selfP: sSelf, userP: sUser, describeMe: sDesc, bg: sBg }); setSetOpen(false); } }, h(ICheck, { size: 19, color: t.ink }))),
+      h("button", { onClick: () => { onSaveSettings({ maxTokens: sMax, minWords: sMinW, memN: sMemN, selfP: sSelf, userP: sUser, describeMe: sDesc, bg: sBg }); onChangeStyle && onChangeStyle({ styleKey, stylePrompt: (curStyle && curStyle.prompt) || "" }); setSetOpen(false); } }, h(ICheck, { size: 19, color: t.ink }))),
     h("div", { className: "flex items-center justify-between pt-5" },
       h("div", { className: "pr-3" },
         h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14.5, color: t.sub } }, "场景背景图"),
@@ -4213,7 +4215,8 @@ function OfflineMode({
       h("div", { className: "pr-3" },
         h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14.5, color: t.sub } }, "让角色描写我的行动"),
         h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 2, lineHeight: 1.5 } }, "开：角色会替你写动作、推动走向（如「你摇了摇头说…」）；关：只写它自己。")),
-      h(Toggle, { on: sDesc, onChange: () => setSDesc(v => !v) })));
+      h(Toggle, { on: sDesc, onChange: () => setSDesc(v => !v) })),
+    styleSection);
   const scroller = useRef(null);
   const past = (sessions || []).filter(s => s.endTs);
   const allStyles = [...OFFLINE_STYLES, ...customStyles];
@@ -4230,6 +4233,7 @@ function OfflineMode({
     setCName2("");
     setCPrompt("");
     setStyleSheet(false);
+    setCustOpen(false);
   };
   const delCustomStyle = key => {
     const next = customStyles.filter(s => s.key !== key);
@@ -4237,6 +4241,26 @@ function OfflineMode({
     saveJSON("x_offlineStyles", next);
     if (styleKey === key) setStyleKey("default");
   };
+  // 设置弹层里的「文风预设」小节（进行中随时改）
+  const styleSection = h("div", { className: "pt-5", style: { borderTop: "1px solid " + t.line, marginTop: 18 } },
+    h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14.5, color: t.sub, marginBottom: 2 } }, "文风预设"),
+    h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 10, lineHeight: 1.6 } }, "剧情不同段落想换个笔调，随时切换，保存后下次演绎生效。"),
+    h("div", { className: "flex flex-wrap gap-2 mb-2" }, allStyles.map(s => h("button", {
+      key: s.key, onClick: () => { setStyleKey(s.key); setCustOpen(false); },
+      className: "px-3 py-1.5", style: { fontFamily: F_BODY, fontSize: 12.5, borderRadius: 999, border: "1px solid " + (styleKey === s.key ? t.ink : t.line), background: styleKey === s.key ? t.ink : "transparent", color: styleKey === s.key ? t.bg2 : t.sub }
+    }, s.name)).concat([h("button", {
+      key: "__add", onClick: () => setCustOpen(v => !v),
+      className: "px-3 py-1.5", style: { fontFamily: F_BODY, fontSize: 12.5, borderRadius: 999, border: "1px dashed " + t.line, background: "transparent", color: t.fog }
+    }, "＋ 自定义")])),
+    custOpen
+      ? h("div", { className: "p-3", style: { background: t.bg, borderRadius: 8, border: "1px solid " + t.line } },
+          h("input", { value: cName2, onChange: e => setCName2(e.target.value), placeholder: "预设名称，如 冷冽克制", className: "w-full outline-none p-2.5 mb-2", style: { fontFamily: F_BODY, fontSize: 13, color: t.ink, background: "#fff", border: "1px solid " + t.line, borderRadius: 8 } }),
+          h("textarea", { value: cPrompt, onChange: e => setCPrompt(e.target.value), rows: 3, placeholder: "写给 AI 的文风提示词，如：多用短句，冷色调意象，情绪藏在动作里…", className: "w-full outline-none p-2.5 mb-2", style: { fontFamily: F_BODY, fontSize: 13, lineHeight: 1.6, color: t.ink, background: "#fff", border: "1px solid " + t.line, borderRadius: 8, resize: "none" } }),
+          h("button", { onClick: saveCustomStyle, className: "w-full py-2.5", style: { fontFamily: F_BODY, fontSize: 13, background: t.ink, color: t.bg2, borderRadius: 8 } }, "保存并选用"))
+      : h("div", { className: "p-3", style: { background: t.bg, borderRadius: 8, border: "1px solid " + t.line } },
+          h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, letterSpacing: 1, color: t.fog, marginBottom: 4 } }, "提示词 · " + (curStyle ? curStyle.name : "")),
+          h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, lineHeight: 1.7, color: t.sub } }, (curStyle && curStyle.prompt) ? curStyle.prompt : "不额外指定文风，由角色本身的人设决定叙事口吻。"),
+          curStyle && curStyle.custom && h("button", { onClick: () => delCustomStyle(curStyle.key), className: "mt-2 active:opacity-60", style: { fontFamily: F_BODY, fontSize: 11.5, color: t.accent } }, "删除此预设")));
   useEffect(() => {
     if (activeSession && view === "setup") setView("live");
   }, [activeSession]);
@@ -4329,7 +4353,7 @@ function OfflineMode({
       h("button", { onClick: () => setNoteOpen(true), className: "active:opacity-50", title: "给 Ta 一个提示" }, h(IPlus, { size: 20, color: t.fog })),
       onSaveSettings && h("button", { onClick: () => setSetOpen(true), className: "active:opacity-50", title: "线下设置（人称/输出长度）", style: { fontFamily: F_BODY, fontSize: 17, color: t.fog } }, "⚙"),
       h("button", { onClick: () => setEndConfirm(true), className: "active:opacity-60 px-2 py-1", style: { fontFamily: F_BODY, fontSize: 12, color: t.accent } }, "结束")),
-    offlineSetSheet,
+    offlineSetSheet(),
     h("div", { ref: scroller, className: "flex-1 overflow-y-auto px-4 py-3" },
       msgs.length === 0 && !sending && h("div", { className: "text-center mt-10", style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog } }, "场景已布置好，说点什么或让 Ta 先开口。"),
       msgs.map((m, i) => h(OffCard, { key: m.id || i, m: m, t: t, char: char, meProfile: profile, editable: true, sending: sending, onEdit: onEditMsg, onReroll: onRerollMsg, onDelete: onDelMsg })),
@@ -4360,6 +4384,7 @@ function OffCard({ m, t, char, meProfile, members, onEdit, onReroll, onDelete, e
   const isUser = m.role === "user";
   const isNarr = m.role === "narration";
   const spk = isNarr || isUser ? null : (members && m.senderId ? members.find(x => x.id === m.senderId) : char);
+  const timeEl = m.ts ? h("span", { style: { fontFamily: F_BODY, fontSize: 9.5, color: t.fog, opacity: 0.7, letterSpacing: 0.3, flexShrink: 0 } }, fmtStamp(m.ts)) : null;
   const meChar = { name: (meProfile && meProfile.name) || "我", avatarImage: meProfile && meProfile.avatarImage, color: (meProfile && meProfile.color) || "#7a6cf0" };
   const iconBtn = (Ic, fn, title, dis) => h("button", { onClick: fn, disabled: dis, className: "active:opacity-50 disabled:opacity-30", title: title }, h(Ic, { size: 15, color: t.fog }));
   const actions = editable && !editing && h("div", { className: "flex items-center gap-3 shrink-0" },
@@ -4373,7 +4398,7 @@ function OffCard({ m, t, char, meProfile, members, onEdit, onReroll, onDelete, e
       h("button", { onClick: () => { onEdit(m.id, txt.trim() || m.content); setEditing(false); }, style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink, fontWeight: 600 } }, "保存")));
   if (isNarr) {
     return h("div", { className: "my-2.5" }, h("div", { style: { background: t.bg2, borderRadius: 16, border: `1px dashed ${t.line}`, padding: "13px 16px" } },
-      editable && h("div", { className: "flex justify-end mb-1.5" }, actions),
+      h("div", { className: "flex items-center justify-between mb-1.5" }, timeEl || h("span"), editable ? actions : null),
       editing ? editBox : h("div", { className: "text-center", style: { fontFamily: F_BODY, fontSize: 13, fontStyle: "italic", lineHeight: 1.75, color: t.fog } }, m.content)));
   }
   return h("div", { className: "my-2.5" },
@@ -4381,6 +4406,7 @@ function OffCard({ m, t, char, meProfile, members, onEdit, onReroll, onDelete, e
       h("div", { className: "flex items-center gap-2.5 mb-2.5" },
         isUser ? h(Avatar, { character: meChar, size: 28, radius: 14 }) : (spk ? h(Avatar, { character: spk, size: 28, radius: 14 }) : null),
         h("span", { className: "flex-1", style: { fontFamily: F_DISPLAY, fontSize: 13.5, color: isUser ? t.accent : t.sub } }, isUser ? meChar.name : (m.senderName || (spk && spk.name) || "")),
+        timeEl,
         actions),
       editing ? editBox : h("div", { style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.9, color: t.ink, whiteSpace: "pre-wrap" } }, m.content),
       (!isUser && m.thought) && h("div", { className: "mt-3 pl-3", style: { borderLeft: `2px solid ${t.line}` } },
@@ -4420,6 +4446,7 @@ function GroupOfflineMode({
   onSend,
   onReply,
   onAddNote,
+  onChangeStyle,
   onEditMsg,
   onRerollMsg,
   onDelMsg,
@@ -4440,7 +4467,7 @@ function GroupOfflineMode({
   const bgFileRef = useRef(null);
   const [view, setView] = useState(activeSession ? "live" : "setup");
   const [opening, setOpening] = useState("");
-  const [styleKey, setStyleKey] = useState("default");
+  const [styleKey, setStyleKey] = useState(activeSession && activeSession.styleKey ? activeSession.styleKey : "default");
   const [input, setInput] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
@@ -4448,6 +4475,7 @@ function GroupOfflineMode({
   const [readView, setReadView] = useState(null);
   const [customStyles, setCustomStyles] = useState(() => loadJSON("x_offlineStyles", []));
   const [styleSheet, setStyleSheet] = useState(false);
+  const [custOpen, setCustOpen] = useState(false);
   const [cName2, setCName2] = useState("");
   const [cPrompt, setCPrompt] = useState("");
   const scroller = useRef(null);
@@ -4467,6 +4495,7 @@ function GroupOfflineMode({
     setCName2("");
     setCPrompt("");
     setStyleSheet(false);
+    setCustOpen(false);
   };
   const delCustomStyle = key => {
     const next = customStyles.filter(s => s.key !== key);
@@ -4474,6 +4503,26 @@ function GroupOfflineMode({
     saveJSON("x_offlineStyles", next);
     if (styleKey === key) setStyleKey("default");
   };
+  // 设置弹层里的「文风预设」小节（进行中随时改）
+  const styleSection = h("div", { className: "pt-5", style: { borderTop: "1px solid " + t.line, marginTop: 18 } },
+    h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14.5, color: t.sub, marginBottom: 2 } }, "文风预设"),
+    h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 10, lineHeight: 1.6 } }, "剧情不同段落想换个笔调，随时切换，保存后下次演绎生效。"),
+    h("div", { className: "flex flex-wrap gap-2 mb-2" }, allStyles.map(s => h("button", {
+      key: s.key, onClick: () => { setStyleKey(s.key); setCustOpen(false); },
+      className: "px-3 py-1.5", style: { fontFamily: F_BODY, fontSize: 12.5, borderRadius: 999, border: "1px solid " + (styleKey === s.key ? t.ink : t.line), background: styleKey === s.key ? t.ink : "transparent", color: styleKey === s.key ? t.bg2 : t.sub }
+    }, s.name)).concat([h("button", {
+      key: "__add", onClick: () => setCustOpen(v => !v),
+      className: "px-3 py-1.5", style: { fontFamily: F_BODY, fontSize: 12.5, borderRadius: 999, border: "1px dashed " + t.line, background: "transparent", color: t.fog }
+    }, "＋ 自定义")])),
+    custOpen
+      ? h("div", { className: "p-3", style: { background: t.bg, borderRadius: 8, border: "1px solid " + t.line } },
+          h("input", { value: cName2, onChange: e => setCName2(e.target.value), placeholder: "预设名称，如 冷冽克制", className: "w-full outline-none p-2.5 mb-2", style: { fontFamily: F_BODY, fontSize: 13, color: t.ink, background: "#fff", border: "1px solid " + t.line, borderRadius: 8 } }),
+          h("textarea", { value: cPrompt, onChange: e => setCPrompt(e.target.value), rows: 3, placeholder: "写给 AI 的文风提示词，如：多用短句，冷色调意象，情绪藏在动作里…", className: "w-full outline-none p-2.5 mb-2", style: { fontFamily: F_BODY, fontSize: 13, lineHeight: 1.6, color: t.ink, background: "#fff", border: "1px solid " + t.line, borderRadius: 8, resize: "none" } }),
+          h("button", { onClick: saveCustomStyle, className: "w-full py-2.5", style: { fontFamily: F_BODY, fontSize: 13, background: t.ink, color: t.bg2, borderRadius: 8 } }, "保存并选用"))
+      : h("div", { className: "p-3", style: { background: t.bg, borderRadius: 8, border: "1px solid " + t.line } },
+          h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, letterSpacing: 1, color: t.fog, marginBottom: 4 } }, "提示词 · " + (curStyle ? curStyle.name : "")),
+          h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, lineHeight: 1.7, color: t.sub } }, (curStyle && curStyle.prompt) ? curStyle.prompt : "不额外指定文风，由角色本身的人设决定叙事口吻。"),
+          curStyle && curStyle.custom && h("button", { onClick: () => delCustomStyle(curStyle.key), className: "mt-2 active:opacity-60", style: { fontFamily: F_BODY, fontSize: 11.5, color: t.accent } }, "删除此预设")));
   useEffect(() => {
     if (activeSession && view === "setup") setView("live");
   }, [activeSession]);
@@ -4561,7 +4610,7 @@ function GroupOfflineMode({
   const gBgSheet = setOpen && h(Sheet, { onClose: () => setSetOpen(false), tall: true },
     h("div", { className: "flex items-center justify-between mb-4" },
       h("div", { style: { fontFamily: F_DISPLAY, fontSize: 20, color: t.ink } }, "线下设置"),
-      h("button", { onClick: () => { onSaveSettings && onSaveSettings({ maxTokens: sMax, minWords: sMinW, bg: sBg }); setSetOpen(false); }, className: "active:opacity-60" }, h(ICheck, { size: 19, color: t.ink }))),
+      h("button", { onClick: () => { onSaveSettings && onSaveSettings({ maxTokens: sMax, minWords: sMinW, bg: sBg }); onChangeStyle && onChangeStyle({ styleKey, stylePrompt: (curStyle && curStyle.prompt) || "" }); setSetOpen(false); }, className: "active:opacity-60" }, h(ICheck, { size: 19, color: t.ink }))),
     h("div", { style: { fontFamily: F_DISPLAY, fontSize: 15, color: t.sub, marginBottom: 4 } }, "场景背景图"),
     h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, marginBottom: 12, lineHeight: 1.6 } }, "从相册选一张图当这次多人线下的背景。"),
     h("div", { className: "flex items-center gap-3" },
@@ -4581,6 +4630,7 @@ function GroupOfflineMode({
         h("span", { style: { fontFamily: F_DISPLAY, fontStyle: "italic", fontSize: 16, color: t.ink } }, sMinW ? sMinW + " 字" : "不限")),
       h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 10 } }, "让每次至少写这么多字（>0 生效）。"),
       h(Slider, { value: sMinW, min: 0, max: 1200, step: 50, onChange: setSMinW })),
+    styleSection,
     h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 6 } }, "保存后下次生成生效。"));
   return h("div", { className: "absolute inset-0 z-20 flex flex-col", style: os.bg ? { backgroundImage: "url(\"" + os.bg + "\")", backgroundSize: "cover", backgroundPosition: "center", backgroundRepeat: "no-repeat", paddingTop: "env(safe-area-inset-top)" } : { background: t.bg, paddingTop: "env(safe-area-inset-top)" } },
     h("div", { className: "flex items-center gap-3 px-4 py-3 shrink-0", style: { borderBottom: `1px solid ${t.line}`, background: os.bg ? "rgba(255,255,255,0.5)" : t.bg2, backdropFilter: os.bg ? "blur(8px)" : "none", WebkitBackdropFilter: os.bg ? "blur(8px)" : "none" } },
