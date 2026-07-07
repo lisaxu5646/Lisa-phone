@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.57";
+const APP_VERSION = "v46.58";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -758,9 +758,12 @@ function App() {
       return lines.join("\n");
     })(),
     groupEcho: (groups || []).filter(g => gsFor(g.id).memoryInterop && (g.memberIds || []).includes(char.id)).map(g => {
-      const lines = (groupChatsRef.current[g.id] || []).slice(-12).map(m => m.role === "narration" ? "【旁白】" + m.content : (m.role === "user" ? profile.name || "用户" : m.senderName || "某人") + ": " + (m.content || "")).join("\n");
-      return lines ? "『群 " + g.name + "』\n" + lines : "";
-    }).filter(Boolean).join("\n\n"),
+      const msgs = (groupChatsRef.current[g.id] || []).filter(m => m && m.kind !== "ooc" && m.role !== "system" && String(m.content || "").trim());
+      if (!msgs.length) return "";
+      const others = (g.memberIds || []).filter(id => id !== char.id).map(id => { const c = characters.find(x => x.id === id); return c ? c.name : null; }).filter(Boolean);
+      const lines = msgs.slice(-14).map(m => (m.role === "narration" ? "【旁白】" : (m.role === "user" ? (profile.name || "用户") : (m.senderName || "某人")) + "：") + String(m.content).replace(/\s+/g, " ").slice(0, 60)).join("\n");
+      return "『群「" + g.name + "」" + (others.length ? "（群里还有 " + others.join("、") + "）" : "") + " 最近聊的』\n" + lines;
+    }).filter(Boolean).slice(0, 2).join("\n\n"),
     recentChat: (chatsRef.current[char.id] || []).filter(m => !m.recalled).slice(-(settingsFor(char.id).ctxN || 50)).map(m => (m.role === "user" ? profile.name || "用户" : char.name) + ": " + m.content).join("\n")
   });
   // ---- 后台保活（尽力而为：循环播放静音音频占住 iOS 音频会话）----
