@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.59";
+const APP_VERSION = "v46.60";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -4635,6 +4635,12 @@ function App() {
     if (!neteaseApi) { toast("先在下方配一个网易云搜索接口，才能拉到能播的歌"); return; }
     setGen(g => ({ ...g, charPlaylist: char.id }));
     try {
+      // 已有歌单：新生成【往里加】不覆盖、跳过重复。先拿到已有的歌，既让模型别再推、也在入库时去重。
+      const existingPl = (listenRef.current.playlists || []).find(x => x.charId === char.id);
+      const existingSongs = (existingPl && existingPl.songs) || [];
+      const existingIds = new Set(existingSongs.map(s => s.neteaseId).filter(Boolean));
+      const existingTitles = existingSongs.map(s => s.title).filter(Boolean);
+      const avoidStr = existingTitles.length ? "\n**这张歌单里已经有这些歌了，别再推荐它们、也别推重复的，给全新的：** " + existingTitles.slice(0, 50).join("、") : "";
       // 用干净上下文：去掉手机在听/最近听歌/朋友圈等会污染推荐的字段（否则角色只会照抄用户刚搜的、或查手机里那两首）
       const cleanCtx = Object.assign({}, ctxFor(char), { phoneNote: "", listenLog: "", momentLog: "", forumEcho: "", giftLog: "", recentChat: "" });
       // 解析：可能是 {songs:[...]}、裸数组、{list/data/result:[...]}；元素可能是对象或"歌名 - 歌手"字符串
@@ -4648,7 +4654,7 @@ function App() {
       const probeOnce = async nudge => {
         try {
           const rec = await runProbe(active, cleanCtx, {
-            instruction: "你是「" + char.name + "」。**完全按你自己的人设、成长背景、性格和音乐口味**，一次性列出 **15 首**你自己私下真会单曲循环、真实存在、能在主流平台搜到的歌（华语/欧美/日韩都行，别编造不存在的歌，风格可多样）。**别照抄任何你手机里在听/最近听过/用户刚搜过或已有的歌，要发自内心喜欢的。songs 数组要尽量凑满 15 个元素。**" + (nudge || "") + " 只给歌，别写解释别写序号。",
+            instruction: "你是「" + char.name + "」。**完全按你自己的人设、成长背景、性格和音乐口味**，一次性列出 **15 首**你自己私下真会单曲循环、真实存在、能在主流平台搜到的歌（华语/欧美/日韩都行，别编造不存在的歌，风格可多样）。**别照抄任何你手机里在听/最近听过/用户刚搜过或已有的歌，要发自内心喜欢的。songs 数组要尽量凑满 15 个元素。**" + avoidStr + (nudge || "") + " 只给歌，别写解释别写序号。",
             schemaHint: "{\"songs\":[{\"title\":\"某首歌\",\"artist\":\"某歌手\"}]}（songs 尽量给 15 个元素）", maxTokens: 2200
           });
           return parseWants(rec);
@@ -4675,14 +4681,31 @@ function App() {
         if (!hit) hit = await searchOne(w.title); // 带歌手搜不到 → 只用歌名再试
         if (!hit) continue;
         const nid = String(hit.id);
-        if (added.some(a => a.neteaseId === nid)) continue;
+        if (added.some(a => a.neteaseId === nid) || existingIds.has(nid)) continue; // 跳过本轮重复 + 歌单里已有的
         const cover = ((hit.album || hit.al || {}).picUrl) || null;
         const artist = (hit.artists || hit.ar || []).map(a => a.name).filter(Boolean).join(" / ") || (w.artist || "");
         added.push({ id: "sg_" + Date.now() + "_" + nid, source: "netease", neteaseId: nid, title: hit.name || w.title, artist, cover, ts: Date.now() });
       }
       if (!added.length) { toast("网易云没搜到这些歌（换个接口或稍后再试）"); return; }
-      saveListen(p => ({ ...p, playlists: [{ id: "pl_" + Date.now(), name: char.name + "的歌单", charId: char.id, cover: added[0].cover || null, songs: added, ts: Date.now() }, ...(p.playlists || []).filter(x => x.charId !== char.id)] }));
-      toast(char.name + " 的歌单好了 · " + added.length + " 首");
+      // 往已有歌单里【追加】新歌、按 neteaseId + 歌名歌手去重；没有就新建
+      let freshCount = 0;
+      saveListen(p => {
+        const pls = p.playlists || [];
+        const existing = pls.find(x => x.charId === char.id);
+        if (existing) {
+          const haveIds = new Set((existing.songs || []).map(s => s.neteaseId).filter(Boolean));
+          const haveKeys = new Set((existing.songs || []).map(s => (String(s.title) + "|" + String(s.artist)).toLowerCase()));
+          const fresh = added.filter(s => !(s.neteaseId && haveIds.has(s.neteaseId)) && !haveKeys.has((String(s.title) + "|" + String(s.artist)).toLowerCase()));
+          freshCount = fresh.length;
+          const merged = Object.assign({}, existing, { songs: [...(existing.songs || []), ...fresh], cover: existing.cover || (added[0] && added[0].cover) || null, ts: Date.now() });
+          return { ...p, playlists: [merged, ...pls.filter(x => x.charId !== char.id)] };
+        }
+        freshCount = added.length;
+        return { ...p, playlists: [{ id: "pl_" + Date.now(), name: char.name + "的歌单", charId: char.id, cover: added[0].cover || null, songs: added, ts: Date.now() }, ...pls] };
+      });
+      if (!existingSongs.length) toast(char.name + " 的歌单好了 · " + added.length + " 首");
+      else if (freshCount) toast("给 " + char.name + " 的歌单又添了 " + freshCount + " 首" + (added.length - freshCount > 0 ? "（跳过 " + (added.length - freshCount) + " 首重复）" : ""));
+      else toast("这轮推的歌都已经在歌单里了，没新增");
     } catch (e) { toast("生成失败：" + (e.message || "重试")); }
     finally { setGen(g => ({ ...g, charPlaylist: null })); }
   };
