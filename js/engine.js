@@ -313,7 +313,7 @@ function buildBundle(ctx, opts) {
   if (memory && memory.trim()) parts.push("【长期记忆摘要（过往对话浓缩）】\n" + memory.trim());
   const memLibText = Array.isArray(ctx.memLib) ? formatMemLib(ctx.memLib) : (ctx.memLib || "");
   if (memLibText && memLibText.trim()) parts.push("【记忆库·相关条目（你和 " + uName + " 之间沉淀的关键事实，请自然记住并保持一致）】\n" + memLibText.trim());
-  if (ctx.groupEcho && ctx.groupEcho.trim()) parts.push("【你也在这些群里·群里最近发生的事（真实发生过，你【在场、都知道】）】\n下面是你所在群聊最近的对话。这些事你都亲历、记得——群里谁说了什么、发生了什么、你自己在群里说过什么，你都清楚。和 " + uName + " 单独聊时，聊到相关的、或 " + uName + " 提起时，你要能自然想起、接住、回应或调侃（别装作不知道群里的事）；但也别没头没脑地硬把群聊内容倒出来。\n" + ctx.groupEcho.trim());
+  if (ctx.groupEcho && ctx.groupEcho.trim()) parts.push("【你也在这些群里·群里最近发生的事（真实发生过，你在场、都知道）】\n下面是你所在群聊最近的对话，你都亲历、记得。\n**关键：群记录里那个发言的「" + uName + "」，就是【此刻正在跟你单独聊天的这个人（TA）】——不是别的谁。** 所以 TA 刚在群里说过/做过的事（比如说要去上班、说了什么计划），你【当然知道】，现在跟 TA 单聊时要接得上，别自相矛盾（比如 TA 群里刚说去上班、你却在私聊里问 TA『醒啦睡得好吗』这种明显没在听的话）。聊到相关的自然想起、回应、调侃即可，但别没头没脑硬把群聊内容整段倒出来。\n" + ctx.groupEcho.trim());
   if (ctx.schedNow && ctx.schedNow.trim()) parts.push("【" + char.name + " 今天的行程 / 此刻在做什么】（据此自然反映到语气、状态和心情：在忙就可能回得短，被你打断了行程可能会提，累/闲会影响情绪。别生硬报行程表）\n" + ctx.schedNow.trim());
   if (ctx.giftLog && ctx.giftLog.trim()) parts.push("【你们之间的礼物往来】（这些礼物真实发生过，你记得。聊到相关话题、或 " + uName + " 提起时可自然想起、回应、道谢或调侃，别生硬罗列）\n" + ctx.giftLog.trim());
   if (ctx.momentLog && ctx.momentLog.trim()) parts.push("【" + uName + " 最近的朋友圈 & 你的互动】（你清楚自己在每条下点没点赞、评没评论。" + uName + " 问起时如实回答；若你此刻决定去补一条评论/点赞，就把评论内容填进输出的 momentComment 字段）\n" + ctx.momentLog.trim());
