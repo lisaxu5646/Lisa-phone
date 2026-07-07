@@ -3859,6 +3859,23 @@ function menuItemsForKind(m) {
   if (k === "voice") return [["copy", "复制", "Copy"], ["fav", "收藏", "Save"], ["quote", "引用", "Quote"], ["multi", "多选", "Select"], ["recall", "撤回", "Recall"]];
   return [["fav", "收藏", "Save"], ["multi", "多选", "Select"], ["recall", "撤回", "Recall"]];
 }
+// 编辑消息弹层：替掉难看又不能放大的原生 prompt。大号可拉伸文本框，长内容自动撑高+可滚，风格随 app。
+function MsgEditSheet({ init, onCancel, onSave }) {
+  const t = useTheme();
+  const [txt, setTxt] = useState(init || "");
+  const ref = useRef(null);
+  const grow = () => { const el = ref.current; if (el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, Math.round(window.innerHeight * 0.5)) + "px"; } };
+  useEffect(() => { const el = ref.current; if (el) { el.focus(); try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {} grow(); } }, []);
+  return h(Sheet, { onClose: onCancel, tall: true },
+    h("div", { className: "flex items-center justify-between", style: { marginBottom: 12 } },
+      h(Eyebrow, null, "编辑消息"),
+      h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog } }, "可拖右下角放大")),
+    h("textarea", { ref: ref, value: txt, onChange: e => { setTxt(e.target.value); grow(); },
+      style: { width: "100%", minHeight: 150, maxHeight: "50vh", resize: "vertical", boxSizing: "border-box", fontFamily: F_BODY, fontSize: 15, lineHeight: 1.7, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 14, padding: "13px 15px", outline: "none", overflowY: "auto" } }),
+    h("div", { className: "flex items-center gap-3", style: { marginTop: 16 } },
+      h("button", { onClick: onCancel, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 14, color: t.sub, padding: "11px 22px", borderRadius: 12, border: "1px solid " + t.line } }, "取消"),
+      h("button", { onClick: () => onSave(txt), className: "flex-1 active:opacity-80", style: { fontFamily: F_BODY, fontSize: 14.5, fontWeight: 700, color: t.bg2, background: t.ink, padding: "12px", borderRadius: 12 } }, "保存")));
+}
 function MsgMenu({
   message,
   idx,

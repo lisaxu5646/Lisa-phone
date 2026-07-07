@@ -32,6 +32,14 @@
   }
   const cardLabel = c => c.name + "（" + (c.rev ? "逆位" : "正位") + "）";
   function fmtDate(ts) { const d = new Date(ts); return (d.getMonth() + 1) + "月" + d.getDate() + "日 " + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
+  // 一次占卜里可被搜索命中的所有文字（角色名/问题/牌名/每日各角色/收束）
+  function sessionText(s) {
+    const parts = [s.charName || "", s.question || "", s.summary || ""];
+    if (s.card) parts.push(s.card.name);
+    (s.cards || []).forEach(c => c && parts.push(c.name));
+    (s.entries || []).forEach(e => e && parts.push(e.charName || ""));
+    return parts.join(" ").toLowerCase();
+  }
 
   // ---- 好感度 → 语气档（不给模型数字，只给氛围词，占卜结果暗暗被它上色）----
   function affBand(a) {
@@ -165,6 +173,9 @@
     const t = useTheme();
     const [saves, setSaves] = useState(loadSaves);
     const [view, setView] = useState("home"); // home | mode:<key> | s:<id>
+    const [histQ, setHistQ] = useState("");       // 历史搜索
+    const [histType, setHistType] = useState("all"); // 历史类型筛选
+    const [histExp, setHistExp] = useState({});   // 各类别是否已展开全部
     const lpTimer = useRef(null), lpFired = useRef(false);
 
     const persist = list => { setSaves(list); saveSaves(list); };
@@ -226,14 +237,42 @@
                 h("div", { style: { fontFamily: F_DISPLAY, fontSize: 17, color: t.ink } }, m.zh),
                 h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 3, lineHeight: 1.5 } }, m.blurb)));
           })),
-        // 历史：按类别收纳
-        Object.keys(MODES).filter(k => (byMode[k] || []).length).map(k => h("div", { key: "h" + k, style: { marginBottom: 18 } },
-          h("div", { style: { display: "flex", alignItems: "center", gap: 7, marginBottom: 9 } },
-            h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: GOLD } }, MODES[k].icon),
-            h("span", { style: { fontFamily: F_BODY, fontSize: 12, fontWeight: 700, color: t.sub, letterSpacing: .3 } }, MODES[k].zh),
-            h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog } }, "· " + byMode[k].length)),
-          h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, byMode[k].map(histLine)))),
-        saves.length ? h("div", { style: { marginTop: 4, textAlign: "center", fontFamily: F_BODY, fontSize: 10.5, color: t.fog } }, "长按一条可撕掉") : null
+        // ---- 历史：搜索 + 类型筛选 + 折叠（条数多也随时找得到）----
+        saves.length ? (function () {
+          const qlc = histQ.trim().toLowerCase();
+          const active = !!qlc || histType !== "all";              // 有搜索或选了具体类型 → 平铺筛选结果
+          const matchSess = s => (histType === "all" || s.mode === histType) && (!qlc || sessionText(s).indexOf(qlc) >= 0);
+          const chip = (k, label, cnt) => { const on = histType === k; return h("button", { key: k, onClick: () => setHistType(k), className: "active:opacity-70",
+            style: { fontFamily: F_BODY, fontSize: 12, color: on ? "#fff" : t.sub, background: on ? ACCENT : t.bg2, border: "1px solid " + (on ? ACCENT : t.line), borderRadius: 999, padding: "5px 12px", whiteSpace: "nowrap" } }, label + (cnt != null ? " " + cnt : "")); };
+          return h("div", null,
+            // 搜索框
+            h("div", { style: { position: "relative", marginBottom: 10 } },
+              h("span", { style: { position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: t.fog } }, "🔍"),
+              h("input", { value: histQ, onChange: e => setHistQ(e.target.value), placeholder: "搜角色 / 问题 / 牌名…",
+                style: { width: "100%", fontFamily: F_BODY, fontSize: 13.5, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 999, padding: "9px 32px 9px 32px", outline: "none" } }),
+              qlc ? h("button", { onClick: () => setHistQ(""), className: "active:opacity-60", style: { position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", fontSize: 15, color: t.fog, lineHeight: 1 } }, "×") : null),
+            // 类型筛选 chips（横滑）
+            h("div", { style: { display: "flex", gap: 7, overflowX: "auto", paddingBottom: 4, marginBottom: 14 } },
+              [chip("all", "全部", saves.length)].concat(Object.keys(MODES).filter(k => (byMode[k] || []).length).map(k => chip(k, MODES[k].icon + " " + MODES[k].zh, byMode[k].length)))),
+            // 列表
+            active
+              ? (function () { const list = sorted.filter(matchSess);
+                  return list.length
+                    ? h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, list.map(histLine))
+                    : h("div", { style: { textAlign: "center", fontFamily: F_BODY, fontSize: 12.5, color: t.fog, padding: "24px 0" } }, "没找到相关占卜"); })()
+              : Object.keys(MODES).filter(k => (byMode[k] || []).length).map(k => {
+                  const arr = byMode[k], exp = !!histExp[k], shown = exp ? arr : arr.slice(0, 3);
+                  return h("div", { key: "h" + k, style: { marginBottom: 18 } },
+                    h("div", { style: { display: "flex", alignItems: "center", gap: 7, marginBottom: 9 } },
+                      h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: GOLD } }, MODES[k].icon),
+                      h("span", { style: { fontFamily: F_BODY, fontSize: 12, fontWeight: 700, color: t.sub, letterSpacing: .3 } }, MODES[k].zh),
+                      h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog } }, "· " + arr.length)),
+                    h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, shown.map(histLine)),
+                    arr.length > 3 ? h("button", { onClick: () => setHistExp(p => ({ ...p, [k]: !exp })), className: "active:opacity-60",
+                      style: { marginTop: 8, fontFamily: F_BODY, fontSize: 11.5, color: ACCENT } }, exp ? "收起" : "展开全部 " + arr.length + " 条 ▾") : null);
+                }),
+            h("div", { style: { marginTop: 10, textAlign: "center", fontFamily: F_BODY, fontSize: 10.5, color: t.fog } }, "长按一条可撕掉"));
+        })() : null
       ));
   }
 

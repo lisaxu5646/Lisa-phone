@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.42";
+const APP_VERSION = "v46.43";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -237,6 +237,7 @@ function App() {
   const [gen, setGen] = useState({});
   const [stateCardOpen, setStateCardOpen] = useState(false);
   const [stateCardChar, setStateCardChar] = useState(null); // 心声卡要显示谁（群聊点头像时=该成员；私聊=null→用 activeChar）
+  const [editMsg, setEditMsg] = useState(null); // 编辑消息弹层 {content, onSave}
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   const [call, setCall] = useState(null); // {participants:[char], mode:"voice"|"video", groupId, msgs:[]}
   const callRef = useRef(null);
@@ -1495,11 +1496,8 @@ function App() {
       } : x));
       if (orig && orig.role === "user" && orig.content) reactToMyRecall(activeChar.id, orig.content);
     } else if (act === "edit") {
-      const nv = prompt("编辑消息", m.content);
-      if (nv != null) pChat(activeChar.id, p => p.map((x, i) => i === idx ? {
-        ...x,
-        content: nv
-      } : x));
+      const cid = activeChar.id;
+      setEditMsg({ content: m.content || "", onSave: nv => pChat(cid, p => p.map((x, i) => i === idx ? { ...x, content: nv } : x)) });
     } else if (act === "quote") {
       toast("已引用（在输入框继续说）");
     } else if (act === "memsave") {
@@ -1752,8 +1750,7 @@ function App() {
     } else if (act === "recall") {
       pGChat(groupId, p => p.map((x, i) => i === idx ? { ...x, recalled: true, origText: x.content, reason: x.reason || "" } : x));
     } else if (act === "edit") {
-      const nv = prompt("编辑消息", m.content || "");
-      if (nv != null) pGChat(groupId, p => p.map((x, i) => i === idx ? { ...x, content: nv } : x));
+      setEditMsg({ content: m.content || "", onSave: nv => pGChat(groupId, p => p.map((x, i) => i === idx ? { ...x, content: nv } : x)) });
     } else if (act === "reroll") {
       if (m.role !== "assistant") { toast("只能重Roll成员的消息"); return; }
       // 删掉这条及其之后的内容，从这里重新让成员回应
@@ -5768,7 +5765,11 @@ function App() {
       history: stateHist[scc.id] || [],
       onClose: () => { setStateCardOpen(false); setStateCardChar(null); }
     });
-  })(), chatSettingsOpen && activeChar && /*#__PURE__*/React.createElement(ChatSettings, {
+  })(), editMsg && /*#__PURE__*/React.createElement(MsgEditSheet, {
+    init: editMsg.content,
+    onCancel: () => setEditMsg(null),
+    onSave: nv => { editMsg.onSave(nv); setEditMsg(null); }
+  }), chatSettingsOpen && activeChar && /*#__PURE__*/React.createElement(ChatSettings, {
     character: activeChar,
     settings: settingsFor(activeChar.id),
     memory: memories[activeChar.id],
