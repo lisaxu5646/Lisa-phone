@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.62";
+const APP_VERSION = "v46.63";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -227,6 +227,7 @@ function App() {
   const [geo, setGeo] = useState(null);
   const [apiProfiles, setApiProfiles] = useState([]);
   const [activeId, setActiveId] = useState(null);
+  const [bgApiId, setBgApiId] = useState(null); // 后台任务(抽取/日程/钱包/查手机)专用便宜 API；空=回退主 API
   const [activeChar, setActiveChar] = useState(null);
   const [activeGroup, setActiveGroup] = useState(null);
   // 记录此刻在看的聊天，供未读红点判断
@@ -407,6 +408,7 @@ function App() {
     const aps = loadJSON("x_api", []);
     setApiProfiles(aps);
     setActiveId(loadJSON("x_activeApi", aps[0] && aps[0].id || null));
+    setBgApiId(loadJSON("x_bgApi", null));
     const cm = {},
       gm = {};
     for (const ch of c) cm[ch.id] = loadJSON("x_chat:" + ch.id, []);
@@ -417,6 +419,10 @@ function App() {
     setLoaded(true);
   }, []);
   const active = apiProfiles.find(p => p.id === activeId) || apiProfiles[0];
+  // 后台任务(抽取/日程/钱包/查手机)用的 API：选了便宜的就用它，没选就回退主 API（默认，不改变现状）
+  const bgActive = (bgApiId && apiProfiles.find(p => p.id === bgApiId)) || active;
+  const bgActiveRef = useRef(bgActive); bgActiveRef.current = bgActive;
+  const setBgApi = id => { setBgApiId(id); saveJSON("x_bgApi", id); };
   const settingsFor = id => chatSettings[id] || {
     ctxN: 50,
     sumThresh: 150,
@@ -598,7 +604,7 @@ function App() {
     const char = characters.find(c => c.id === charId);
     if (!char || !msgs || !msgs.length) return 0;
     const existing = memLibRef.current.filter(e => memShareChar([charId], e.charIds)).slice(0, 40).map(e => e.text).filter(Boolean);
-    const items = await extractMemories(active, ctxFor(char), msgs, { existing: existing });
+    const items = await extractMemories(bgActive, ctxFor(char), msgs, { existing: existing });
     const now = Date.now();
     const batchSeen = [];
     const entries = items.map((it, i) => ({
@@ -640,7 +646,7 @@ function App() {
     const char = characters.find(c => c.id === charId);
     startLane("c:" + charId);
     try {
-      const items = await splitMemoryToEntries(active, ctxFor(char), blob);
+      const items = await splitMemoryToEntries(bgActive, ctxFor(char), blob);
       const now = Date.now(); const batchSeen = [];
       const entries = (items || []).map((it, i) => ({
         id: "m_imp_" + now + "_" + i, text: String(it.text || "").trim(), tags: Array.isArray(it.tags) ? it.tags : ["导入"], charIds: [charId], ts: now, source: "import", pinned: false
@@ -2346,7 +2352,7 @@ function App() {
       const murmurSchema = retro
         ? ",\"murmurs\":[{\"time\":\"11:20\",\"text\":\"碎碎念一句\"}]"
         : (needY ? ",\"yesterdayMurmurs\":[{\"time\":\"11:20\",\"text\":\"昨天的碎碎念\"}]" : "");
-      const d = await runProbe(active, ctxFor(char), {
+      const d = await runProbe(bgActive, ctxFor(char), {
         instruction: "推演「" + char.name + "」一天的行程时间线。" + when + "。给 5-9 段，从早到晚，贴合身份/性格/世界观，有生活质感和具体地点。每段 type 从 [coffee,work,create,meal,rest,social,out,sleep,other] 里选最贴切的一个。\n【必须有就寝段】时间线一定要一路排到 Ta【睡觉】——最后放一段 type=\"sleep\" 的就寝（title 写清几点睡下，如「23:40 洗漱后睡了」），按 Ta 的身份/性格定就寝点（熬夜型晚睡、规律型早睡），别只排到晚上就断掉。\nload 是这天的负荷（HIGH LOAD / NORMAL / LIGHT）；estTime 是当天被安排占用的总小时数（数字）。\n" + devRule + "偏差段填 deviation:{\"plan\":\"原计划一句\",\"reason\":\"变更原因一句(点出和用户的关系)\",\"actual\":\"实际去向，如 工作室 → 厨房\"}；其余段 deviation 为 null。" + murmurRule,
         schemaHint: "{\"load\":\"HIGH LOAD\",\"estTime\":22,\"seqs\":[{\"time\":\"08:00\",\"title\":\"起床，晨间咖啡\",\"location\":\"家里卧室/厨房\",\"type\":\"coffee\",\"deviation\":null},{\"time\":\"23:40\",\"title\":\"洗漱后睡了\",\"location\":\"卧室\",\"type\":\"sleep\",\"deviation\":null}]" + murmurSchema + "}",
         maxTokens: 4000
@@ -2395,7 +2401,7 @@ function App() {
     }));
     setSelPhone(char.id);
     try {
-      const d = await runProbe(active, ctxFor(char), {
+      const d = await runProbe(bgActive, ctxFor(char), {
         instruction: "推演此刻「" + char.name + "」手机屏幕的真实状态，依据当下对话与心境，分模块。通知可带 detail 字段供点开细看。",
         schemaHint: "{\"notifications\":[{\"from\":\"来源\",\"preview\":\"摘要\",\"time\":\"14:20\",\"detail\":\"点开后的完整内容(可选)\"}],\"searches\":[\"搜索1\"],\"apps\":[{\"name\":\"应用\",\"detail\":\"在做什么\"}],\"wallpaper\":\"锁屏壁纸一句话\"}"
       });
@@ -2738,7 +2744,7 @@ function App() {
   const genWalletProfile = async char => {
     if (!active) return null;
     try {
-      return await runProbe(active, ctxFor(char), {
+      return await runProbe(bgActive, ctxFor(char), {
         instruction: "推演「" + char.name + "」的财务档案。**收入来源与全部金额必须严格依据 TA 的人设、职业、身份和社会阶层来定，贴合 TA 真实的谋生方式。** incomes（1-3 项，name+category+amount 数字，category 从 TA 实际谋生方式来：工资/自由职业/接单/做生意/兼职/学生生活费/退休金/稿费/打赏 等；只有明确富家子弟/继承人/家境优渥时才可出现「家族供养/信托」，否则绝不默认套用家族收入，普通人就普通收入甚至拮据）；monthlyIncome 月收入合计；fixedMonthly 每月固定支出；baseBalance 当前存款余额（作为钱包初始余额）；investAssets 理财持有资产（普通人可能很少或为 0）；notes 各部分批注（income/savings/invest/spending，每条一句符合人设的旁白）。所有金额纯数字不带符号，务必与身份匹配、不要人人都很有钱。**【币种铁律】这是微信钱包，全部金额一律用【人民币】计价，就算 TA 在国外留学/工作/生活也照人民币的量级来（普通留学生月生活费/打工收入换算成人民币通常几千，别写成几十万那种日元/韩元量级的数字）——当作全世界都用微信、一切都以人民币结算。**",
         schemaHint: "{\"incomes\":[{\"name\":\"公司月薪\",\"category\":\"工资\",\"amount\":11000}],\"monthlyIncome\":11000,\"fixedMonthly\":6800,\"baseBalance\":38400,\"investAssets\":15000,\"notes\":{\"income\":\"...\",\"savings\":\"...\",\"invest\":\"...\",\"spending\":\"...\"}}",
         // notes(4段批注)在 JSON 最后，思考型模型截断先丢它→放宽 token 防「刷新后批注没了」
@@ -5897,6 +5903,8 @@ function App() {
   });else if (screen === "config") body = /*#__PURE__*/React.createElement(Config, {
     apiProfiles: apiProfiles,
     activeId: activeId,
+    bgApiId: bgApiId,
+    onSetBgApi: setBgApi,
     characters: characters,
     coupleQACustom: coupleQACustom,
     onSaveCustomQA: saveCoupleQACustom,

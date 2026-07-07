@@ -2528,6 +2528,8 @@ function CoupleQAConfig({ characters, custom, onSave, toast }) {
 function Config({
   apiProfiles,
   activeId,
+  bgApiId,
+  onSetBgApi,
   onSaveApi,
   characters,
   coupleQACustom,
@@ -2583,6 +2585,8 @@ function Config({
   }, tab === "api" && /*#__PURE__*/React.createElement(ApiConfig, {
     profiles: apiProfiles,
     activeId: activeId,
+    bgApiId: bgApiId,
+    onSetBgApi: onSetBgApi,
     onSave: onSaveApi,
     toast: toast
   }), tab === "sense" && /*#__PURE__*/React.createElement(SenseConfig, {
@@ -2611,6 +2615,8 @@ function Config({
 function ApiConfig({
   profiles,
   activeId,
+  bgApiId,
+  onSetBgApi,
   onSave,
   toast
 }) {
@@ -2822,7 +2828,15 @@ function ApiConfig({
       border: `1px solid ${t.line}`,
       borderRadius: 6
     }
-  }, "删除此配置")));
+  }, "删除此配置")), onSetBgApi && h("div", { style: { marginTop: 26, paddingTop: 18, borderTop: "1px solid " + t.line } },
+    h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink, marginBottom: 4 } }, "后台任务 API（省钱可选）"),
+    h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 12, lineHeight: 1.6 } }, "抽取记忆 / 日程 / 钱包 / 查手机 这些结构化后台活，可以走一个便宜的按量小模型（如 gemini-flash-nothinking），不影响聊天质量。不选＝跟主模型用同一个。"),
+    h("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } },
+      [{ id: null, name: "跟随主模型" }].concat(list).map(p => {
+        const on = (bgApiId || null) === (p.id || null);
+        return h("button", { key: p.id || "none", onClick: () => onSetBgApi(p.id || null), className: "active:opacity-70",
+          style: { fontFamily: F_BODY, fontSize: 12.5, color: on ? t.bg2 : t.sub, background: on ? t.ink : "transparent", border: "1px solid " + (on ? t.ink : t.line), borderRadius: 999, padding: "6px 13px" } }, p.name || p.model || "未命名配置");
+      }))));
 }
 function SenseConfig({
   prefs,
