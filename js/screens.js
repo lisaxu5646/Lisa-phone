@@ -2830,7 +2830,7 @@ function ApiConfig({
     }
   }, "删除此配置")), onSetBgApi && h("div", { style: { marginTop: 26, paddingTop: 18, borderTop: "1px solid " + t.line } },
     h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink, marginBottom: 4 } }, "后台任务 API（省钱可选）"),
-    h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 12, lineHeight: 1.6 } }, "抽取记忆 / 日程 / 钱包 / 查手机 / 随身物 / 购物 / 便签墙 / 心情日历 这些后台活，走一个便宜的按量小模型（如 gemini-flash-nothinking），不动聊天/日记/同人这些创作类。不选＝跟主模型用同一个。"),
+    h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 12, lineHeight: 1.6 } }, "抽取记忆 / 日程 / 钱包 / 查手机 / 随身物 / 购物 / 便签墙 / 心情日历 / 记账 / 番茄钟 这些后台活，走一个便宜的按量小模型（如 gemini-flash-nothinking），不动聊天/日记/同人这些创作类。不选＝跟主模型用同一个。"),
     h("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } },
       [{ id: null, name: "跟随主模型" }].concat(list).map(p => {
         const on = (bgApiId || null) === (p.id || null);
