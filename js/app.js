@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.69";
+const APP_VERSION = "v46.70";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -113,9 +113,12 @@ function App() {
   const [stateHist, setStateHist] = useState({});
   const [directives, setDirectives] = useState({}); // {charId:[{id,text,ts}]} 用户经 OOC 立的长期行为准则
   const [memories, setMemories] = useState({});
+  const memoriesRef = useRef(memories);
+  memoriesRef.current = memories; // 始终指向最新长期记忆总结
   const [memLib, setMemLib] = useState([]);
   const memLibRef = useRef(memLib);
   memLibRef.current = memLib; // 始终指向最新记忆库
+  const memExtractInflightRef = useRef({}); // 每角色抽取进行中标志，防并发重复抽取
   // 记忆库设置：topK 每轮召回条数；autoExtract 每轮后台自动抽取；extractInterval 每几轮抽一次；recentDays 短期窗至少覆盖最近几天（消死区）
   const MEM_CFG_DEFAULT = { topK: 5, autoExtract: true, extractInterval: 1, recentDays: 3 };
   const [memCfg, setMemCfg] = useState(MEM_CFG_DEFAULT);
@@ -582,6 +585,8 @@ function App() {
     saveJSON("x_memLib", next);
   };
   // 记忆去重：归一化文本（去空白标点）后，和同角色（或全局）已有条目比对——完全相同、或一方几乎是另一方子串就算重复
+  // 记忆条目唯一 id：同毫秒多批抽取也不撞（撞了会导致删/改错条目）
+  const uniqMemId = (now, i) => "m_" + now + "_" + i + "_" + Math.floor(Math.random() * 1e4);
   const normMemText = s => String(s || "").replace(/[\s，。、；：,.;:!！?？「」『』"'“”‘’（）()【】\-—]/g, "").toLowerCase();
   const memShareChar = (aIds, bIds) => { const a = aIds || [], b = bIds || []; if (!a.length || !b.length) return true; return a.some(x => b.includes(x)); };
   const isDupMem = (text, charIds, pool) => {
@@ -618,19 +623,26 @@ function App() {
   const extractAndAddForChar = async (charId, msgs) => {
     const char = characters.find(c => c.id === charId);
     if (!char || !msgs || !msgs.length) return 0;
-    const existing = memLibRef.current.filter(e => memShareChar([charId], e.charIds)).slice(0, 40).map(e => e.text).filter(Boolean);
-    const items = await extractMemories(bgActive, ctxFor(char), msgs, { existing: existing });
-    const now = Date.now();
-    const batchSeen = [];
-    const entries = items.map((it, i) => ({
-      id: "m_" + now + "_" + i, text: String(it.text).trim(), tags: Array.isArray(it.tags) ? it.tags : [], charIds: [charId], ts: now, source: "auto", pinned: false
-    })).filter(x => x.text).filter(x => {
-      if (isDupMem(x.text, [charId])) return false;            // 和库里已有重复
-      if (isDupMem(x.text, [charId], batchSeen)) return false; // 和本批已收的重复
-      batchSeen.push(x); return true;
-    });
-    if (entries.length) saveMemLib([...entries, ...memLibRef.current]);
-    return entries.length;
+    // 防并发：同一角色的抽取在跑就直接跳过（省一次 API，也避免 lost-write 竞态）
+    if (memExtractInflightRef.current[charId]) return 0;
+    memExtractInflightRef.current[charId] = true;
+    try {
+      const existing = memLibRef.current.filter(e => memShareChar([charId], e.charIds)).slice(0, 40).map(e => e.text).filter(Boolean);
+      const items = await extractMemories(bgActive, ctxFor(char), msgs, { existing: existing });
+      const now = Date.now();
+      const batchSeen = [];
+      const entries = items.map((it, i) => ({
+        id: uniqMemId(now, i), text: String(it.text).trim(), tags: Array.isArray(it.tags) ? it.tags : [], charIds: [charId], ts: now, source: "auto", pinned: false
+      })).filter(x => x.text).filter(x => {
+        if (isDupMem(x.text, [charId])) return false;            // 和库里已有重复
+        if (isDupMem(x.text, [charId], batchSeen)) return false; // 和本批已收的重复
+        batchSeen.push(x); return true;
+      });
+      if (entries.length) saveMemLib([...entries, ...memLibRef.current]);
+      return entries.length;
+    } finally {
+      memExtractInflightRef.current[charId] = false;
+    }
   };
   const extractMemForChar = async charId => {
     if (!active) { toast("请先到设置配置 API"); return; }
@@ -664,7 +676,7 @@ function App() {
       const items = await splitMemoryToEntries(bgActive, ctxFor(char), blob);
       const now = Date.now(); const batchSeen = [];
       const entries = (items || []).map((it, i) => ({
-        id: "m_imp_" + now + "_" + i, text: String(it.text || "").trim(), tags: Array.isArray(it.tags) ? it.tags : ["导入"], charIds: [charId], ts: now, source: "import", pinned: false
+        id: uniqMemId(now, "imp" + i), text: String(it.text || "").trim(), tags: Array.isArray(it.tags) ? it.tags : ["导入"], charIds: [charId], ts: now, source: "import", pinned: false
       })).filter(x => x.text).filter(x => {
         if (isDupMem(x.text, [charId])) return false;
         if (isDupMem(x.text, [charId], batchSeen)) return false;
@@ -843,7 +855,8 @@ function App() {
       const lines = msgs.slice(-14).map(m => (m.role === "narration" ? "【旁白】" : (m.role === "user" ? (profile.name || "用户") : (m.senderName || "某人")) + "：") + String(m.content).replace(/\s+/g, " ").slice(0, 60)).join("\n");
       return "『群「" + g.name + "」" + (others.length ? "（群里还有 " + others.join("、") + "）" : "") + " 最近聊的』\n" + lines;
     }).filter(Boolean).slice(0, 2).join("\n\n"),
-    // 短期原文窗 = 最近 ctxN 条 ∪ 最近 recentDays 天（消死区：只要是这几天说的一定带上），封顶 160 条防爆
+    // 短期原文窗 = 最近 ctxN 条 ∪ 最近 recentDays 天（消死区：只要是这几天说的一定带上）
+    // 封顶用【字符预算】而非条数：长消息少带几条、短消息多带几条 → 成本可控，且高频用户不会每轮都顶着上百条原文（按次计费的核心 prompt）
     recentChat: (() => {
       const all = (chatsRef.current[char.id] || []).filter(m => !m.recalled && m.content);
       if (!all.length) return "";
@@ -852,8 +865,19 @@ function App() {
       const cutoff = Date.now() - days * 86400000;
       const firstRecent = all.findIndex(m => (m.ts || 0) >= cutoff);
       const byTimeCount = firstRecent >= 0 ? (all.length - firstRecent) : 0;
-      const take = Math.min(160, Math.max(ctxN, byTimeCount)); // 两者取更早的起点、封顶 160
-      return all.slice(-take).map(m => (m.role === "user" ? profile.name || "用户" : char.name) + ": " + m.content).join("\n");
+      const wantStart = all.length - Math.max(ctxN, byTimeCount); // 条数窗与时间窗取更早的起点
+      const lines = [];
+      const uName = profile.name || "用户";
+      const MEM_CHAR_BUDGET = 8000; // 字符预算：从最近往回收，攒够就停（老而仍在窗内的事由自动抽取+摘要兜底）
+      let used = 0;
+      for (let i = all.length - 1; i >= wantStart && i >= 0; i--) {
+        const m = all[i];
+        const line = (m.role === "user" ? uName : char.name) + ": " + m.content;
+        used += line.length + 1;
+        if (used > MEM_CHAR_BUDGET && lines.length) break; // 超预算就停，但至少保底一条
+        lines.push(line);
+      }
+      return lines.reverse().join("\n");
     })()
   });
   // ---- 后台保活（尽力而为：循环播放静音音频占住 iOS 音频会话）----
@@ -1233,7 +1257,7 @@ function App() {
           if (block && block.trim()) {
             const d = new Date();
             const seg = "【" + (d.getMonth() + 1) + "月" + d.getDate() + "日】" + block.trim();
-            const prev = (memories[charId] || "").trim();
+            const prev = (memoriesRef.current[charId] || "").trim(); // 读 ref 取最新，避免闭包旧值覆盖中间的编辑
             let merged = prev ? prev + "\n\n" + seg : seg;
             if (merged.length > 8000) merged = merged.slice(merged.length - 8000);
             setMemFor(charId, merged);
