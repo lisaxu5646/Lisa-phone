@@ -787,36 +787,47 @@ function Lifestyle({ characters, schedules, selId, busyKey, onBack, onSel, onGen
           h("div", { className: "flex gap-1.5" }, characters.map((c, i) => h("span", { key: c.id, style: { width: i === idx ? 16 : 5, height: 5, borderRadius: 999, background: "#efe9df", opacity: i === idx ? 0.9 : 0.35, transition: "width .2s" } }))),
           h("button", { onClick: () => go(1), disabled: idx === characters.length - 1, className: "active:opacity-50", style: { opacity: idx === characters.length - 1 ? 0.2 : 0.7, padding: 6, transform: "scaleX(-1)" } }, h(IArrow, { size: 20, color: "#efe9df" }))))));
 }
-// 世界书 · 书架：全局通用 + 各角色个人，词条像书排列，点开编辑（结构化词条：关键词/常驻/绑角色/优先级/适用范围）
+// 世界书 · 书架：一本本立在木架板上的书，分全局通用 + 各角色个人一层层往下滑；点书开编辑
+const LORE_COVERS = ["#7c5c4e", "#4e6a7c", "#5f7c4e", "#7c4e5f", "#584e7c", "#4e7c6a", "#7c6f3f", "#6b5b73"];
+const loreHashN = s => { let n = 0; s = String(s || ""); for (let i = 0; i < s.length; i++) n = (n * 31 + s.charCodeAt(i)) | 0; return Math.abs(n); };
 function WorldBook({ entries, characters, onBack, onSave, onDelete }) {
   const t = useTheme();
-  const [editing, setEditing] = useState(null); // "new" | entry
+  const [editing, setEditing] = useState(null); // null | {__new, charIds} | entry
   const list = entries || [];
   const global = list.filter(e => !e.charIds || e.charIds.length === 0);
-  const bookCard = e => h("button", { key: e.id, onClick: () => setEditing(e), className: "w-full text-left active:opacity-85",
-    style: { background: t.bg2, border: "1px solid " + t.line, borderRadius: 12, padding: "12px 14px", opacity: e.enabled === false ? 0.5 : 1 } },
-    h("div", { style: { display: "flex", alignItems: "center", gap: 7, marginBottom: 4, flexWrap: "wrap" } },
-      e.alwaysOn ? h("span", { style: { fontFamily: F_BODY, fontSize: 9, fontWeight: 700, color: "#fff", background: t.accent, borderRadius: 5, padding: "1px 6px" } }, "常驻") : (e.keyword ? h("span", { style: { fontFamily: F_BODY, fontSize: 9, color: t.sub, border: "1px solid " + t.line, borderRadius: 5, padding: "1px 6px" } }, "🔑 " + String(e.keyword).slice(0, 12)) : null),
-      e.category && e.category !== "默认" ? h("span", { style: { fontFamily: F_BODY, fontSize: 9, color: t.fog } }, e.category) : null,
-      e.enabled === false ? h("span", { style: { fontFamily: F_BODY, fontSize: 9, color: t.fog } }, "· 已停用") : null),
-    h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, e.title || "无题词条"),
-    h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, lineHeight: 1.5, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" } }, e.payload || "（空）"));
-  const section = (title, arr) => arr.length ? h("div", { key: title, style: { marginBottom: 22 } },
-    h("div", { style: { display: "flex", alignItems: "baseline", gap: 8, marginBottom: 10 } },
+  const openNew = charIds => setEditing({ __new: true, charIds: charIds || [] });
+  // 一本书 = 竖直书封，封面色按 id 取，白字标题夹紧，底部标记常驻/关键词/停用
+  const book = e => {
+    const off = e.enabled === false;
+    const cover = off ? "#9a9a9a" : LORE_COVERS[loreHashN(e.id || e.title) % LORE_COVERS.length];
+    return h("button", { key: e.id, onClick: () => setEditing(e), className: "active:opacity-80 shrink-0",
+      style: { width: 68, height: 96, borderRadius: "3px 6px 6px 3px", background: cover, borderLeft: "5px solid rgba(0,0,0,.22)", boxShadow: "0 3px 6px rgba(0,0,0,.22)", padding: "8px 7px 7px", display: "flex", flexDirection: "column", justifyContent: "space-between", overflow: "hidden", opacity: off ? 0.55 : 1 } },
+      h("div", { style: { fontFamily: F_DISPLAY, fontSize: 11, lineHeight: 1.25, color: "#fff", textAlign: "left", textShadow: "0 1px 2px rgba(0,0,0,.3)", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical" } }, e.title || "无题"),
+      h("div", { style: { display: "flex", alignItems: "center", gap: 4, minHeight: 8 } },
+        e.alwaysOn ? h("span", { title: "常驻", style: { width: 7, height: 7, borderRadius: 9, background: "#f2c14e", boxShadow: "0 0 0 1px rgba(0,0,0,.15)" } }) : (e.keyword ? h("span", { style: { fontSize: 8, color: "rgba(255,255,255,.9)" } }, "🔑") : null),
+        e.scope && (e.scope.diary || e.scope.debate || e.scope.subjects || e.scope.lifestyle) ? h("span", { style: { width: 5, height: 5, borderRadius: 9, background: "rgba(255,255,255,.65)" } }) : null));
+  };
+  // ＋ 占位书：虚线书封，点了在这一层新建
+  const addBook = charIds => h("button", { key: "__add", onClick: () => openNew(charIds), className: "active:opacity-60 shrink-0",
+    style: { width: 68, height: 96, borderRadius: "3px 6px 6px 3px", background: "transparent", border: "1.5px dashed " + t.line, display: "flex", alignItems: "center", justifyContent: "center", color: t.fog, fontSize: 26, fontWeight: 300 } }, "＋");
+  // 一层架子：标题 + 一排立着的书 + 底下的木隔板
+  const shelf = (key, title, arr, newCharIds) => h("div", { key: key, style: { marginBottom: 26 } },
+    h("div", { style: { display: "flex", alignItems: "baseline", gap: 8, marginBottom: 12 } },
       h("span", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, title),
       h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, arr.length + " 本")),
-    h("div", { style: { display: "flex", flexDirection: "column", gap: 10 } }, arr.map(bookCard))) : null;
+    h("div", { style: { display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: 12, rowGap: 18, paddingBottom: 9 } },
+      arr.map(book).concat([addBook(newCharIds)])),
+    h("div", { style: { height: 7, borderRadius: 3, background: "linear-gradient(#c9a07e,#a8825f)", boxShadow: "0 3px 5px -2px rgba(0,0,0,.35)" } }));
   return h("div", { className: "h-full flex flex-col" },
     h(Head, { zh: "世界书", en: "Lore · " + list.length + " 本", onBack: onBack,
-      right: h("button", { onClick: () => setEditing("new"), className: "active:opacity-50" }, h(IPlus, { size: 20, color: t.ink })) }),
-    h("div", { className: "flex-1 overflow-y-auto px-6 pb-8" },
-      list.length === 0 ? h(Empty, { text: "书架还空着", sub: "点右上角 + 新建词条，设定世界观 / 背景 / 规则" }) : null,
-      section("全局通用 · GLOBAL", global),
-      characters.map(c => section((c.remark || c.name) + " · 个人", list.filter(e => (e.charIds || []).includes(c.id))))),
+      right: h("button", { onClick: () => openNew([]), className: "active:opacity-50" }, h(IPlus, { size: 20, color: t.ink })) }),
+    h("div", { className: "flex-1 overflow-y-auto px-6 pb-8", style: { paddingTop: 4 } },
+      shelf("__global", "全局通用 · GLOBAL", global, []),
+      characters.map(c => shelf(c.id, (c.remark || c.name) + " · 个人", list.filter(e => (e.charIds || []).includes(c.id)), [c.id]))),
     editing && h(WorldBookEntrySheet, {
-      entry: editing === "new" ? null : editing, characters: characters, onClose: () => setEditing(null),
+      entry: editing.__new ? { charIds: editing.charIds } : editing, characters: characters, onClose: () => setEditing(null),
       onSave: data => { onSave(data); setEditing(null); },
-      onDelete: editing === "new" ? null : () => { onDelete(editing.id); setEditing(null); }
+      onDelete: editing.__new ? null : () => { onDelete(editing.id); setEditing(null); }
     }));
 }
 function WorldBookEntrySheet({ entry, characters, onClose, onSave, onDelete }) {
@@ -825,7 +836,7 @@ function WorldBookEntrySheet({ entry, characters, onClose, onSave, onDelete }) {
   const set = p => setF(x => Object.assign({}, x, p));
   const toggleChar = id => setF(x => { const has = (x.charIds || []).includes(id); return Object.assign({}, x, { charIds: has ? x.charIds.filter(i => i !== id) : [...(x.charIds || []), id] }); });
   const setScope = k => setF(x => Object.assign({}, x, { scope: Object.assign({ chat: true }, x.scope, { [k]: !(x.scope && x.scope[k]) }) }));
-  const save = () => { if (!(f.payload || "").trim()) { return; } onSave(Object.assign({}, f, { id: entry ? entry.id : "le_" + Date.now() + "_" + Math.floor(Math.random() * 1000), ts: Date.now() })); };
+  const save = () => { if (!(f.payload || "").trim()) { return; } onSave(Object.assign({}, f, { id: entry && entry.id ? entry.id : "le_" + Date.now() + "_" + Math.floor(Math.random() * 1000), ts: Date.now() })); };
   const field = { fontFamily: F_BODY, fontSize: 14, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 10, padding: "10px 12px", width: "100%", outline: "none" };
   const lbl = s => h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, fontWeight: 700, color: t.sub, margin: "14px 0 6px", letterSpacing: .3 } }, s);
   const toggle = (label, sub, val, onT) => h("div", { className: "flex items-center justify-between", style: { padding: "10px 0" } },
