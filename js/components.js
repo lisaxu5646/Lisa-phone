@@ -812,7 +812,7 @@ function Home({
   const goPage = function (np) { setPage(np); try { localStorage.setItem("x_homePage", String(np)); } catch (e) {} };
   // 文件夹只当「还没做」的 SOON 占位holder；功能一旦做完就搬出文件夹放到主屏顶层
   const folderPlay = { key: "f_play", zh: "玩法", apps: [
-    { key: "pomodoro", zh: "番茄钟", G: GSoon, soon: true },
+    { key: "pomodoro", zh: "番茄钟", G: GFocus },
     { key: "minigame", zh: "小游戏", G: GSoon, soon: true }
   ] };
   // 注册表：所有可摆放的项（组件 w_ / app 图标 / 文件夹），供布局按 key 查
@@ -2094,7 +2094,7 @@ function MomentsFeed({
   }, c.name))))));
 }
 // 朋友圈个人页（仿微信「我的相册/TA 的朋友圈」）：封面 + 头像 + 签名 + 此人所有动态；me 可发/删/换封面
-function MomentsProfile({ isMe, character, profile, characters, moments, cover, gen, friendGroups, onSetCover, onDelMoment, onLikeMoment, onCommentMoment, onPostMoment, onBack }) {
+function MomentsProfile({ isMe, character, profile, characters, moments, cover, gen, friendGroups, signature, onSetCover, onDelMoment, onLikeMoment, onCommentMoment, onPostMoment, onBack }) {
   const t = useTheme();
   const [compose, setCompose] = useState(false);
   const [commenting, setCommenting] = useState(null);
@@ -2105,7 +2105,8 @@ function MomentsProfile({ isMe, character, profile, characters, moments, cover, 
   if (!isMe && !character) return null;
   const author = isMe ? { name: profile.name || "我", avatarImage: profile.avatarImage, color: profile.color } : character;
   const name = isMe ? (profile.name || "我") : (character.remark || character.name);
-  const sign = isMe ? (profile.tagline || "") : (character.motto || character.tagline || "");
+  // 签名：优先用传进来的（角色页=匿名箱生成的 bio 签名），否则回落到 motto/tagline
+  const sign = (signature != null && String(signature).trim()) ? signature : (isMe ? (profile.tagline || "") : (character.motto || character.tagline || ""));
   const list = (moments || []).filter(m => isMe ? m.mine : (m.characterId === character.id && !m.mine)).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
   const pickCover = e => { const f = e.target.files && e.target.files[0]; if (f) resizeImageFile(f, 1400, 0.82).then(d => onSetCover(d)); e.target.value = ""; };
   const sendC = m => { if (cText.trim()) { onCommentMoment(m.id, cText.trim()); setCommenting(null); setCText(""); } };
