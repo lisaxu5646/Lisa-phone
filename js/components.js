@@ -1222,6 +1222,8 @@ function Messages({
   genMoment,
   onLikeMoment,
   onCommentMoment,
+  onDelMoment,
+  onOpenMomProfile,
   onEditProfile,
   onOpenWallet,
   onOpenFavorites,
@@ -1413,7 +1415,9 @@ function Messages({
     onCompose: () => setComposeOpen(true),
     gen: genMoment,
     onLike: onLikeMoment,
-    onComment: onCommentMoment
+    onComment: onCommentMoment,
+    onDelete: onDelMoment,
+    onOpenProfile: cid => onOpenMomProfile && onOpenMomProfile(cid, false)
   }), tab === "me" && h("div", {
     className: "p-5"
   }, h("button", {
@@ -1449,6 +1453,22 @@ function Messages({
       marginTop: 3
     }
   }, profile.tagline || "编辑你的面具、昵称与人设")), h(IChevR, {
+    size: 16,
+    color: t.line
+  })), h("button", {
+    onClick: () => onOpenMomProfile && onOpenMomProfile("me", true),
+    className: "w-full flex items-center gap-4 p-4 mt-3 active:opacity-70",
+    style: { background: t.bg, borderRadius: 16, border: `1px solid ${t.line}` }
+  }, h("div", {
+    className: "flex items-center justify-center shrink-0",
+    style: { width: 44, height: 44, borderRadius: 12, background: "linear-gradient(135deg,#5a6b8a,#33415c)" }
+  }, h(PGlyph, { k: "wechat", size: 22, color: "#fff" })), h("div", {
+    className: "flex-1 min-w-0 text-left"
+  }, h("div", {
+    style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink }
+  }, "我的朋友圈"), h("div", {
+    style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, marginTop: 2 }
+  }, "看我发过的 · 换封面 · 删动态")), h(IChevR, {
     size: 16,
     color: t.line
   })), h("button", {
@@ -1806,16 +1826,19 @@ function MomentsFeed({
   onCompose,
   gen,
   onLike,
-  onComment
+  onComment,
+  onDelete,
+  onOpenProfile
 }) {
   const t = useTheme();
   const [pick, setPick] = useState(false);
   const [commenting, setCommenting] = useState(null);
   const [cText, setCText] = useState("");
   const [imgView, setImgView] = useState(null);
+  const [delId, setDelId] = useState(null);
   return /*#__PURE__*/React.createElement("div", {
     className: "pb-8"
-  }, imgView && h(Sheet, {
+  }, delId && h(ConfirmDialog, { title: "删掉这条朋友圈？", body: "删掉后连同点赞评论一起没了。", confirmLabel: "删掉", danger: true, onConfirm: () => { onDelete(delId); setDelId(null); }, onCancel: () => setDelId(null) }), imgView && h(Sheet, {
     onClose: () => setImgView(null),
     tall: true
   }, h(Eyebrow, {
@@ -1896,7 +1919,7 @@ function MomentsFeed({
       style: {
         borderBottom: `1px solid ${t.line}`
       }
-    }, /*#__PURE__*/React.createElement(Avatar, {
+    }, (!isMine && c && onOpenProfile) ? h("button", { onClick: () => onOpenProfile(c.id), className: "shrink-0 active:opacity-70" }, h(Avatar, { character: author, size: 40, radius: 9 })) : /*#__PURE__*/React.createElement(Avatar, {
       character: author,
       size: 40,
       radius: 9
@@ -1981,7 +2004,10 @@ function MomentsFeed({
         fontSize: 11,
         color: t.fog
       }
-    }, "评论")), m.likers && m.likers.length > 0 && h("div", {
+    }, "评论"), onDelete && h("button", {
+      onClick: () => setDelId(m.id),
+      style: { fontFamily: F_BODY, fontSize: 11, color: t.fog }
+    }, "删除")), m.likers && m.likers.length > 0 && h("div", {
       className: "flex items-center gap-1.5 mt-2"
     }, h(IHeart, {
       size: 12,
@@ -2071,6 +2097,58 @@ function MomentsFeed({
     }
   }, c.name))))));
 }
+// 朋友圈个人页（仿微信「我的相册/TA 的朋友圈」）：封面 + 头像 + 签名 + 此人所有动态；me 可发/删/换封面
+function MomentsProfile({ isMe, character, profile, characters, moments, cover, gen, friendGroups, onSetCover, onDelMoment, onLikeMoment, onCommentMoment, onPostMoment, onBack }) {
+  const t = useTheme();
+  const [compose, setCompose] = useState(false);
+  const [commenting, setCommenting] = useState(null);
+  const [cText, setCText] = useState("");
+  const [imgView, setImgView] = useState(null);
+  const [delId, setDelId] = useState(null);
+  const coverRef = useRef(null);
+  if (!isMe && !character) return null;
+  const author = isMe ? { name: profile.name || "我", avatarImage: profile.avatarImage, color: profile.color } : character;
+  const name = isMe ? (profile.name || "我") : (character.remark || character.name);
+  const sign = isMe ? (profile.tagline || "") : (character.motto || character.tagline || "");
+  const list = (moments || []).filter(m => isMe ? m.mine : (m.characterId === character.id && !m.mine)).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const pickCover = e => { const f = e.target.files && e.target.files[0]; if (f) resizeImageFile(f, 1400, 0.82).then(d => onSetCover(d)); e.target.value = ""; };
+  const sendC = m => { if (cText.trim()) { onCommentMoment(m.id, cText.trim()); setCommenting(null); setCText(""); } };
+
+  const momentRow = m => h("div", { key: m.id, className: "px-5 py-4", style: { borderBottom: "1px solid " + t.line } },
+    h("div", { style: { fontFamily: F_BODY, fontSize: 14.5, lineHeight: 1.6, color: t.ink, whiteSpace: "pre-wrap" } }, m.content),
+    m.image ? (String(m.image).startsWith("data:")
+      ? h("button", { onClick: () => setImgView(m.image), className: "mt-2.5 block active:opacity-80" }, h("img", { src: m.image, style: { maxWidth: 160, maxHeight: 160, borderRadius: 10, display: "block" } }))
+      : h("button", { onClick: () => setImgView(m.image), className: "mt-2 flex items-center gap-2 px-3 py-2 active:opacity-70", style: { background: t.bg, borderRadius: 10, border: "1px solid " + t.line } }, h(PGlyph, { k: "album", size: 16, color: t.fog }), h("span", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog } }, "[图片] 点开看描述"))) : null,
+    h("div", { className: "flex items-center gap-4 mt-2" },
+      h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog } }, timeAgo(m.ts)),
+      h("button", { onClick: () => onLikeMoment(m.id), className: "active:opacity-60 flex items-center gap-1" }, h(IHeart, { size: 13, color: m.liked ? t.accent : t.fog, filled: m.liked }), (m.likeCount || 0) > 0 && h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog } }, m.likeCount)),
+      h("button", { onClick: () => { setCommenting(m.id); setCText(""); }, style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, "评论"),
+      onDelMoment && h("button", { onClick: () => setDelId(m.id), style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, "删除")),
+    (m.likers && m.likers.length) ? h("div", { className: "flex items-center gap-1.5 mt-2" }, h(IHeart, { size: 12, color: t.accent, filled: true }), h("span", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.tint } }, m.likers.join("、"))) : null,
+    (m.comments && m.comments.length) ? h("div", { className: "mt-2.5 rounded-xl px-3 py-2", style: { background: t.bg } }, m.comments.map((cm, i) => h("div", { key: i, style: { fontFamily: F_BODY, fontSize: 12.5, lineHeight: 1.7 } }, h("span", { style: { color: t.tint, fontWeight: 500 } }, cm.author), h("span", { style: { color: t.ink } }, "：", cm.text)))) : null,
+    commenting === m.id ? h("div", { className: "flex gap-2 mt-2" },
+      h("input", { value: cText, onChange: e => setCText(e.target.value), autoFocus: true, placeholder: "评论…", onKeyDown: e => { if (e.key === "Enter") sendC(m); }, className: "flex-1 outline-none px-3 py-1.5 rounded-full", style: { fontFamily: F_BODY, fontSize: 13, background: t.bg2, color: t.ink, border: "1px solid " + t.line } }),
+      h("button", { onClick: () => sendC(m), className: "px-3 rounded-full", style: { background: t.ink, color: t.bg2, fontFamily: F_BODY, fontSize: 12 } }, "发")) : null);
+
+  return h("div", { className: "h-full flex flex-col" },
+    h("div", { style: { position: "relative", height: 210, flexShrink: 0, background: cover ? ("center/cover no-repeat url(\"" + cover + "\")") : "linear-gradient(135deg,#8a8577,#5f5b50)" } },
+      h("button", { onClick: onBack, className: "active:opacity-60", style: { position: "absolute", top: "calc(env(safe-area-inset-top) + 10px)", left: 14, width: 34, height: 34, borderRadius: 999, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center" } }, h(IArrow, { size: 19, color: "#fff" })),
+      h("button", { onClick: () => coverRef.current && coverRef.current.click(), className: "active:opacity-70", style: { position: "absolute", top: "calc(env(safe-area-inset-top) + 12px)", right: 14, padding: "6px 12px", borderRadius: 999, background: "rgba(0,0,0,0.32)", fontFamily: F_BODY, fontSize: 11.5, color: "#fff" } }, cover ? "换封面" : "设封面"),
+      h("input", { ref: coverRef, type: "file", accept: "image/*", style: { display: "none" }, onChange: pickCover }),
+      h("div", { style: { position: "absolute", right: 16, bottom: -28, display: "flex", alignItems: "flex-end", gap: 12 } },
+        h("div", { style: { textAlign: "right", paddingBottom: 32 } },
+          h("div", { style: { fontFamily: F_DISPLAY, fontSize: 18, color: "#fff", textShadow: "0 1px 4px rgba(0,0,0,0.55)" } }, name),
+          sign && h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: "rgba(255,255,255,0.92)", textShadow: "0 1px 3px rgba(0,0,0,0.55)", marginTop: 3, maxWidth: 210 } }, "“" + sign + "”")),
+        h(Avatar, { character: author, size: 64, radius: 14 }))),
+    h("div", { className: "flex-1 overflow-y-auto", style: { paddingTop: 40 } },
+      isMe && h("div", { className: "px-5 pb-1 flex justify-end" }, h("button", { onClick: () => setCompose(true), className: "flex items-center gap-1.5 active:opacity-70", style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink } }, h(PGlyph, { k: "album", size: 14, color: t.ink }), " 发一条")),
+      gen && h(Spinner, { label: "正在发朋友圈…" }),
+      list.length === 0 && !gen && h(Empty, { text: isMe ? "你还没发过朋友圈" : name + " 还没有朋友圈", sub: isMe ? "点右上「发一条」" : "" }),
+      list.map(momentRow)),
+    delId && h(ConfirmDialog, { title: "删掉这条朋友圈？", body: "删掉后连同点赞评论一起没了。", confirmLabel: "删掉", danger: true, onConfirm: () => { onDelMoment(delId); setDelId(null); }, onCancel: () => setDelId(null) }),
+    imgView && h(Sheet, { onClose: () => setImgView(null), tall: true }, h(Eyebrow, { style: { marginBottom: 8 } }, "图片"), String(imgView).startsWith("data:") ? h("img", { src: imgView, style: { width: "100%", borderRadius: 12, display: "block" } }) : h("div", { style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.8, color: t.ink, whiteSpace: "pre-wrap" } }, imgView)),
+    compose && h(MomentCompose, { friendGroups, characters, onPost: payload => { onPostMoment(payload); setCompose(false); }, onClose: () => setCompose(false) }));
+}
 
 // ---- chat thread (single) ----
 function ChatThread({
@@ -2099,6 +2177,7 @@ function ChatThread({
   onRespondTransfer,
   makeCoords,
   onOpenAnon,
+  onOpenMoments,
   onOffline,
   onOOC,
   block,
@@ -2141,7 +2220,7 @@ function ChatThread({
   const inited = useRef(false); // 首次进入聊天：瞬间落底，不用 smooth（否则从顶部慢慢滚像跳到很上面）
   const pressTimer = useRef(null);
   const cName = character.remark || character.name;
-  const PANEL = [["location", "位置", "browser"], ["sticker", "表情包", "album"], ["photo", "拍摄", "album"], ["voicemsg", "发语音", "recordings"], ["voice", "语音通话", "calls"], ["video", "视频通话", "video"], ["anon", "匿名箱", "forum"], ["transfer", "转账", "wallet"], ["pat", "拍一拍", "wechat"]];
+  const PANEL = [["location", "位置", "browser"], ["sticker", "表情包", "album"], ["photo", "拍摄", "album"], ["voicemsg", "发语音", "recordings"], ["voice", "语音通话", "calls"], ["video", "视频通话", "video"], ["anon", "匿名箱", "forum"], ["moments", "朋友圈", "wechat"], ["transfer", "转账", "wallet"], ["pat", "拍一拍", "wechat"]];
   const sendRich = msg => {
     onSendRich({
       ts: Date.now(),
@@ -2176,6 +2255,9 @@ function ChatThread({
     } else if (k === "anon") {
       setPanelOpen(false);
       onOpenAnon && onOpenAnon();
+    } else if (k === "moments") {
+      setPanelOpen(false);
+      onOpenMoments && onOpenMoments();
     } else if (k === "sticker") {
       setPanelOpen(false);
       setStickerOpen(true);

@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.48";
+const APP_VERSION = "v46.49";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -91,6 +91,8 @@ function App() {
   const [groupChats, setGroupChats] = useState({});
   const [groupSettings, setGroupSettings] = useState({});
   const [moments, setMoments] = useState([]);
+  const [momentsCover, setMomentsCover] = useState({}); // { me: dataURI, [charId]: dataURI } 朋友圈封面
+  const [momTarget, setMomTarget] = useState(null);     // 朋友圈个人页目标 { id, isMe }
   const [friendGroups, setFriendGroups] = useState([]);
   const [schedules, setSchedules] = useState({});
   const [snoops, setSnoops] = useState({});
@@ -291,6 +293,7 @@ function App() {
     setGroups(loadJSON("x_groups", []));
     setGroupSettings(loadJSON("x_groupSettings", {}));
     setMoments(loadJSON("x_moments", []));
+    setMomentsCover(loadJSON("x_momentsCover", {}));
     setFriendGroups(loadJSON("x_friendGroups", []));
     setSchedules(loadJSON("x_schedules", {}));
     setSnoops(loadJSON("x_snoops", {}));
@@ -1216,8 +1219,9 @@ function App() {
       try { saveJSON("x_thoughtCtr", thoughtCtrRef.current); } catch (e) {}
       // 第 1 轮也写一次（否则新角色前两轮心声/历史全空，看着像坏了），之后每 3 轮一次；隔几小时重开也刷
       const wantThought = tctr === 1 || tctr % 3 === 0 || gapReopen;
+      const lastThought = (states[charId] && states[charId].thought) || "";
       const thoughtSpec = wantThought
-        ? "此刻没说出口的真实心声——写一句此刻脑子里真实的念头（对刚聊的/对 TA/对当下处境的想法、情绪、吐槽、小心思都行），贴合当下、别照抄之前；情绪复杂或有心事时可更长更细腻" + (gapReopen ? "。（你俩隔了一阵没聊、这次算重新开个话题：这条心声顺带反映这段时间过去、结合你今天的行程/作息，此刻你的状态和心情有什么变化）" : "")
+        ? "此刻没说出口的真实心声——【这一轮必须写，不许填 null、不许留空】写一句此刻脑子里真实的、往前走了的新念头（对刚聊的/对 TA/对当下处境的想法、情绪、吐槽、小心思都行），贴合当下、随对话推进而变。" + (lastThought ? "上一条心声是「" + String(lastThought).replace(/\s+/g, " ").slice(0, 50) + "」——这次【不许重复它、也不许原地打转说同一件事】，要反映最新的进展或转念。" : "") + "情绪复杂或有心事时可更长更细腻" + (gapReopen ? "。（你俩隔了一阵没聊、这次算重新开个话题：这条心声顺带反映这段时间过去、结合你今天的行程/作息，此刻你的状态和心情有什么变化）" : "")
         : "这一轮不写心声，直接填 null（把精力放在把话聊好上）";
       // #2 时间流逝：隔了几个小时/几天再让 TA 回复，要意识到时间过去了，别当刚聊过（gapMs 已按角色上次开口算好）
       const gapHint = gapMs > 2 * 3600000
@@ -1638,9 +1642,10 @@ function App() {
       const gEmotes = emotesForGroup(group.memberIds);
       const gEmoteHint = gEmotes.length ? "\n【表情包】成员可以在情绪合适时偶尔甩一张表情（别频繁）。可用关键词：" + gEmotes.map(e => e.keyword).join(" / ") + "。要发就在该成员那条发言对象里加 emote 字段填一个关键词（与列出的完全一致）。" : "";
       // 记忆互通时：让成员带出没说出口的心声，并给出好感/心情变化
-      const thoughtHint = gs.memoryInterop ? "\n【心声与心情】开启了记忆互通：每条普通发言可另加 \"thought\"（这个成员此刻没说出口的真实心声，一句话，可省略）、\"mood\"（此刻心情词，如「愉快」「烦躁」）、\"affinityDelta\"（整数 -5~5，这次群聊互动让 TA 对用户的好感如何变化，通常小幅、没波动就 0）。" : "";
+      const thoughtHint = gs.memoryInterop ? "\n【心声与心情】开启了记忆互通：给【本轮真正有情绪波动、或有话没说出口】的成员各加一条 \"thought\"（此刻没说出口的真实心声，一句话）——**每条都要是贴合当下、和这个成员上一条心声不一样的新念头，别重复、别原地打转、别套话**；没什么内心活动的成员可省略。另可加 \"mood\"（此刻心情词，如「愉快」「烦躁」）、\"affinityDelta\"（整数 -5~5，这次群聊互动让 TA 对用户的好感如何变化，通常小幅、没波动就 0）。" : "";
       const thoughtField = gs.memoryInterop ? ",\"thought\":\"（可选）没说出口的心声\",\"mood\":\"（可选）此刻心情词\",\"affinityDelta\":\"（可选）整数-5到5\"" : "";
-      const system = ANTI_CLICHE + (worldbook && worldbook.trim() ? "\n\n" + WORLDBOOK_RULE : "") + "\n\n" + CHARCARD_RULE + "\n\n" + dir + common + gEmoteHint + thoughtHint + "\n\n【成员】\n" + memberDesc + "\n\n【成员间关系】\n" + relLines + (worldbook ? "\n\n【世界书】\n" + worldbook : "") + interop + preJoin + "\n\n【近期群聊】\n" + hist + "\n\n【输出】只输出 JSON 数组，按发言先后顺序。普通发言 {\"name\":\"成员名\",\"text\":\"内容\",\"quote\":\"（可选）你正在回应的那句话原文，不回应特定某句就省略此字段\",\"emote\":\"（可选）想发的表情关键词\",\"voice\":\"（可选）填 true 表示这条作为语音消息发（会显示成语音气泡+转文字，偶尔用）\",\"call\":\"（可选）填 voice 或 video，表示这个成员此刻想跟用户发起语音/视频通话邀请，别频繁\"" + thoughtField + "}；若某成员说完某句又后悔、想撤回，那条加 \"recall\":true 和 \"recallReason\":\"撤回原因\"（会先显示一秒再变成已撤回，别频繁）；发红包 {\"name\":\"成员名\",\"redpacket\":{\"total\":金额数字,\"count\":份数,\"message\":\"祝福语\"}}。name 必须是成员之一。";
+      // 群聊里有旁白/围观（spectate）等长段描写时也吃八股压制器（线上短对话不需要，但群聊会写到叙事）
+      const system = ANTI_CLICHE + "\n\n" + NARRATIVE_ANTI_CLICHE + (worldbook && worldbook.trim() ? "\n\n" + WORLDBOOK_RULE : "") + "\n\n" + CHARCARD_RULE + "\n\n" + dir + common + gEmoteHint + thoughtHint + "\n\n【成员】\n" + memberDesc + "\n\n【成员间关系】\n" + relLines + (worldbook ? "\n\n【世界书】\n" + worldbook : "") + interop + preJoin + "\n\n【近期群聊】\n" + hist + "\n\n【输出】只输出 JSON 数组，按发言先后顺序。普通发言 {\"name\":\"成员名\",\"text\":\"内容\",\"quote\":\"（可选）你正在回应的那句话原文，不回应特定某句就省略此字段\",\"emote\":\"（可选）想发的表情关键词\",\"voice\":\"（可选）填 true 表示这条作为语音消息发（会显示成语音气泡+转文字，偶尔用）\",\"call\":\"（可选）填 voice 或 video，表示这个成员此刻想跟用户发起语音/视频通话邀请，别频繁\"" + thoughtField + "}；若某成员说完某句又后悔、想撤回，那条加 \"recall\":true 和 \"recallReason\":\"撤回原因\"（会先显示一秒再变成已撤回，别频繁）；发红包 {\"name\":\"成员名\",\"redpacket\":{\"total\":金额数字,\"count\":份数,\"message\":\"祝福语\"}}。name 必须是成员之一。";
       // 触发用户内容：自上一条角色发言以来我说的话/旁白
       let tail = [];
       for (let i = gchat.length - 1; i >= 0; i--) {
@@ -3204,6 +3209,10 @@ function App() {
     liked: !m.liked,
     likeCount: (m.likeCount || 0) + (m.liked ? -1 : 1)
   } : m));
+  const delMoment = id => pMom(p => p.filter(m => m.id !== id));
+  // 朋友圈封面（me 或某角色）：存 x_momentsCover
+  const setMomentCover = (key, uri) => setMomentsCover(p => { const n = { ...p, [key]: uri || "" }; saveJSON("x_momentsCover", n); return n; });
+  const openMomProfile = (id, isMe) => { setMomTarget({ id, isMe: !!isMe }); setScreen("momprofile"); };
   const commentMoment = async (id, text) => {
     pMom(p => p.map(m => m.id === id ? {
       ...m,
@@ -5294,6 +5303,8 @@ function App() {
     genMoment: gen.moment,
     onLikeMoment: likeMoment,
     onCommentMoment: commentMoment,
+    onDelMoment: delMoment,
+    onOpenMomProfile: openMomProfile,
     onEditProfile: () => setProfileOpen(true),
     onOpenWallet: () => setScreen("wallet"),
     onOpenFavorites: () => setScreen("favorites"),
@@ -5301,6 +5312,21 @@ function App() {
     friendGroups: friendGroups,
     onSaveGroups: saveFriendGroups,
     onPostMoment: postUserMoment
+  });else if (screen === "momprofile") body = h(MomentsProfile, {
+    isMe: !!(momTarget && momTarget.isMe),
+    character: momTarget && !momTarget.isMe ? characters.find(c => c.id === momTarget.id) : null,
+    profile: profile,
+    characters: characters,
+    moments: moments,
+    cover: (momTarget && momTarget.isMe) ? momentsCover.me : (momTarget ? momentsCover[momTarget.id] : ""),
+    gen: gen.moment,
+    friendGroups: friendGroups,
+    onSetCover: uri => setMomentCover(momTarget && momTarget.isMe ? "me" : (momTarget && momTarget.id), uri),
+    onDelMoment: delMoment,
+    onLikeMoment: likeMoment,
+    onCommentMoment: commentMoment,
+    onPostMoment: postUserMoment,
+    onBack: () => { setMomTarget(null); setScreen("messages"); }
   });else if (screen === "wallet") body = h(MyWallet, {
     balance: wallet,
     log: walletLog,
@@ -5350,6 +5376,7 @@ function App() {
     onRespondTransfer: (tid, accept) => respondTransfer(activeChar.id, tid, accept),
     makeCoords: makeCoords,
     onOpenAnon: () => openAnon(activeChar),
+    onOpenMoments: () => openMomProfile(activeChar.id, false),
     onOffline: () => openOffline(activeChar),
     onOOC: text => oocReply(activeChar.id, text),
     onDeleteMessages: indices => {
