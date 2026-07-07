@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.53";
+const APP_VERSION = "v46.54";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -239,6 +239,7 @@ function App() {
   const [gen, setGen] = useState({});
   const [stateCardOpen, setStateCardOpen] = useState(false);
   const [stateCardChar, setStateCardChar] = useState(null); // 心声卡要显示谁（群聊点头像时=该成员；私聊=null→用 activeChar）
+  const [stateCardGroup, setStateCardGroup] = useState(false); // 心声卡是否从群聊打开（群聊隐藏动作/穿着，只显示心声/心情/好感）
   const [editMsg, setEditMsg] = useState(null); // 编辑消息弹层 {content, onSave}
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   const [call, setCall] = useState(null); // {participants:[char], mode:"voice"|"video", groupId, msgs:[]}
@@ -5376,7 +5377,7 @@ function App() {
     onRespondUnblock: (cid, accept) => respondUnblockFromChar(activeChar.id, cid, accept),
     profile: profile,
     disp: { myAvatar: !!settingsFor(activeChar.id).showMyAvatar, time: !!settingsFor(activeChar.id).showTime, timeSec: !!settingsFor(activeChar.id).timeSec, read: settingsFor(activeChar.id).showRead !== false, chatBg: settingsFor(activeChar.id).chatBg || "" },
-    onOpenState: () => { setStateCardChar(null); setStateCardOpen(true); },
+    onOpenState: () => { setStateCardChar(null); setStateCardGroup(false); setStateCardOpen(true); },
     schedNow: schedNowBriefFor(activeChar),
     onOpenSched: () => { setSelSched(activeChar.id); setScreen("lifestyle"); },
     onLongPress: handleMsgAction,
@@ -5437,7 +5438,7 @@ function App() {
     onMsgAction: (act, idx) => handleGroupMsgAction(activeGroup.id, act, idx),
     onDeleteMessages: indices => deleteGroupMsgs(activeGroup.id, indices),
     onSaveSettings: patch => saveGroupSettings(activeGroup.id, patch),
-    onOpenMemberState: memberId => { const c = characters.find(x => x.id === memberId); if (c) { setStateCardChar(c); setStateCardOpen(true); } },
+    onOpenMemberState: memberId => { const c = characters.find(x => x.id === memberId); if (c) { setStateCardChar(c); setStateCardGroup(true); setStateCardOpen(true); } },
     onStartPoll: (title, options, anon) => startPoll(activeGroup.id, title, options, anon),
     onGenVotes: idx => genPollVotes(activeGroup.id, idx),
     onVote: (idx, optIdx) => castVote(activeGroup.id, idx, optIdx, profile.name || "我"),
@@ -5471,7 +5472,7 @@ function App() {
       setScreen("thread");
     },
     onSaveRemark: saveRemark,
-    onOpenState: () => { setStateCardChar(null); setStateCardOpen(true); },
+    onOpenState: () => { setStateCardChar(null); setStateCardGroup(false); setStateCardOpen(true); },
     directives: directives[activeChar.id] || [],
     onRemoveDirective: dirId => removeDirective(activeChar.id, dirId)
   });else if (screen === "ties") body = /*#__PURE__*/React.createElement(Ties, {
@@ -5868,7 +5869,8 @@ function App() {
       mood: moods[scc.id],
       state: states[scc.id],
       history: stateHist[scc.id] || [],
-      onClose: () => { setStateCardOpen(false); setStateCardChar(null); }
+      hideWearAction: stateCardGroup,
+      onClose: () => { setStateCardOpen(false); setStateCardChar(null); setStateCardGroup(false); }
     });
   })(), editMsg && /*#__PURE__*/React.createElement(MsgEditSheet, {
     init: editMsg.content,

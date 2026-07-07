@@ -4057,6 +4057,7 @@ function StateCard({
   mood,
   state,
   history,
+  hideWearAction,
   onClose
 }) {
   const t = useTheme();
@@ -4093,7 +4094,7 @@ function StateCard({
           s.mood && h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.tint, background: t.bg2, border: "1px solid " + t.line, borderRadius: 999, padding: "1px 7px" } }, s.mood),
           h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.fog } }, s.ts ? timeAgo(s.ts) : "")),
         h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, lineHeight: 1.6, color: t.ink } }, "“" + (s.thought || "") + "”"),
-        (s.wearing || s.action) && h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 3 } }, [s.action, s.wearing].filter(Boolean).join(" · "))))
+        !hideWearAction && (s.wearing || s.action) && h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 3 } }, [s.action, s.wearing].filter(Boolean).join(" · "))))
     ) : h(Fragment, null, !state && !dm && /*#__PURE__*/React.createElement(Empty, {
     text: "还没有状态",
     sub: "和 Ta 聊几句，状态会自动生成"
@@ -4147,7 +4148,7 @@ function StateCard({
       fontSize: 13,
       color: t.fog
     }
-  }, "/ 100", state && state.affinityLabel ? " · " + state.affinityLabel : ""))), state && /*#__PURE__*/React.createElement("div", {
+  }, "/ 100", state && state.affinityLabel ? " · " + state.affinityLabel : ""))), state && !hideWearAction && /*#__PURE__*/React.createElement("div", {
     className: "space-y-3"
   }, /*#__PURE__*/React.createElement(GlassCard, {
     style: {
