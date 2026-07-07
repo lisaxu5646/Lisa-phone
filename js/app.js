@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.60";
+const APP_VERSION = "v46.61";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -553,6 +553,19 @@ function App() {
     setMemLib(next);
     saveJSON("x_memLib", next);
   };
+  // 记忆去重：归一化文本（去空白标点）后，和同角色（或全局）已有条目比对——完全相同、或一方几乎是另一方子串就算重复
+  const normMemText = s => String(s || "").replace(/[\s，。、；：,.;:!！?？「」『』"'“”‘’（）()【】\-—]/g, "").toLowerCase();
+  const memShareChar = (aIds, bIds) => { const a = aIds || [], b = bIds || []; if (!a.length || !b.length) return true; return a.some(x => b.includes(x)); };
+  const isDupMem = (text, charIds, pool) => {
+    const n = normMemText(text); if (n.length < 4) return false;
+    return (pool || memLibRef.current).some(e => {
+      if (!memShareChar(charIds, e.charIds)) return false;
+      const en = normMemText(e.text); if (!en) return false;
+      if (en === n) return true;
+      const s = en.length < n.length ? en : n, l = en.length < n.length ? n : en;
+      return s.length >= 6 && l.indexOf(s) >= 0 && s.length / l.length > 0.72;
+    });
+  };
   const addMemEntry = e => {
     const entry = {
       id: "m_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
@@ -564,6 +577,8 @@ function App() {
       pinned: !!e.pinned
     };
     if (!entry.text) return;
+    // 自动来源（抽取/总结）去重，别把同一件事塞好几条；手动记的放行（用户自己要加就加）
+    if (entry.source !== "manual" && isDupMem(entry.text, entry.charIds)) return;
     saveMemLib([entry, ...memLibRef.current]);
   };
   const updateMemEntry = (id, patch) => saveMemLib(memLibRef.current.map(x => x.id === id ? {
@@ -584,12 +599,12 @@ function App() {
     }
     startLane("c:" + charId);
     try {
-      const items = await extractMemories(active, ctxFor(char), msgs);
-      if (items.length === 0) {
-        toast("没有抽到新的记忆点");
-        return;
-      }
+      // 把这个角色已有的记忆喂给抽取器，让它别再重复抽同一件事
+      const existing = memLibRef.current.filter(e => memShareChar([charId], e.charIds)).slice(0, 40).map(e => e.text).filter(Boolean);
+      const items = await extractMemories(active, ctxFor(char), msgs, { existing: existing });
       const now = Date.now();
+      // 双重去重：跳过和库里已有的重复的 + 本批内部重复的
+      const batchSeen = [];
       const entries = items.map((it, i) => ({
         id: "m_" + now + "_" + i,
         text: String(it.text).trim(),
@@ -598,7 +613,15 @@ function App() {
         ts: now,
         source: "auto",
         pinned: false
-      })).filter(x => x.text);
+      })).filter(x => x.text).filter(x => {
+        if (isDupMem(x.text, [charId])) return false;              // 和库里已有重复
+        if (isDupMem(x.text, [charId], batchSeen)) return false;   // 和本批已收的重复
+        batchSeen.push(x); return true;
+      });
+      if (entries.length === 0) {
+        toast("没有抽到新的记忆点（都已经记过了）");
+        return;
+      }
       saveMemLib([...entries, ...memLibRef.current]);
       toast("已抽取 " + entries.length + " 条记忆");
     } catch (e) {

@@ -409,9 +409,19 @@ async function summarizeGroup(p, ctx, msgs) {
   return await callAI(p, system, [{ role: "user", content: "【群聊】\n" + text }], { maxTokens: 3000 });
 }
 // 从一段对话里抽取结构化记忆条目（自动生成，用户可再编辑/删除）
-async function extractMemories(p, ctx, msgs) {
-  const text = msgs.map(m => (m.role === "user" ? (ctx.profile && ctx.profile.name || "用户") : ctx.char.name) + ": " + m.content).join("\n");
-  const system = "你是记忆整理助手。从下面这段「" + (ctx.profile && ctx.profile.name || "用户") + "」与「" + ctx.char.name + "」的对话里，抽取值得长期记住的关键事实：约定、偏好、身份/背景信息、重要事件、情感承诺、未完成的事。每条一句话、第三人称、具体可复用；忽略寒暄与无信息量的闲聊。为每条配 1~3 个中文标签。\n【输出】只输出合法 JSON 数组，无 markdown：\n[{\"text\":\"一句话事实\",\"tags\":[\"标签1\",\"标签2\"]}]\n没有值得记的就输出 []。";
+async function extractMemories(p, ctx, msgs, opts = {}) {
+  const uName = (ctx.profile && ctx.profile.name) || "用户";
+  const charName = ctx.char.name;
+  const text = msgs.map(m => (m.role === "user" ? uName : charName) + ": " + m.content).join("\n");
+  const avoid = Array.isArray(opts.existing) && opts.existing.length
+    ? "\n\n【这些事实已经记过了，别再抽取——同一件事换个说法也算重复，一律跳过】\n" + opts.existing.slice(0, 40).map(t => "· " + String(t).replace(/\s+/g, " ").slice(0, 60)).join("\n")
+    : "";
+  const system = "你是记忆整理助手。下面是「" + uName + "」（用户）和「" + charName + "」（角色）的对话。抽取值得长期记住的关键事实：约定、偏好、身份/背景、重要事件、情感承诺、未完成的事。\n" +
+    "【每条怎么写】\n" +
+    "· 一句话、具体可复用；**每条开头必须点明这条是关于谁的**，用真名写清主语：关于用户「" + uName + "」的、关于角色「" + charName + "」自己的、还是关于「他俩之间」的。例：『" + uName + " 下周要去比赛』『" + charName + " 小时候在乡下长大』『" + uName + " 和 " + charName + " 约好周末见面』。\n" +
+    "· **绝对不许张冠李戴**：用户的经历/喜好/身份/计划，就记在用户「" + uName + "」名下，【不要写成角色自己的】；角色的就记在「" + charName + "」名下。分不清是谁的就别记这条。\n" +
+    "· 同一件事【只记一条】，别把一件事拆成好几条重复的；忽略寒暄和没信息量的闲聊。为每条配 1~3 个中文标签。" + avoid + "\n" +
+    "【输出】只输出合法 JSON 数组，无 markdown：\n[{\"text\":\"一句话事实（开头带主语真名）\",\"tags\":[\"标签1\"]}]\n没有值得记的、或全都已记过，就输出 []。";
   const raw = await callAI(p, system, [{ role: "user", content: "【对话】\n" + text }], { maxTokens: 3500 });
   const parsed = extractJSON(raw);
   return Array.isArray(parsed) ? parsed.filter(x => x && x.text) : [];
