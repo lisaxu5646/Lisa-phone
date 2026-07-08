@@ -243,12 +243,12 @@
                 const on = effGods.indexOf(g.key) >= 0;
                 return h("button", { key: g.key, onClick: function () { const cur = effGods.slice(); const i = cur.indexOf(g.key); if (i >= 0) cur.splice(i, 1); else cur.push(g.key); setGodSel(cur); }, style: { fontFamily: F_BODY, fontSize: 13, color: on ? "#fff" : t.ink, background: on ? t.tint : t.bg2, border: "1px solid " + (on ? t.tint : t.line), borderRadius: 999, padding: "6px 14px" } }, g.zh);
               })),
-            h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 6, lineHeight: 1.5 } }, "（目前有预言家、女巫，其余神职陆续加）"),
+            h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 6, lineHeight: 1.5 } }, "（目前有预言家、女巫、猎人，守卫/白痴陆续加）"),
             // 胜负模式
             h("div", { style: { display: "flex", alignItems: "center", gap: 10, marginTop: 12 } },
               h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.ink } }, "胜负"),
               h("div", { style: { flex: 1 } }, h(Segmented, { t: t, value: winMode, options: [{ key: "side", zh: "屠边" }, { key: "all", zh: "屠城" }], onChange: setWinMode }))),
-            h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 4, lineHeight: 1.5 } }, winMode === "side" ? "屠边：狼把「神营」或「民营」杀绝即胜（标准竞技规则）。" : "屠城：狼把好人全（神+民）杀绝才胜，好人更容易赢。")) : null)),
+            h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 4, lineHeight: 1.5 } }, winMode === "side" ? "屠边：狼把「神营」或「民营」杀绝即胜（标准竞技规则）。" : "屠城：场上剩余好人 ≤ 狼数（打平）时狼就赢。")) : null)),
 
       // 底部开始
       h("div", { className: "shrink-0", style: { padding: "12px 18px calc(env(safe-area-inset-bottom) + 16px)", borderTop: "1px solid " + t.line } },
@@ -587,7 +587,8 @@
   // 神职（逐个加引擎；只有引擎做好的才放进选择框）
   const GODS = [
     { key: "seer", zh: "预言家", desc: "每晚验一个人的好 / 坏" },
-    { key: "witch", zh: "女巫", desc: "解药救人 + 毒药毒人，各一次" }
+    { key: "witch", zh: "女巫", desc: "解药救人 + 毒药毒人，各一次" },
+    { key: "hunter", zh: "猎人", desc: "被刀 / 被票出局时开枪带走一人（被毒不能开）" }
   ];
   const GOD_KEYS = GODS.map(function (g) { return g.key; });
   function isGodRole(r) { return GOD_KEYS.indexOf(r) >= 0; }
@@ -596,6 +597,7 @@
   function standardBoard(n) {
     const g = ["seer"];
     if (n >= 6) g.push("witch");
+    if (n >= 8) g.push("hunter");
     const maxGods = Math.max(1, n - wolfCount(n) - 1); // 至少留 1 民
     return g.slice(0, maxGods);
   }
@@ -647,6 +649,13 @@
     const raw = await callRetry(api, sys, [{ role: "user", content: "用不用药？" }], { maxTokens: 800 });
     return extractJSON(raw) || {};
   }
+  // 猎人出局开枪：AI 决定带走谁
+  async function genHunter(api, opts) {
+    const sys = AC + SKILL_RULE + "\n\n狼人杀·你替 AI 猎人做决定。猎人 " + opts.hunterName + " 刚出局，可以开枪带走【一个】还在场的人（也可以不开枪）。按你的水平和局势选：优先带走你最确信是狼的人；没把握也可以打一个可疑的，或者干脆不开枪（把枪口对着空气反而亏）。\n【还在场】" + opts.aliveNames.join("、") + (opts.log ? "\n【局况】\n" + opts.log : "") +
+      "\n\n【输出】只输出 JSON：{\"target\":\"要带走的人名，或 null（不开枪）\"}";
+    const raw = await callRetry(api, sys, [{ role: "user", content: "开枪带走谁？" }], { maxTokens: 700 });
+    return extractJSON(raw) || {};
+  }
   // 狼刀投票计票：多数决，平票随机；支持空刀（不杀人）；对齐到存活玩家
   const KILL_SKIP = "__skip__";
   function tallyKill(votes, list) {
@@ -672,14 +681,15 @@
   function boardState(list, dayNum) {
     const alive = list.filter(function (p) { return p.alive; }).map(function (p) { return p.name; });
     const out = list.filter(function (p) { return !p.alive; }).map(function (p) { const o = p.out || {}; return p.name + "（" + (o.day ? ("第" + o.day + (o.how === "vote" ? "天被投票出局" : "夜里倒下")) : "已出局") + "）"; });
-    return "\n\n【★牌局状态·务必严格按这个来】\n· 现在是【第 " + dayNum + " 天】白天。\n· 【还在场】：" + (alive.join("、") || "无") + "\n· 【已出局（这些人退出游戏了！别再叫他们发言、别要求他们解释、别把他们当活人分析或站队）】：" + (out.length ? out.join("、") : "无") + "\n· 别搞错第几天、别提已经出局的人还在场、别复述早已结算过的旧事当新消息。";
+    return "\n\n【★牌局状态·务必严格按这个来】\n· 现在是【第 " + dayNum + " 天】白天。\n· 【还在场（只有这些人能被讨论、被怀疑、被投票）】：" + (alive.join("、") || "无") + "\n· 【已出局——这些人已经退出游戏！绝对别再叫他们发言、别要求他们解释、别说要把他们投出去/放逐、别把他们当活人分析或站队】：" + (out.length ? out.join("、") : "无") + "\n· 投票和点名只能针对【还在场】的人。别搞错第几天、别提已出局的人还在场、别把早已结算过的旧事当成新消息重新推。";
   }
   // 白天发言：存活 AI 依次发一段（带各自身份/私密信息）；同时回一份立场纪要供后续保持一致
   async function genSpeeches(api, speakers, dayNum, prior, deaths, mode, userName, stances, gods, board) {
     const who = speakers.map(function (s) { return "■ " + s.name + "（真实水平：" + (s.skill || "普通") + "）\n   身份与私密：" + s.priv; }).join("\n");
     const p = prior.length ? prior.map(function (c) { return "· " + c.name + "：" + c.text; }).join("\n") : "（你们最先发言）";
     const easy = mode === "easy" ? "\n【放水局】狼别演得滴水不漏，给真人留点破绽。" : "";
-    const day1 = dayNum <= 1 ? "\n【第一天·信息很少】刚死一个人、还没任何验人公开，别硬咬死谁是狼；多给方向、贴印象、定策略。真预言家自己判断要不要今天就跳——要跳就直接报验人结果，别光在那催『预言家快跳』。" : "";
+    const peaceful = /平安夜|没人死|没人被/.test(deaths || "");
+    const day1 = dayNum <= 1 ? "\n【第一天·信息极少·别当中间夜打】现在才第 1 天，几乎没有可靠信息。**别过度脑补**——" + (peaceful ? "尤其今天是【平安夜】，别去推演『是不是女巫救了预言家验的人、还是预言家自刀被救』这类没影的可能，本局神职有限，别硬套这些高级推理。" : "") + "别硬咬死谁是狼、别全场催『预言家快跳』。就简短说第一印象、初步站位或表个态就行。预言家要不要跳、什么时候跳，由真预言家自己决定，别逼 TA。" : "";
     const sys = AC + SKILL_RULE + "\n\n" + boardLine(gods) + (board || "") + "\n\n" + WOLF_TACTICS + "\n\n狼人杀·第 " + dayNum + " 天白天发言。每人按顺序发一段【短发言】(2~4句)：分析昨晚的死、站边、表身份或隐藏、抓狼或自证，能用套路就用（对跳/查杀/金水/倒钩/归票…按水平来）。\n**别所有人都重复同一句空话**（尤其别全场都在喊『预言家快跳』）——每个人说点不一样的：报自己身份倾向、给具体某人一个印象/理由、定个策略。\n**只写这人会当众说的话，别写旁白、别泄露不该公开的上帝视角。**按真实水平决定发言质量。" + day1 + easy + stanceText(stances) +
       "\n\n【昨晚】" + (deaths || "平安夜") + "\n\n【已发言】\n" + p + "\n\n【现在依次发言】\n" + who +
       "\n\n【输出】只输出 JSON：{\"speeches\":[{\"name\":\"\",\"text\":\"发言\"}],\"stances\":[{\"name\":\"发言人\",\"stance\":\"一句话概括 TA 现在的身份声称/站谁/怀疑谁（用于之后保持一致）\"}]}，speeches 顺序照上面。";
@@ -730,6 +740,7 @@
     const [mvp, setMvp] = useState(null);           // 全场 MVP + 感言
     const [witchCtx, setWitchCtx] = useState(null); // 用户女巫夜晚决策上下文
     const [poisonPick, setPoisonPick] = useState(false); // 女巫选毒目标中
+    const [hunterCtx, setHunterCtx] = useState(null); // 用户猎人开枪上下文
     const logRef = useRef(null);
     const started = useRef(false);
     const seerKnowRef = useRef({});                 // { seerName: [{name,isWolf}] }
@@ -764,12 +775,13 @@
       (async function () { try { const m = await genMVP(api, players, log, winner === "wolf" ? "狼人获胜" : "好人获胜"); if (m && m.name) setMvp(m); } catch (e) {} })();
     }, [phase]);
 
-    // 胜负：好人=狼全灭胜。狼胜——屠城=好人(神+民)全灭；屠边=神营 或 民营 被杀绝（该营原本存在才算）
+    // 胜负：好人=狼全灭胜。狼胜——屠城=剩余好人≤狼数(平局及以下)；屠边=神营 或 民营 被杀绝（该营原本存在才算）
     const computeWin = function (list) {
       const al = list.filter(function (p) { return p.alive; });
-      if (al.filter(function (p) { return p.role === "wolf"; }).length === 0) return "good";
-      const goodAlive = al.filter(function (p) { return p.role !== "wolf"; }).length;
-      if (cfg.winMode === "all") { return goodAlive === 0 ? "wolf" : null; }
+      const wolfAlive = al.filter(function (p) { return p.role === "wolf"; }).length;
+      if (wolfAlive === 0) return "good";
+      const goodAlive = al.length - wolfAlive;
+      if (cfg.winMode === "all") { return goodAlive <= wolfAlive ? "wolf" : null; }
       const godsTotal = list.filter(function (p) { return isGodRole(p.role); }).length;
       const villTotal = list.filter(function (p) { return p.role === "villager"; }).length;
       const godsAlive = al.filter(function (p) { return isGodRole(p.role); }).length;
@@ -781,6 +793,7 @@
       if (p.role === "wolf") { const team = list.filter(function (x) { return x.role === "wolf" && x.name !== p.name && x.alive; }).map(function (x) { return x.name; }); return "你是狼人。" + (team.length ? "狼队友：" + team.join("、") + "。" : "只剩你一头狼。") + "目标：伪装好人、必要时悍跳预言家、带偏好人。护队友——但当某个队友已经被架住、明显保不住时，**按你的水平决定要不要弃车保帅**：可以切割、甚至顺水推舟投掉这个队友，保住自己的身份和信任，别为一个救不回的同伙陪葬（水平越高越懂止损；讲义气或水平低的才死保到底）。"; }
       if (p.role === "seer") { const k = seerKnowRef.current[p.name] || []; return "你是预言家。查验记录：" + (k.length ? k.map(function (x) { return x.name + "=" + (x.isWolf ? "狼人" : "好人"); }).join("、") : "还没查过") + "。可跳预言家报验人建信任，或视情况隐藏。"; }
       if (p.role === "witch") { const pot = witchPotRef.current; return "你是女巫（神职）。解药" + (pot.heal ? "还在" : "已用掉") + "、毒药" + (pot.poison ? "还在" : "已用掉") + "。白天你知道自己是神，可以隐藏，也可在合适时机跳出来、用救人/毒人的信息建立信任或指认狼。"; }
+      if (p.role === "hunter") { return "你是猎人（神职）。被狼刀或被投票出局时能开枪带走一个人（被女巫毒死则开不了枪）。白天可以隐藏身份，也可在被怀疑/关键时刻亮猎人身份威慑狼、稳住场面。"; }
       return "你是平民，没有夜晚技能，靠逻辑站边找狼。";
     };
     const shortLog = function () { return log.filter(function (it) { return it.type === "death" || it.type === "out"; }).slice(-6).map(function (it) { return it.text; }).join("\n"); };
@@ -890,9 +903,9 @@
       const saved = !!(witchAction && witchAction.save);
       const poisonName = witchAction && witchAction.poison;
       if (witchAction) { const np = Object.assign({}, witchPotRef.current); if (witchAction.save) np.heal = false; if (poisonName) np.poison = false; witchPotRef.current = np; }
-      const deadSet = {};
-      if (!saved && wolfTarget) { const wv = list.find(function (p) { return p.alive && (p.name === wolfTarget || (wolfTarget || "").indexOf(p.name) >= 0); }); if (wv) deadSet[wv.name] = 1; }
-      if (poisonName) { const pv = list.find(function (p) { return p.alive && (p.name === poisonName || (poisonName || "").indexOf(p.name) >= 0); }); if (pv) deadSet[pv.name] = 1; }
+      const deadSet = {}; // name -> 死因("wolf"/"poison")，猎人被毒不能开枪
+      if (!saved && wolfTarget) { const wv = list.find(function (p) { return p.alive && (p.name === wolfTarget || (wolfTarget || "").indexOf(p.name) >= 0); }); if (wv) deadSet[wv.name] = "wolf"; }
+      if (poisonName) { const pv = list.find(function (p) { return p.alive && (p.name === poisonName || (poisonName || "").indexOf(p.name) >= 0); }); if (pv) deadSet[pv.name] = "poison"; }
       const deadNames = Object.keys(deadSet);
       const deadUser = deadNames.some(function (nm) { const pp = list.find(function (p) { return p.name === nm; }); return pp && pp.isUser; });
       deadNames.forEach(function (nm) { delete stanceRef.current[nm]; }); // 出局的人不再进立场纪要
@@ -904,10 +917,38 @@
       setLastDeath(deadNames.length ? (deadNames.join("、") + " 昨晚倒下") : "平安夜（没人死）");
       nightItems.push({ type: "death", text: deathText });
       pushLog(nightItems);
-      const w = computeWin(next);
-      if (w) { setWinner(w); setPhase("result"); return; }
       setNightStage(null);
-      startDay(next, n);
+      concludeDeaths(next, deadSet, deadNames, n, function (l) { startDay(l, n); });
+    };
+    // 结算一批死亡：先处理猎人开枪(被毒不能开)，再判胜负、再继续
+    const concludeDeaths = function (list, causeByName, deadNames, dayNum, cont) {
+      const deadHunter = (deadNames || []).map(function (nm) { return list.find(function (p) { return p.name === nm; }); }).find(function (p) { return p && p.role === "hunter" && (causeByName || {})[p.name] !== "poison"; });
+      if (deadHunter) {
+        if (deadHunter.isUser) { setHunterCtx({ list: list, dayNum: dayNum, cont: cont, hunter: deadHunter }); setPhase("hunter"); return; }
+        (async function () {
+          setBusy(true);
+          let target = null;
+          try { const r = await genHunter(api, { hunterName: deadHunter.name, skill: deadHunter.skill, aliveNames: list.filter(function (p) { return p.alive; }).map(function (p) { return p.name; }), log: shortLog() }); target = r.target; } catch (e) {}
+          setBusy(false);
+          applyShot(list, deadHunter, target, dayNum, cont);
+        })();
+        return;
+      }
+      const w = computeWin(list); if (w) { setWinner(w); setPhase("result"); return; }
+      cont(list);
+    };
+    const applyShot = function (list, hunter, target, dayNum, cont) {
+      const tp = target && list.find(function (p) { return p.alive && (p.name === target || String(target).indexOf(p.name) >= 0); });
+      let next = list, shotName = null;
+      if (tp && tp.alive) { next = list.map(function (p) { return p === tp ? Object.assign({}, p, { alive: false, out: { day: dayNum, how: "shot" } }) : p; }); shotName = tp.name; delete stanceRef.current[tp.name]; setPlayers(next); }
+      pushLog([{ type: "out", name: hunter.name, text: "🔫 猎人 " + hunter.name + (hunter.isUser ? "(你)" : "") + " 倒下时开枪，" + (shotName ? "带走了 " + shotName + (tp && tp.isUser ? "(你)" : "") : "没有开枪") + "。" }]);
+      const w = computeWin(next); if (w) { setWinner(w); setPhase("result"); return; }
+      cont(next);
+    };
+    const submitHunterShot = function (name) {
+      const c = hunterCtx; if (!c) return;
+      setHunterCtx(null);
+      applyShot(c.list, c.hunter, name, c.dayNum, c.cont);
     };
     // 用户狼刀：你的一票 + AI 队友的投票，少数服从多数、平票随机
     const submitWolfKill = function (name) {
@@ -1009,10 +1050,9 @@
         const next = players.map(function (p) { return p === out ? Object.assign({}, p, { alive: false, out: { day: cycle, how: "vote" } }) : p; });
         pushLog([{ type: "out", name: out.name, isUser: out.isUser, text: "🗳 " + out.name + (out.isUser ? "(你)" : "") + " 被放逐出局（身份不公开）。" }]);
         setPlayers(next);
-        const w = computeWin(next);
         setBusy(false);
-        if (w) { setWinner(w); setPhase("result"); return; }
-        setCycle(cycle + 1); enterNight(next, cycle + 1);
+        const cause = {}; cause[out.name] = "vote";
+        concludeDeaths(next, cause, [out.name], cycle, function (l) { setCycle(cycle + 1); enterNight(l, cycle + 1); });
       } catch (e) { props.toast && props.toast("投票失败：" + ((e && e.message) || "重试")); setBusy(false); }
     };
 
@@ -1099,6 +1139,13 @@
             pot.poison ? h("button", { onClick: function () { setPoisonPick(true); }, className: "active:opacity-80", style: { fontFamily: F_BODY, fontSize: 15, fontWeight: 700, color: "#f3efe6", background: "#c0553f", borderRadius: 12, padding: "12px" } }, "☠️ 用毒药毒一个人") : null,
             h("button", { onClick: function () { submitWitch({ save: false, poison: null }); }, className: "active:opacity-80", style: { fontFamily: F_BODY, fontSize: 14, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 12, padding: "11px" } }, "都不用（留着）")));
       }
+    } else if (phase === "hunter") {
+      if (busy) action = h("div", { style: { textAlign: "center", fontFamily: F_BODY, fontSize: 13, color: t.fog, padding: "10px 0" } }, "…");
+      else action = h("div", null,
+        h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, color: t.ink, textAlign: "center", marginBottom: 10, lineHeight: 1.6 } }, "🔫 你是猎人，出局了——开枪带走一个人（翻牌亮身份）"),
+        pickRow((hunterCtx ? hunterCtx.list : players).filter(function (p) { return p.alive && !p.isUser; }), null, function (nm) { submitHunterShot(nm); }),
+        h("div", { style: { display: "flex", justifyContent: "center" } },
+          h("button", { onClick: function () { submitHunterShot(null); }, className: "active:opacity-80", style: { fontFamily: F_BODY, fontSize: 13, color: t.sub, background: t.bg2, border: "1px solid " + t.line, borderRadius: 999, padding: "6px 16px" } }, "不开枪")));
     } else if (phase === "day") {
       if (busy) action = h("div", { style: { textAlign: "center", fontFamily: F_BODY, fontSize: 13, color: t.fog, padding: "10px 0" } }, "…大家在发言");
       else if (me && me.alive) action = h("div", null, roleBanner,
