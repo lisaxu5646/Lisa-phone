@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.94";
+const APP_VERSION = "v46.95";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -925,19 +925,28 @@ function App() {
     return new Date().getHours();
   };
   useEffect(() => {
+    const hist = c => (chatsRef.current[c.id] || []).filter(m => !m.recalled && m.kind !== "ooc" && m.kind !== "system");
     const tick = () => {
       if (!active) return;
       const dayKey = schedDayKey(new Date());
-      for (const c of characters) {
+      // 池 = 真在聊的角色（≥2条历史）；每个时段最多问候 ceil(池/2) 个，别全员打卡把你淹了
+      const pool = characters.filter(c => hist(c).length >= 2);
+      if (!pool.length) return;
+      const cap = Math.ceil(pool.length / 2);
+      // 按天轮换顺序，让每天优先问候的角色不同（不总是同几个）
+      const rot = Math.floor(Date.now() / 86400000) % pool.length;
+      const ordered = pool.slice(rot).concat(pool.slice(0, rot));
+      const doneInSlot = slot => ordered.filter(c => (greetLogRef.current[c.id] || {})[slot] === dayKey).length;
+      for (const c of ordered) {
         const cid = c.id;
         if (laneBusy("c:" + cid)) continue;
         if (viewRef.current.charId === cid) continue;         // 正在看这个聊天就不用主动问候
-        const msgs = (chatsRef.current[cid] || []).filter(m => !m.recalled && m.kind !== "ooc" && m.kind !== "system");
-        if (msgs.length < 2) continue;                        // 只问候真在聊的角色，新角色不打扰
         const hr = charLocalHour(c);
         const slot = (hr >= 6 && hr <= 10) ? "m" : ((hr >= 21 && hr <= 23) || hr <= 1) ? "n" : null;
         if (!slot) continue;
         if ((greetLogRef.current[cid] || {})[slot] === dayKey) continue; // 这个时段今天已问候过
+        if (doneInSlot(slot) >= cap) continue;                // 这个时段今天问候名额已满
+        const msgs = hist(c);
         if (Date.now() - (msgs[msgs.length - 1].ts || 0) < 90 * 60000) continue; // 刚聊完 90 分钟内先不打扰
         markGreet(cid, slot, dayKey);
         replyNow(cid, "", null, { proactive: true, greet: slot === "m" ? "morning" : "night" });
