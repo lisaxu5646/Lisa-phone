@@ -30,7 +30,7 @@
   async function callRetry(api, sys, msgs, opts) {
     opts = Object.assign({ timeout: 90000 }, opts || {});
     let last;
-    for (let i = 0; i < 2; i++) { try { return await callRetry(api, sys, msgs, opts); } catch (e) { last = e; } }
+    for (let i = 0; i < 2; i++) { try { return await callAI(api, sys, msgs, opts); } catch (e) { last = e; } }
     throw last;
   }
   // 能力≠性格：所有游戏共用的反刻板铁律，焊进每次生成
@@ -590,7 +590,7 @@
     const p = prior.length ? prior.map(function (c) { return "· " + c.name + "：" + c.text; }).join("\n") : "（你们最先发言）";
     const easy = mode === "easy" ? "\n【放水局】狼别演得滴水不漏，给真人留点破绽。" : "";
     const day1 = dayNum <= 1 ? "\n【第一天·信息很少】刚死一个人、还没任何验人公开，别硬咬死谁是狼；多给方向、贴印象、定策略。真预言家自己判断要不要今天就跳——要跳就直接报验人结果，别光在那催『预言家快跳』。" : "";
-    const sys = AC + SKILL_RULE + "\n\n狼人杀·第 " + dayNum + " 天白天发言。每人轮流发一段【短发言】(2~4句)：分析昨晚的死、站边、表身份或隐藏、抓狼或自证。狼要伪装/悍跳预言家/带偏好人/护队友；预言家可跳身份报验人建信任；平民靠逻辑找狼。\n【本局身份只有：狼人 / 预言家 / 平民】——没有女巫、守卫、猎人、白痴等，**别提任何本局不存在的身份或技能**（比如别问『女巫为什么不救』『守卫守了谁』）。\n**别所有人都重复同一句空话**（尤其别全场都在喊『预言家快跳』）——每个人说点不一样的：报自己身份倾向、给具体某人一个印象/理由、定个策略。\n**只写这人会当众说的话，别写旁白、别泄露不该公开的上帝视角。**按真实水平决定发言质量。" + day1 + easy +
+    const sys = AC + SKILL_RULE + "\n\n狼人杀·第 " + dayNum + " 天白天发言。每人轮流发一段【短发言】(2~4句)：分析昨晚的死、站边、表身份或隐藏、抓狼或自证。狼要伪装/悍跳预言家/带偏好人/护队友；预言家可跳身份报验人建信任；平民靠逻辑找狼。\n（本局板子只有：狼人 / 预言家 / 平民，暂无女巫/守卫/猎人等神职——按这个配置推理即可。）\n**别所有人都重复同一句空话**（尤其别全场都在喊『预言家快跳』）——每个人说点不一样的：报自己身份倾向、给具体某人一个印象/理由、定个策略。\n**只写这人会当众说的话，别写旁白、别泄露不该公开的上帝视角。**按真实水平决定发言质量。" + day1 + easy +
       "\n\n【昨晚】" + (deaths || "平安夜") + "\n\n【已发言】\n" + p + "\n\n【现在依次发言】\n" + who +
       "\n\n【输出】只输出 JSON：{\"speeches\":[{\"name\":\"\",\"text\":\"发言\"}]}，顺序照上面。";
     const raw = await callRetry(api, sys, [{ role: "user", content: "依次发言。" }], { maxTokens: 6000 });
@@ -602,7 +602,7 @@
     const sp = allSpeeches.map(function (c) { return "· " + c.name + "：" + c.text; }).join("\n");
     const who = voters.map(function (v) { return "■ " + v.name + "（" + v.priv + "）真实水平：" + (v.skill || "普通"); }).join("\n");
     const easy = (mode === "easy" && userName) ? "\n【放水局】别针对真人「" + userName + "」，怀疑也手下留情。" : "";
-    const sys = AC + SKILL_RULE + "\n\n狼人杀·白天投票放逐。据发言，每人投一个要放逐的人 + 一句短理由。狼要放逐好人/护队友、别投同伙；好人投真心怀疑的狼。**实在没读到、没把握时可以弃票**（target 填「弃票」），但别全场弃票、有怀疑就投。理由别露上帝视角、别提本局不存在的身份（只有狼人/预言家/平民）。" + easy +
+    const sys = AC + SKILL_RULE + "\n\n狼人杀·白天投票放逐。据发言，每人投一个要放逐的人 + 一句短理由。狼要放逐好人/护队友、别投同伙；好人投真心怀疑的狼。**实在没读到、没把握时可以弃票**（target 填「弃票」），但别全场弃票、有怀疑就投。理由别露上帝视角。（本局板子：狼人/预言家/平民。）" + easy +
       "\n\n【可投的存活玩家】" + aliveNames.join("、") + "\n\n【今天发言】\n" + sp + "\n\n【投票的人】\n" + who +
       "\n\n【输出】只输出 JSON：{\"votes\":[{\"name\":\"\",\"target\":\"要放逐的人名，或「弃票」\",\"reason\":\"\"}]}";
     const raw = await callRetry(api, sys, [{ role: "user", content: "投票。" }], { maxTokens: 4500 });
