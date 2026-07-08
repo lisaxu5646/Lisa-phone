@@ -342,7 +342,11 @@
     const prior = priorClues.length ? priorClues.map(function (c) { return "· " + c.name + "：" + c.text; }).join("\n") : "（本轮你们最先描述，前面还没人说）";
     const who = speakers.map(function (s) { return "■ " + s.name + "（TA 的词是「" + s.word + "」）真实水平：" + (s.skill || "普通"); }).join("\n");
     const easy = mode === "easy" ? "\n【放水局】适当留点破绽、别一上来就把话说得滴水不漏，给真人玩家留机会。" : "";
-    const sys = AC + SKILL_RULE + "\n\n「谁是卧底」第 " + roundNum + " 轮描述。规则：每人用【一句话】描述自己的词，不能直接说出这个词、也别露骨到一秒被猜穿，但要具体到能自证不是瞎编。各人只知道自己的词、不知道谁和自己不同；若发现别人描述和你的词对不上，说明你可能是少数派（卧底），要沉住气往大家方向靠、别自曝。按每个人的真实水平决定发挥：强的更会藏、更精准，弱的更容易露。" + easy +
+    const sys = AC + SKILL_RULE + "\n\n「谁是卧底」第 " + roundNum + " 轮描述。每人用【一句话】描述自己拿到的词。铁律：\n" +
+      "· 不能直接说出词本身，也别露骨到一句就被锁定。\n" +
+      "· 【具体程度严格按真实水平走·非常重要】高手点到即止、只给能【多向解读】的模糊线索，故意留白，让人一轮看不穿；只有低手才会说得太实把词几乎摊开。**绝不能所有人都描述得清清楚楚**——那样一轮就穿帮、毫无博弈，不好玩。整体要含蓄，信息一点点挤。\n" +
+      "· 各人只知道自己的词、不知道谁跟自己不同。【高水平的少数派（卧底）】要善于从别人的描述里察觉『我的词好像和大家不是一路』，然后立刻把自己这句往大家的方向靠、含糊蒙混、绝不自曝；只有低水平的少数派才会照着自己的词直说而露馅。\n" +
+      "· 先发言的人没有前文、只能凭自己的词说；后发言的人要顺着前面的风向调整措辞。" + easy +
       "\n\n【本轮已说过的】\n" + prior + "\n\n【现在这些人各说一句（按顺序）】\n" + who +
       "\n\n【输出】只输出 JSON：{\"clues\":[{\"name\":\"玩家名\",\"text\":\"一句描述\"}]}，顺序照上面。";
     const raw = await callRetry(api, sys, [{ role: "user", content: "各说一句。" }], { maxTokens: 4000 });
@@ -355,7 +359,7 @@
     const clues = allClues.map(function (c) { return "· " + c.name + "：" + c.text; }).join("\n");
     const who = voters.map(function (v) { return "■ " + v.name + "（" + (v.role === "spy" ? "你其实是卧底：把票投给某个你觉得像平民的人来误导，别投出真正的少数派" : "你是平民：凭描述投你真心最怀疑的那个") + "）真实水平：" + (v.skill || "普通"); }).join("\n");
     const easy = (mode === "easy" && userName) ? "\n【放水局】别精准锁定真人「" + userName + "」，就算怀疑 TA 也可以手下留情、投别人或说再看看。" : "";
-    const sys = AC + SKILL_RULE + "\n\n「谁是卧底」投票。根据目前【所有描述】，下面每人各投一个要投出局的人 + 一句短理由。按真实水平：推理强的投得准，弱的易被带偏。**实在没把握可以弃票**（target 填「弃票」），但别全场弃票。理由别露上帝视角（别说“我是卧底所以…”）。" + easy +
+    const sys = AC + SKILL_RULE + "\n\n「谁是卧底」投票。根据目前【所有描述】，下面每人各投一个要投出局的人 + 一句短理由。按真实水平：推理强的投得准，弱的易被带偏。**实在没把握可以弃票**（target 填「弃票」），但别全场弃票。理由别露上帝视角（别说“我是卧底所以…”）。【公平】只按描述本身的合理性投票，别因为某人发言顺序靠前、说得少、或是生面孔就默认针对 TA——没有实据不要扎堆投同一个人。" + easy +
       "\n\n【可投的存活玩家】" + aliveNames.join("、") + "\n\n【目前所有描述】\n" + clues + "\n\n【要投票的人】\n" + who +
       "\n\n【输出】只输出 JSON：{\"votes\":[{\"name\":\"投票人\",\"target\":\"被投的人，或「弃票」\",\"reason\":\"一句理由\"}]}";
     const raw = await callRetry(api, sys, [{ role: "user", content: "投票。" }], { maxTokens: 3500 });
@@ -374,6 +378,7 @@
     const [log, setLog] = useState([]);
     const [roundClues, setRoundClues] = useState([]); // 本轮已收集的描述（含用户）
     const [allClues, setAllClues] = useState([]);     // 全场描述（喂投票）
+    const [userFirst, setUserFirst] = useState(true); // 你这轮排最先(true)还是最后(false)——每轮随机
     const [userClue, setUserClue] = useState("");
     const [userVote, setUserVote] = useState(null);
     const [busy, setBusy] = useState(false);
@@ -428,38 +433,46 @@
       })();
     }, []);
 
-    // ---- 描述阶段 ----
-    const beginDescribe = function () {
+    // ---- 描述阶段（你每轮随机排最先或最后，不再永远第一个）----
+    const startRound = function (plist, rnd) {
       setRoundClues([]); setUserClue("");
+      const meA = plist.find(function (p) { return p.isUser; });
+      if (!(meA && meA.alive)) { setPhase("describe"); aiDescribeWith(plist, [], rnd, false); return; }
+      const uf = Math.random() < 0.5;   // 掷一下：你这轮先说还是最后说
+      setUserFirst(uf);
       setPhase("describe");
-      // 用户不在场/已出局 → 直接让 AI 描述
-      const meAlive = me && me.alive;
-      if (!meAlive) aiDescribe([]);
+      if (!uf) aiDescribeWith(plist, [], rnd, true); // 你排最后：AI 先各说一句，说完停下等你补
     };
-    const aiDescribe = async function (prior) {
+    const beginDescribe = function () { startRound(players, round); };
+    // 用指定名单跑 AI 描述；waitUser=true 时说完不进投票、停在描述阶段等你最后补一句
+    const aiDescribeWith = async function (plist, prior, rnd, waitUser) {
       setBusy(true);
       try {
-        const speakers = shuffle(aliveAI).map(function (p) { return { name: p.name, word: p.word, skill: p.skill }; });
-        const clues = await genClues(api, speakers, prior, round, cfg.mode);
-        const norm = speakers.map(function (s) {
-          const hit = clues.find(function (c) { return c.name && c.name.indexOf(s.name) >= 0 || (s.name.indexOf(c.name || "###") >= 0); });
-          return { name: s.name, text: (hit && hit.text) || "……（想了想，没说清）" };
-        });
-        const merged = prior.concat(norm);
-        setRoundClues(merged);
+        const aAI = plist.filter(function (p) { return p.alive && !p.isUser; });
+        const speakers = shuffle(aAI).map(function (p) { return { name: p.name, word: p.word, skill: p.skill }; });
+        const clues = await genClues(api, speakers, prior, rnd, cfg.mode);
+        const norm = speakers.map(function (s) { const hit = clues.find(function (c) { return c.name && (c.name.indexOf(s.name) >= 0 || s.name.indexOf(c.name) >= 0); }); return { name: s.name, text: (hit && hit.text) || "……" }; });
+        setRoundClues(prior.concat(norm));
         setAllClues(function (A) { return A.concat(norm.map(function (c) { return { name: c.name, text: c.text }; })); });
-        pushLog((prior.length ? [] : [{ type: "round", n: round }]).concat(norm.map(function (c) { return { type: "clue", name: c.name, text: c.text }; })));
-        setPhase("vote"); setUserVote(null);
+        pushLog((prior.length ? [] : [{ type: "round", n: rnd }]).concat(norm.map(function (c) { return { type: "clue", name: c.name, text: c.text }; })));
+        if (!waitUser) { setPhase("vote"); setUserVote(null); }
       } catch (e) { props.toast && props.toast("描述失败：" + ((e && e.message) || "重试")); }
       finally { setBusy(false); }
     };
     const submitUserClue = function () {
-      const v = userClue.trim(); if (!v) return;
-      const mine = [{ name: me.name, text: v }];
-      pushLog([{ type: "round", n: round }, { type: "clue", name: me.name, text: v, mine: true }]);
-      setAllClues(function (A) { return A.concat([{ name: me.name, text: v }]); });
+      const v = userClue.trim(); if (!v || busy) return;
       setUserClue("");
-      aiDescribe(mine);
+      const mineClue = { name: me.name, text: v };
+      setAllClues(function (A) { return A.concat([mineClue]); });
+      if (userFirst) {
+        // 你先说 → AI 接着各说一句 → 进投票
+        pushLog([{ type: "round", n: round }, { type: "clue", name: me.name, text: v, mine: true }]);
+        aiDescribeWith(players, [mineClue], round, false);
+      } else {
+        // 你排最后 → AI 都说完了 → 补上你这句直接进投票
+        pushLog([{ type: "clue", name: me.name, text: v, mine: true }]);
+        setPhase("vote"); setUserVote(null);
+      }
     };
 
     // ---- 投票阶段 ----
@@ -476,7 +489,8 @@
       const out = players.find(function (p) { return p.alive && p.name === outName; });
       if (!out) { // 没投出有效目标，直接进入下一轮
         pushLog([{ type: "info", text: "没投出有效结果，继续下一轮。" }]);
-        setRound(function (r) { return r + 1; }); beginDescribe(); return;
+        const nr = round + 1; setRound(nr);
+        setTimeout(function () { startRound(players, nr); }, 40); return;
       }
       const next = players.map(function (p) { return p === out ? Object.assign({}, p, { alive: false }) : p; });
       pushLog([{ type: "out", name: out.name, role: out.role, isUser: out.isUser }]);
@@ -487,24 +501,9 @@
       const civLeft = al.length - spyLeft;
       if (spyLeft === 0) { setWinner("civ"); setPhase("result"); return; }
       if (spyLeft >= civLeft) { setWinner("spy"); setPhase("result"); return; }
-      setRound(function (r) { return r + 1; });
-      // 用最新存活名单重开描述
-      setTimeout(function () { setRoundClues([]); setUserClue(""); setPhase("describe"); const meA = next.find(function (p) { return p.isUser; }); if (!(meA && meA.alive)) aiDescribeWith(next, [], round + 1); }, 40);
-    };
-    // 用指定名单跑 AI 描述（淘汰后名单已变，闭包里的 aliveAI 会过期，这里显式传）
-    const aiDescribeWith = async function (plist, prior, rnd) {
-      setBusy(true);
-      try {
-        const aAI = plist.filter(function (p) { return p.alive && !p.isUser; });
-        const speakers = shuffle(aAI).map(function (p) { return { name: p.name, word: p.word, skill: p.skill }; });
-        const clues = await genClues(api, speakers, prior, rnd, cfg.mode);
-        const norm = speakers.map(function (s) { const hit = clues.find(function (c) { return c.name && (c.name.indexOf(s.name) >= 0 || s.name.indexOf(c.name) >= 0); }); return { name: s.name, text: (hit && hit.text) || "……" }; });
-        setRoundClues(prior.concat(norm));
-        setAllClues(function (A) { return A.concat(norm.map(function (c) { return { name: c.name, text: c.text }; })); });
-        pushLog((prior.length ? [] : [{ type: "round", n: rnd }]).concat(norm.map(function (c) { return { type: "clue", name: c.name, text: c.text }; })));
-        setPhase("vote"); setUserVote(null);
-      } catch (e) { props.toast && props.toast("描述失败：" + ((e && e.message) || "重试")); }
-      finally { setBusy(false); }
+      const nr = round + 1; setRound(nr);
+      // 用最新存活名单重开描述（淘汰后名单已变，显式传 next）
+      setTimeout(function () { startRound(next, nr); }, 40);
     };
     const runVote = async function (userTarget) {
       setBusy(true);
@@ -1509,8 +1508,8 @@
         if (uq) { newHist.push(uq); if (r.userAnswer) items.push({ type: "a", verdict: r.userAnswer.verdict, note: r.userAnswer.note }); }
         (r.ai || []).forEach(function (a) {
           if (!a || !a.question) return;
-          items.push({ type: "q", name: a.name });
-          items.push({ type: "a", name: a.name, question: a.question, verdict: a.verdict, note: a.note });
+          items.push({ type: "q", name: a.name, text: a.question });   // 先显 TA 问了什么
+          items.push({ type: "a", verdict: a.verdict, note: a.note }); // 再显主持人的判定
           newHist.push(a.question);
         });
         pushLog(items);
@@ -1901,14 +1900,14 @@
       "\n第 " + (qn + 1) + " 个任务要选【" + needSize + "】人上场" + (failsReq === 2 ? "（此任务需 2 张失败票才失败）" : "") + "。按队长身份立场选人：好人凑一支可信、没坏人的队（通常带上自己）；坏人想把自己或同伙塞进去又不能太明显。给 team（正好 " + needSize + " 个在场的名字）+ 一句公开理由（别暴露隐藏身份）。" +
       "\n【在场】" + names.join("、") + "\n【局面】\n" + (hist || "（刚开局）") +
       "\n\n只输出 JSON：{\"team\":[\"\"],\"reason\":\"\"}";
-    const raw = await callRetry(api, sys, [{ role: "user", content: "组队。" }], { maxTokens: 700 });
+    const raw = await callRetry(api, sys, [{ role: "user", content: "组队。" }], { maxTokens: 1500 });
     return extractJSON(raw) || {};
   }
   async function genVotes(api, voters, team, leaderName, players, qn, hist) {
     const blocks = voters.map(function (v) { return "■ " + v.name + "：" + avSecretFor(v, players) + "；水平" + (v.skill || "普通"); }).join("\n");
     const sys = AC + SKILL_RULE + "\n\n阿瓦隆·对第 " + (qn + 1) + " 个任务的队伍投票。队长 " + leaderName + " 提议队伍：[" + team.join("、") + "]。\n下面每人按各自身份和掌握的信息投【赞成】或【反对】+ 一句公开理由（理由别暴露隐藏身份）：\n· 好人：队里可能混了坏人就反对，可信就赞成；注意连续 5 次否决坏人直接赢，别无脑否。\n· 坏人：想让有己方的队通过就赞成、想搅局就反对，但别投得太露馅。\n· 梅林该反对带坏人的队，但要装成普通推理别暴露。\n\n" + blocks + "\n【局面】\n" + (hist || "（刚开局）") +
       "\n\n只输出 JSON：{\"votes\":[{\"name\":\"\",\"vote\":\"赞成\"或\"反对\",\"reason\":\"\"}]}";
-    const raw = await callRetry(api, sys, [{ role: "user", content: "投票。" }], { maxTokens: 3000 });
+    const raw = await callRetry(api, sys, [{ role: "user", content: "投票。" }], { maxTokens: 6500 });
     const p = extractJSON(raw); return (p && Array.isArray(p.votes)) ? p.votes : [];
   }
   async function genQuest(api, evilOnTeam, players, qn, failsReq, score) {
@@ -2180,7 +2179,16 @@
     const teamChip = function (p, on, onTap) { return h("button", { key: p.key, onClick: onTap, style: { display: "flex", alignItems: "center", gap: 5, fontFamily: F_BODY, fontSize: 12.5, color: on ? "#fff" : t.ink, background: on ? t.tint : t.bg2, border: "1px solid " + (on ? t.tint : t.line), borderRadius: 999, padding: "4px 11px 4px 4px" } }, pAvatar(p, 20), p.name + (p.isUser ? "(你)" : "")); };
 
     if (phase === "reveal") {
-      inline = h("div", null, roleBanner,
+      inline = h("div", null,
+        h("div", { style: { background: t.bg2, borderRadius: 12, padding: "11px 13px", marginBottom: 10, fontFamily: F_BODY, fontSize: 12, color: t.sub, lineHeight: 1.75 } },
+          h("div", { style: { fontFamily: F_DISPLAY, fontSize: 13.5, color: t.ink, marginBottom: 5 } }, "怎么玩"),
+          "共 5 个「任务」。好人要做成功 3 个，坏人要弄失败 3 个。每个任务两步：",
+          h("br"), "① 当值『队长』提名几人组队（人数看下方圆圈）；",
+          h("br"), "② 全场投票赞成/反对这支队——赞成过半才出发，否则换下一位队长重提（连否 5 次坏人直接赢）。",
+          h("br"), "出发后队里每人暗投成功/失败：好人只能成功，坏人可偷偷投失败搞砸（1 张失败票任务就砸，标『2失败』的要 2 张）。没人知道谁投的，只公布几张失败票。",
+          h("br"), "好人赢满 3 任务后，坏人里的刺客还有最后一击——指认谁是梅林，猜中就坏人翻盘。",
+          h("br"), h("b", { style: { color: t.ink } }, "队长"), "开局随机第一个，之后按顺序轮流当。"),
+        roleBanner,
         h("button", { onClick: function () { startQuest(0, leaderIdx, 0); }, className: "w-full active:opacity-80", style: { fontFamily: F_BODY, fontSize: 15, fontWeight: 700, color: "#f3efe6", background: t.ink, borderRadius: 13, padding: "13px" } }, cfg.mode === "spectate" ? "开始（观战）" : "记住身份 · 开始"));
     } else if (busy) {
       inline = h("div", { style: { textAlign: "center", fontFamily: F_BODY, fontSize: 13, color: t.fog, padding: "10px 0" } }, "…桌上正在博弈");
