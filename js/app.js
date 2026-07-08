@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.97";
+const APP_VERSION = "v46.98";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -118,6 +118,7 @@ function App() {
   const [memLib, setMemLib] = useState([]);
   const memLibRef = useRef(memLib);
   memLibRef.current = memLib; // 始终指向最新记忆库
+  const [emoBusy, setEmoBusy] = useState(false); // 情绪补评估中
   const memExtractInflightRef = useRef({}); // 每角色抽取进行中标志，防并发重复抽取
   // 记忆库设置：topK 每轮召回条数；autoExtract 每轮后台自动抽取；extractInterval 每几轮抽一次；recentDays 短期窗至少覆盖最近几天（消死区）
   const MEM_CFG_DEFAULT = { topK: 5, autoExtract: true, extractInterval: 1, recentDays: 3, recentBudget: 8000 };
@@ -628,6 +629,36 @@ function App() {
     ...patch
   } : x));
   const deleteMemEntry = id => saveMemLib(memLibRef.current.filter(x => x.id !== id));
+  // 给还没情绪数据的旧记忆一次性补评估（一批一次便宜调用，点亮情绪色点/未了标记）
+  const backfillMemEmotion = async () => {
+    if (!active) { toast("请先到设置配置 API"); return; }
+    const todo = memLibRef.current.filter(e => e && e.text && typeof e.a !== "number");
+    if (!todo.length) { toast("所有记忆都已评估过情绪啦"); return; }
+    setEmoBusy(true);
+    try {
+      const batch = todo.slice(0, 60); // 一次最多 60 条，多的再点一次
+      const listText = batch.map((e, i) => (i + 1) + ". " + String(e.text || "").replace(/\s+/g, " ").slice(0, 90)).join("\n");
+      const sys = "下面是一批记忆条目，给每条标注情绪与状态：v=愉悦度(整数-5~5，负=难过/生气/难堪，0=中性事实，正=开心/温暖/心动)；a=情绪强度(整数0~5，0=平淡事实，5=强烈动情/激烈冲突/刻骨)；open=是不是【还没了结的开环】(true=没兑现的约定/没和好的争执/悬着的心事/在等的结果；false=已了结、或本就是静态事实/偏好/背景)。\n【输出】只输出 JSON 数组，按序号每条一个对象：[{\"i\":1,\"v\":0,\"a\":1,\"open\":false}]，i 对应上面的序号。";
+      const raw = await callAI(bgActive, sys, [{ role: "user", content: listText }], { maxTokens: Math.min(8000, 500 + batch.length * 60) });
+      const arr = extractJSON(raw);
+      if (!Array.isArray(arr)) throw new Error("解析失败，重试");
+      const byIdx = {};
+      arr.forEach(o => { if (o && typeof o.i === "number") byIdx[o.i] = o; });
+      let n = 0;
+      const updated = memLibRef.current.map(e => {
+        const pos = batch.indexOf(e);
+        if (pos < 0) return e;
+        const o = byIdx[pos + 1];
+        if (!o) return e;
+        n++;
+        return { ...e, v: clampInt(o.v, -5, 5, 0), a: clampInt(o.a, 0, 5, 1), open: !!o.open };
+      });
+      saveMemLib(updated);
+      const left = todo.length - batch.length;
+      toast("已点亮 " + n + " 条情绪" + (left > 0 ? "，还剩 " + left + " 条·再点一次" : ""));
+    } catch (e) { toast("评估失败：" + ((e && e.message) || "重试")); }
+    finally { setEmoBusy(false); }
+  };
   // 共享抽取：把 msgs 抽成记忆条、双重去重后入库，返回实际新增条数（手动/自动共用）
   const extractAndAddForChar = async (charId, msgs) => {
     const char = characters.find(c => c.id === charId);
@@ -5988,7 +6019,9 @@ function App() {
     onDelete: deleteMemEntry,
     onExtract: activeChar ? () => extractMemForChar(activeChar.id) : null,
     onSaveCfg: saveMemCfg,
-    onImportOld: importOldMemoryToLib
+    onImportOld: importOldMemoryToLib,
+    onBackfillEmotion: backfillMemEmotion,
+    emoBusy: emoBusy
   });else if (screen === "diary") body = h(Diary, {
     characters: characters,
     diaries: diaries,

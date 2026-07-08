@@ -3375,7 +3375,9 @@ function MemoryLib({
   onDelete,
   onExtract,
   onSaveCfg,
-  onImportOld
+  onImportOld,
+  onBackfillEmotion,
+  emoBusy
 }) {
   const t = useTheme();
   const [filter, setFilter] = useState(focusChar ? focusChar.id : "all");
@@ -3386,14 +3388,15 @@ function MemoryLib({
     const c = characters.find(x => x.id === id);
     return c ? c.remark || c.name : "未知";
   };
-  // 情绪小圆点：愉悦度→暖/冷/中色，强度→大小与浓度（Ombre Brain 借鉴）
-  const emoDot = e => {
-    const v = e.v || 0, a = e.a == null ? 1 : e.a;
-    if (!v && a <= 1) return null;
-    const col = v >= 2 ? "#c98a3c" : v <= -2 ? "#5f7c9a" : "#a59a86";
-    const sz = 6 + Math.min(5, a);
-    return h("span", { key: "emo", title: "情绪 愉悦" + v + "·强度" + a, style: { width: sz, height: sz, borderRadius: 999, background: col, flexShrink: 0, opacity: 0.45 + a * 0.1 } });
+  // 情绪徽标：显愉悦度带符号 + 强度点数，颜色随愉悦度暖/冷/中（Ombre Brain 借鉴）。未评估(无 a)不显示
+  const emoBadge = e => {
+    if (typeof e.a !== "number") return null;
+    const v = e.v || 0, a = e.a;
+    const col = v >= 2 ? "#c98a3c" : v <= -2 ? "#5f7c9a" : "#9a9082";
+    return h("span", { key: "emo", title: "愉悦度 " + v + " · 强度 " + a, style: { display: "inline-flex", alignItems: "center", gap: 4, fontFamily: F_BODY, fontSize: 10, fontWeight: 700, color: "#fff", background: col, padding: "1px 7px", borderRadius: 999 } },
+      (v > 0 ? "＋" : v < 0 ? "－" : "") + Math.abs(v), h("span", { style: { opacity: 0.7 } }, "·"), "🔥" + a);
   };
+  const unrated = (entries || []).filter(e => e && typeof e.a !== "number").length;
   const qlc = q.trim().toLowerCase();
   const list = (entries || []).filter(e => (filter === "all" || !e.charIds || e.charIds.length === 0 || e.charIds.includes(filter)) && (!qlc || (String(e.text || "") + " " + (e.tags || []).join(" ") + " " + (e.charIds || []).map(nameOf).join(" ")).toLowerCase().indexOf(qlc) >= 0)).slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (b.ts || 0) - (a.ts || 0));
   const importable = focusChar && oldMemories && (oldMemories[focusChar.id] || "").trim();
@@ -3424,7 +3427,11 @@ function MemoryLib({
     }
   }, label))), h("div", {
     className: "flex-1 overflow-y-auto px-6 pb-8"
-  }, focusChar && onExtract && h("button", {
+  }, onBackfillEmotion && unrated > 0 ? h("button", {
+    onClick: onBackfillEmotion, disabled: emoBusy,
+    className: "w-full rounded-xl py-2.5 mb-3 disabled:opacity-40",
+    style: { border: "1px dashed " + t.tint, color: t.tint, fontFamily: F_BODY, fontSize: 13 }
+  }, emoBusy ? "评估中…" : "✨ 给 " + unrated + " 条旧记忆补上情绪评估（点亮色标）") : null, focusChar && onExtract && h("button", {
     onClick: onExtract,
     disabled: busy,
     className: "w-full rounded-xl py-2.5 mb-3 disabled:opacity-40",
@@ -3467,7 +3474,7 @@ function MemoryLib({
     }
   }, "置顶")), h("div", {
     className: "flex flex-wrap items-center gap-1.5 mt-2"
-  }, emoDot(e), e.open ? h("span", { key: "open", style: { fontFamily: F_BODY, fontSize: 10.5, color: "#fff", background: "#b06a4f", padding: "1px 7px", borderRadius: 999 } }, "未了") : null, (e.tags || []).map((tag, i) => h("span", {
+  }, emoBadge(e), e.open ? h("span", { key: "open", style: { fontFamily: F_BODY, fontSize: 10.5, color: "#fff", background: "#b06a4f", padding: "1px 7px", borderRadius: 999 } }, "未了") : null, (e.tags || []).map((tag, i) => h("span", {
     key: i,
     style: {
       fontFamily: F_BODY,
