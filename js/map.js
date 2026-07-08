@@ -16,7 +16,8 @@
     "东京": [35.68, 139.69], "大阪": [34.69, 135.50], "首尔": [37.57, 126.98], "新加坡": [1.35, 103.82],
     "曼谷": [13.76, 100.50], "吉隆坡": [3.14, 101.69], "伦敦": [51.51, -0.13], "巴黎": [48.86, 2.35],
     "纽约": [40.71, -74.01], "洛杉矶": [34.05, -118.24], "旧金山": [37.77, -122.42], "西雅图": [47.61, -122.33],
-    "多伦多": [43.65, -79.38], "温哥华": [49.28, -123.12], "悉尼": [-33.87, 151.21], "墨尔本": [-37.81, 144.96],
+    "多伦多": [43.65, -79.38], "温哥华": [49.28, -123.12], "温尼伯": [49.90, -97.14], "卡尔加里": [51.05, -114.07], "蒙特利尔": [45.50, -73.57],
+    "悉尼": [-33.87, 151.21], "墨尔本": [-37.81, 144.96],
     "柏林": [52.52, 13.40], "莫斯科": [55.76, 37.62], "迪拜": [25.20, 55.27]
   };
   const CITY_NAMES = Object.keys(CITY_DB);
@@ -27,9 +28,22 @@
     social: [-0.021, -0.024], rest: [0.004, 0.006], coffee: [0.007, 0.013], sleep: [0, 0], other: [0.011, 0.009]
   };
   function charHome(char) { const hm = char && char.home; return hm && typeof hm.lat === "number" ? hm : null; }
-  function charPos(char, st) {
-    const hm = charHome(char); if (!hm) return null;
-    let lat = hm.lat, lng = hm.lng;
+  // 没设城市的角色：按 id 稳定地在锚点(你的定位/温尼伯)附近撒开 ±0.024°(≈2.5km)，不重叠
+  function charJitter(char) {
+    const id = String((char && (char.id || char.name)) || "");
+    let hh = 0; for (let i = 0; i < id.length; i++) hh = (hh * 31 + id.charCodeAt(i)) | 0;
+    const a = Math.abs(hh);
+    return [((a % 24) - 12) / 500, ((Math.floor(a / 24) % 24) - 12) / 500];
+  }
+  // pos：优先家乡城市；没设就落在锚点(userGeo 或温尼伯)附近；再叠日程活动偏移
+  function charPos(char, st, userGeo) {
+    const hm = charHome(char);
+    let lat, lng;
+    if (hm) { lat = hm.lat; lng = hm.lng; }
+    else {
+      const anc = (userGeo && typeof userGeo.lat === "number") ? userGeo : { lat: CITY_DB["温尼伯"][0], lng: CITY_DB["温尼伯"][1] };
+      const j = charJitter(char); lat = anc.lat + j[0]; lng = anc.lng + j[1];
+    }
     const off = st && ACT_OFFSET[st.type]; if (off) { lat += off[0]; lng += off[1]; }
     return [lat, lng];
   }
@@ -48,6 +62,7 @@
     const mapRef = useRef(null);
     const lgRef = useRef(null);
     const fittedRef = useRef(false);
+    const sigRef = useRef("");
     const o = opts || {};
     useEffect(function () {
       if (!window.L || !elRef.current || mapRef.current) return;
@@ -68,6 +83,10 @@
     useEffect(function () {
       const L = window.L, map = mapRef.current, lg = lgRef.current;
       if (!L || !map || !lg) return;
+      // 位置签名：没变就不重建 marker（主屏时钟每秒刷新时别让 Leaflet 空转→卡）
+      const sig = (pins || []).map(function (p) { return (p.pos ? p.pos[0].toFixed(4) + "," + p.pos[1].toFixed(4) : "-") + "|" + (p.tooltip || ""); }).join(";");
+      if (sig === sigRef.current) return;
+      sigRef.current = sig;
       lg.clearLayers();
       const pts = [];
       (pins || []).forEach(function (p) {
@@ -103,10 +122,10 @@
   // 主屏 2×2 实时小组件：迷你好友地图 + 顶部标题 + 在线人数
   function MapWidget({ characters, status, userGeo, onOpen }) {
     const t = (typeof useTheme === "function") ? useTheme() : { ink: "#2b2823", fog: "#9a9082" };
-    const withHome = (characters || []).filter(charHome);
-    const pins = withHome.map(function (c) {
+    const list = characters || [];
+    const pins = list.map(function (c) {
       const st = (status || {})[c.id];
-      return { pos: charPos(c, st), html: avatarHtml(c, 28), size: 28 };
+      return { pos: charPos(c, st, userGeo), html: avatarHtml(c, 28), size: 28 };
     }).filter(function (p) { return p.pos; });
     if (userGeo && typeof userGeo.lat === "number") pins.push({ pos: [userGeo.lat, userGeo.lng], size: 16, html: meDotHtml(14) });
     return h("button", { onClick: onOpen, className: "active:opacity-90 text-left",
@@ -115,7 +134,7 @@
       // 顶部渐变 + 标题
       h("div", { style: { position: "absolute", top: 0, left: 0, right: 0, padding: "10px 12px 18px", background: "linear-gradient(180deg,rgba(255,255,255,0.85),rgba(255,255,255,0))", pointerEvents: "none" } },
         h("div", { style: { fontFamily: F_DISPLAY, fontSize: 15, color: t.ink } }, "好友地图"),
-        h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 1 } }, withHome.length ? withHome.length + " 位 · 此刻的位置" : "点开给角色设定城市")),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 1 } }, list.length ? list.length + " 位 · 此刻的位置" : "点开给角色设定城市")),
       pins.length === 0 ? h("div", { style: { position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" } },
         h("div", { style: { fontSize: 26, opacity: 0.5 } }, "🗺️")) : null);
   }
@@ -134,11 +153,10 @@
         function () {}, { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 });
       return function () { try { navigator.geolocation.clearWatch(id); } catch (e) {} };
     }, []);
-    const withHome = (characters || []).filter(charHome);
-    const pins = withHome.map(function (c) {
+    const pins = (characters || []).map(function (c) {
       const st = (status || {})[c.id];
       const label = st && st.title ? (c.name + " · " + st.title) : c.name;
-      return { pos: charPos(c, st), html: avatarHtml(c, 40), size: 40, tooltip: label, onClick: function () { setSel(c.id); } };
+      return { pos: charPos(c, st, userGeo), html: avatarHtml(c, 40), size: 40, tooltip: label, onClick: function () { setSel(c.id); } };
     }).filter(function (p) { return p.pos; });
     // 你自己的实时蓝点
     if (livePos) pins.push({ pos: livePos, size: 22, html: meDotHtml(20), tooltip: (profile && profile.name || "我") + "（你 · 实时）" });
