@@ -15,11 +15,11 @@
   const GAMES = [
     { key: "spy", emoji: "🕵️", zh: "谁是卧底", en: "Who's the Spy", min: 3, max: 12, ready: true,
       desc: "每人拿到一个词，卧底的词略有不同。轮流描述、投票揪出卧底。", rule: "3~12 人 · 1~2 名卧底 · 词系统出" },
-    { key: "haigui", emoji: "🐢", zh: "海龟汤", en: "Lateral Puzzle", min: 2, max: 8, ready: false,
+    { key: "haigui", emoji: "🐢", zh: "海龟汤", en: "Lateral Puzzle", min: 2, max: 8, ready: true,
       desc: "主持人给一个诡异「汤面」，你们只能问是 / 否问题，一步步还原真相。", rule: "2~8 人 · 题目系统出" },
-    { key: "q25", emoji: "❓", zh: "25 问", en: "20 Questions", min: 2, max: 8, ready: false,
+    { key: "q25", emoji: "❓", zh: "25 问", en: "20 Questions", min: 2, max: 8, ready: true,
       desc: "系统心里想一个东西，你们轮流问是 / 否问题，25 问内猜出来。", rule: "2~8 人 · 题目系统出" },
-    { key: "tod", emoji: "🎲", zh: "真心话大冒险", en: "Truth or Dare", min: 2, max: 10, ready: false,
+    { key: "tod", emoji: "🎲", zh: "真心话大冒险", en: "Truth or Dare", min: 2, max: 10, ready: true,
       desc: "转瓶子，指到谁就选真心话或大冒险，题目由在场的人出。", rule: "2~10 人" },
     { key: "werewolf", emoji: "🐺", zh: "狼人杀", en: "Werewolf", min: 5, max: 12, ready: true,
       desc: "狼人夜里行凶，好人白天靠推理投票放逐。当前板子：狼人 + 预言家 + 平民。", rule: "5~12 人 · 预言家局 · 不翻牌" },
@@ -118,6 +118,8 @@
       const engineProps = { config: session.config, game: session.game, active: props.active, bgActive: props.bgActive, characters: props.characters, profile: props.profile, recentChatFor: props.recentChatFor, t: t, toast: props.toast, onBack: function () { setSession(null); setSaveTick(function (x) { return x + 1; }); } };
       if (session.game.key === "spy") return h(SpyGame, engineProps);
       if (session.game.key === "werewolf") return h(WolfGame, Object.assign({}, engineProps, { resume: !!session.resume, savedState: session.saved }));
+      if (session.game.key === "haigui" || session.game.key === "q25") return h(GuessGame, Object.assign({}, engineProps, { kind: session.game.key }));
+      if (session.game.key === "tod") return h(TruthDareGame, engineProps);
       return h(GamePlay, { game: session.game, config: session.config, characters: props.characters, profile: props.profile, t: t, onBack: function () { setSession(null); } });
     }
     if (game) return h(GameSetup, {
@@ -1328,6 +1330,505 @@
       h("div", { className: "shrink-0", style: { borderTop: "1px solid " + t.line, padding: "12px 16px calc(env(safe-area-inset-bottom) + 14px)", maxHeight: "50vh", overflowY: "auto" } }, bottom),
       (pick && pickerOpen) ? h(PickerModal, { t: t, title: pick.title, sub: pick.sub, onClose: function () { setPickerOpen(false); } }, roleBanner, pick.body) : null,
       detail ? h(PlayerCard, { p: detail, t: t, avatar: pAvatar(detail, 44), roleText: phase === "result" ? ("身份：" + roleZh(detail.role)) : null, roleBad: isWolfRole(detail.role), onClose: function () { setDetail(null); } }) : null);
+  }
+
+  // ============================================================
+  // 共享：组装玩家名单（角色 + 你 + NPC，带能力小传）
+  // ============================================================
+  function buildRoster(cfg, props, t, npcData, skillData) {
+    const chars = (cfg.charIds || []).map(function (id) { return (props.characters || []).find(function (c) { return c.id === id; }); }).filter(Boolean);
+    const skillOf = {}; (skillData || []).forEach(function (s) { if (s && s.name) skillOf[s.name] = s.skill || ""; });
+    const list = [];
+    chars.forEach(function (c) { list.push({ key: c.id, name: c.name, char: c, isUser: false, isNpc: false, skill: skillOf[c.name] || "", alive: true }); });
+    if (cfg.mode !== "spectate") { const pf = props.profile || {}; list.push({ key: "user", name: pf.name || "你", char: { name: pf.name || "你", avatarImage: pf.avatarImage, color: pf.color || t.tint }, isUser: true, isNpc: false, skill: "", alive: true }); }
+    const npcNeed = cfg.npcCount || 0;
+    const npcs = (npcData || []).slice(0, npcNeed);
+    for (let i = 0; i < npcNeed; i++) { const n = npcs[i] || {}; list.push({ key: "npc_" + i, name: n.name || ("玩家" + (i + 1)), char: null, isUser: false, isNpc: true, skill: n.skill || "普通", persona: n.persona || "", alive: true }); }
+    return list;
+  }
+  // 组装喂给开局的「真实玩家人设」串（含可选近况注入）
+  function realPlayerLines(cfg, props) {
+    const chars = (cfg.charIds || []).map(function (id) { return (props.characters || []).find(function (c) { return c.id === id; }); }).filter(Boolean);
+    const inject = cfg.injectChat && props.recentChatFor;
+    return chars.map(function (c) {
+      let persona = c.persona || "";
+      if (inject) { const rc = props.recentChatFor(c.id); if (rc) persona += "\n（近况：" + rc.slice(-400) + "）"; }
+      return { name: c.name, persona: persona };
+    });
+  }
+  // 共享头像渲染器
+  function avatarFor(t) {
+    return function (p, size) {
+      if (p && p.char) return h(Avatar, { character: p.char, size: size, radius: Math.round(size * 0.3) });
+      return h("div", { style: { width: size, height: size, borderRadius: Math.round(size * 0.3), flexShrink: 0, background: p && p.isUser ? t.tint : t.line, color: "#fff", fontFamily: F_DISPLAY, fontSize: Math.round(size * 0.46), display: "flex", alignItems: "center", justifyContent: "center" } }, ((p && p.name) || "?").slice(0, 1));
+    };
+  }
+
+  // ============================================================
+  // 猜谜引擎（共享：海龟汤 / 25 问）—— 主持人握真相，玩家问是非题
+  // ============================================================
+  const GUESS_KINDS = {
+    haigui: { zh: "海龟汤", en: "Lateral Puzzle", emoji: "🐢", hasSurface: true, limit: 0,
+      verdicts: "是 / 不是 / 不重要 / 接近了" },
+    q25: { zh: "25 问", en: "20 Questions", emoji: "❓", hasSurface: false, limit: 25,
+      verdicts: "是 / 不是 / 不好说" }
+  };
+  const VERDICT_COLOR = { "是": "#3f6d5a", "不是": "#c0553f", "不重要": "#8a8172", "接近了": "#b8863f", "不好说": "#8a8172" };
+
+  async function setupGuess(api, kind, realPlayers, npcCount) {
+    const lines = realPlayers.map(function (p, i) { return (i + 1) + ". " + p.name + "：" + (p.persona || "（没写人设）"); }).join("\n");
+    const skillHint = "3. 给【每个真实玩家】和【每个 NPC】各写一句 skill「牌桌能力小传」：按能力与性格分开原则，点出 TA 玩这种横向推理 / 发散提问游戏的【真实强弱】（由职业背景推，别被性格带偏）。";
+    const npcHint = "2. 生成 " + npcCount + " 个 NPC：name 中文名 + persona 一句人设（含【职业】与性格，尽量多样、别一个味）。";
+    let sys;
+    if (kind === "haigui") {
+      sys = AC + SKILL_RULE + "\n\n你是「海龟汤」（情境推理）的主持人。\n" +
+        "1. 出一道好海龟汤：surface 汤面（公开给大家的诡异／反常情境，2~4 句，留足悬念但信息完整）、truth 汤底（完整真相，逻辑自洽、最好有反转、【绝不靠超自然或做梦】那种糊弄）。难度适中：能靠追问一步步逼出来，别一眼看穿也别无解。\n" +
+        npcHint + "\n" + skillHint +
+        "\n\n【真实玩家】\n" + (lines || "（只有 NPC）") +
+        "\n\n【输出】只输出 JSON：{\"surface\":\"\",\"truth\":\"\",\"npcs\":[{\"name\":\"\",\"persona\":\"\",\"skill\":\"\"}],\"skills\":[{\"name\":\"真实玩家名\",\"skill\":\"\"}]}";
+    } else {
+      sys = AC + SKILL_RULE + "\n\n你是「25 个问题」的主持人。\n" +
+        "1. 心里想一个具体的东西 secret（一个名词：具体物品 / 动物 / 人物 / 地点 / 概念，要大众化、能靠是否问题逐步逼近，别太冷门刁钻），category 给个大类提示（如「物品」「动物」「人物」「食物」）。\n" +
+        npcHint + "\n" + skillHint +
+        "\n\n【真实玩家】\n" + (lines || "（只有 NPC）") +
+        "\n\n【输出】只输出 JSON：{\"secret\":\"\",\"category\":\"\",\"npcs\":[{\"name\":\"\",\"persona\":\"\",\"skill\":\"\"}],\"skills\":[{\"name\":\"真实玩家名\",\"skill\":\"\"}]}";
+    }
+    const raw = await callRetry(api, sys, [{ role: "user", content: "出题：给谜题、" + npcCount + " 个 NPC、每个人的能力小传。" }], { maxTokens: 4000 });
+    return extractJSON(raw) || {};
+  }
+
+  // 一轮：先答用户的问题（若有），再让 AI 各问一个新问题并作答，判断是否有人破题
+  async function runGuessRound(api, kind, ctx, userQ, aiSpeakers, history, mode) {
+    const K = GUESS_KINDS[kind];
+    const secretBlock = kind === "haigui"
+      ? "【汤面·已公开】" + ctx.surface + "\n【汤底·只有你知道】" + ctx.truth
+      : "【你想的东西·只有你知道】" + ctx.secret + "（类别：" + ctx.category + "）";
+    const verdictRule = kind === "haigui"
+      ? "verdict 只能是：是 / 不是 / 不重要 / 接近了。含义：是=符合汤底；不是=不符；不重要=与真相无关；接近了=方向正确且触到关键点。"
+      : "verdict 只能是：是 / 不是 / 不好说。照实回答；实在无法用是否作答才用「不好说」。";
+    const easy = mode === "easy" ? "\n【放水局】AI 玩家别问得太神，留点空间给真人；主持人答题该给的提示大方点给。" : "";
+    const hist = history.length ? history.slice(-14).map(function (q) { return "· " + q; }).join("\n") : "（还没人问过）";
+    const who = aiSpeakers.map(function (s) { return "■ " + s.name + "（真实水平：" + (s.skill || "普通") + "）"; }).join("\n");
+    const solveRule = kind === "haigui"
+      ? "若某人的提问 / 陈述已经【实质还原了汤底核心真相】，把 solvedBy 填成 TA 的名字，并在 reveal 里一句话点出真相。否则 solvedBy 留空。"
+      : "若某个 AI 的问题其实就是【直接猜中了那个东西】（问「它是不是XX」且 XX 正是答案），把 solvedBy 填成 TA 的名字、reveal 填那个东西。否则留空。AI 觉得有把握时可以直接猜（问「是不是XX」）。";
+    const sys = AC + SKILL_RULE + "\n\n你是「" + K.zh + "」的主持人，掌握真相、只按规则回答是非类问题。\n" + secretBlock +
+      "\n\n" + verdictRule + " note 是≤14 字的补充或引导，可空。" + easy +
+      "\n\n【此前问过的（别让 AI 重复）】\n" + hist +
+      (userQ ? "\n\n【真人玩家刚问】" + userQ + " —— 在 userAnswer 里作答。" : "\n\n（这一轮真人没问，userAnswer 给 null）") +
+      "\n\n【接着这些 AI 玩家各问一个「新的、不重复、有推理价值」的问题，并由你逐一作答】按真实水平：强的追问高效精准、直逼要害；弱的更发散或问偏。\n" + who +
+      "\n\n" + solveRule +
+      "\n\n【输出】只输出 JSON：{\"userAnswer\":{\"verdict\":\"\",\"note\":\"\"}或null,\"ai\":[{\"name\":\"\",\"question\":\"\",\"verdict\":\"\",\"note\":\"\"}],\"solvedBy\":\"\",\"reveal\":\"\"}";
+    const raw = await callRetry(api, sys, [{ role: "user", content: "处理这一轮。" }], { maxTokens: 3200 });
+    return extractJSON(raw) || {};
+  }
+
+  // 判定真人的正式猜测
+  async function judgeGuess(api, kind, ctx, guess) {
+    const K = GUESS_KINDS[kind];
+    const block = kind === "haigui" ? "汤面：" + ctx.surface + "\n汤底（真相）：" + ctx.truth : "答案是：" + ctx.secret;
+    const crit = kind === "haigui" ? "玩家的复原是否抓住了汤底的【核心因果 / 关键反转】？细节不必全中，逻辑对上即可判对。" : "玩家猜的是否就是这个东西？（近义 / 同物不同名也算对。）";
+    const sys = AC + "你是「" + K.zh + "」主持人。\n" + block + "\n\n玩家正式猜测：「" + guess + "」\n" + crit + "\n只输出 JSON：{\"correct\":true/false,\"note\":\"一句点评（对就点破真相，不对就说差在哪、给个方向）\"}";
+    const raw = await callRetry(api, sys, [{ role: "user", content: "判一下。" }], { maxTokens: 800 });
+    return extractJSON(raw) || { correct: false, note: "" };
+  }
+
+  function GuessGame(props) {
+    const t = props.t, cfg = props.config, api = props.active, kind = props.kind;
+    const K = GUESS_KINDS[kind];
+    const [phase, setPhase] = useState("loading"); // loading|play|result|error
+    const [players, setPlayers] = useState([]);
+    const [ctx, setCtx] = useState(null);          // {surface,truth} | {secret,category}
+    const [log, setLog] = useState([]);
+    const [history, setHistory] = useState([]);    // 问过的问题（防重复）
+    const [qCount, setQCount] = useState(0);        // 已问总数（25问用）
+    const [userQ, setUserQ] = useState("");
+    const [guessing, setGuessing] = useState(false); // 猜答案输入框开着
+    const [guessText, setGuessText] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [won, setWon] = useState(false);
+    const [reveal, setReveal] = useState("");
+    const [errMsg, setErrMsg] = useState("");
+    const [detail, setDetail] = useState(null);
+    const [showSurface, setShowSurface] = useState(false);
+    const logRef = useRef(null);
+    const started = useRef(false);
+    const pAvatar = avatarFor(t);
+    const me = players.find(function (p) { return p.isUser; });
+    const aiPlayers = players.filter(function (p) { return !p.isUser; });
+    const pByName = function (nm) { return players.find(function (p) { return p.name === nm || (nm && nm.indexOf(p.name) >= 0); }); };
+    const pushLog = function (items) { setLog(function (L) { return L.concat(items); }); };
+    useEffect(function () { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [log, phase, busy, guessing]);
+
+    useEffect(function () {
+      if (started.current) return; started.current = true;
+      (async function () {
+        try {
+          if (!api) { setErrMsg("请先到设置配置 API"); setPhase("error"); return; }
+          const rp = realPlayerLines(cfg, props);
+          const data = await setupGuess(api, kind, rp, cfg.npcCount || 0);
+          const list = buildRoster(cfg, props, t, data.npcs, data.skills);
+          if (kind === "haigui") {
+            if (!data.surface || !data.truth) throw new Error("出题失败，重试");
+            setCtx({ surface: data.surface, truth: data.truth });
+          } else {
+            if (!data.secret) throw new Error("出题失败，重试");
+            setCtx({ secret: data.secret, category: data.category || "东西" });
+          }
+          setPlayers(list);
+          setPhase("play");
+        } catch (e) { setErrMsg((e && e.message) || "开局失败，重试"); setPhase("error"); }
+      })();
+    }, []);
+
+    const limitLeft = K.limit ? (K.limit - qCount) : null;
+
+    // 跑一轮（可带用户的问题）
+    const runRound = async function (uq) {
+      if (busy) return;
+      setBusy(true);
+      const speakers = shuffle(aiPlayers).map(function (p) { return { name: p.name, skill: p.skill }; });
+      if (uq) pushLog([{ type: "q", name: me.name, text: uq, mine: true }]);
+      try {
+        const r = await runGuessRound(api, kind, ctx, uq || "", speakers, history, cfg.mode);
+        const items = [];
+        const newHist = [];
+        if (uq) { newHist.push(uq); if (r.userAnswer) items.push({ type: "a", verdict: r.userAnswer.verdict, note: r.userAnswer.note }); }
+        (r.ai || []).forEach(function (a) {
+          if (!a || !a.question) return;
+          items.push({ type: "q", name: a.name });
+          items.push({ type: "a", name: a.name, question: a.question, verdict: a.verdict, note: a.note });
+          newHist.push(a.question);
+        });
+        pushLog(items);
+        setHistory(function (H) { return H.concat(newHist); });
+        setQCount(function (n) { return n + newHist.length; });
+        // 破题判定
+        if (r.solvedBy) {
+          const solver = pByName(r.solvedBy);
+          setWon(!!(solver && solver.isUser));
+          setReveal(r.reveal || (kind === "haigui" ? ctx.truth : ctx.secret));
+          pushLog([{ type: "solve", name: r.solvedBy, isUser: !!(solver && solver.isUser) }]);
+          setPhase("result"); setBusy(false); return;
+        }
+        // 25 问用尽
+        if (K.limit && (qCount + newHist.length) >= K.limit) {
+          setWon(false); setReveal(ctx.secret);
+          pushLog([{ type: "info", text: "25 个问题用完了，没人猜中——答案揭晓。" }]);
+          setPhase("result");
+        }
+      } catch (e) { props.toast && props.toast("这一轮出错：" + ((e && e.message) || "重试")); }
+      finally { setBusy(false); }
+    };
+
+    const submitUserQ = function () { const v = userQ.trim(); if (!v || busy) return; setUserQ(""); runRound(v); };
+    const submitGuess = async function () {
+      const v = guessText.trim(); if (!v || busy) return;
+      setBusy(true); setGuessing(false); setGuessText("");
+      pushLog([{ type: "q", name: me.name, text: "🎯 我猜：" + v, mine: true }]);
+      try {
+        const j = await judgeGuess(api, kind, ctx, v);
+        if (j.correct) { setWon(true); setReveal(kind === "haigui" ? ctx.truth : ctx.secret); pushLog([{ type: "solve", name: me.name, isUser: true, note: j.note }]); setPhase("result"); }
+        else { pushLog([{ type: "a", name: "__miss", verdict: "还没中", note: j.note || "" }]); }
+      } catch (e) { props.toast && props.toast("判题出错：" + ((e && e.message) || "重试")); }
+      finally { setBusy(false); }
+    };
+    const giveUp = function () { setWon(false); setReveal(kind === "haigui" ? (ctx && ctx.truth) : (ctx && ctx.secret)); setPhase("result"); };
+
+    const header = h(Head, { zh: K.zh, en: K.en, onBack: props.onBack });
+
+    if (phase === "error") return h("div", { className: "h-full flex flex-col" }, header,
+      h("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, padding: 30 } },
+        h("div", { style: { fontSize: 40 } }, K.emoji),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 14, color: t.sub, textAlign: "center", lineHeight: 1.6 } }, errMsg),
+        h("button", { onClick: props.onBack, style: { fontFamily: F_BODY, fontSize: 14, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 999, padding: "10px 24px" } }, "返回")));
+
+    if (phase === "loading") return h("div", { className: "h-full flex flex-col" }, header,
+      h("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 } },
+        h("div", { style: { fontSize: 40 } }, K.emoji),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 14, color: t.fog } }, kind === "haigui" ? "熬汤中·想一道好谜题…" : "想一个东西中…")));
+
+    const roster = h("div", { className: "shrink-0", style: { display: "flex", gap: 10, overflowX: "auto", padding: "10px 16px", borderBottom: "1px solid " + t.line } },
+      players.map(function (p) {
+        return h("button", { key: p.key, onClick: function () { setDetail(p); }, className: "active:opacity-70", style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flexShrink: 0, width: 46 } },
+          pAvatar(p, 38),
+          h("div", { style: { fontFamily: F_BODY, fontSize: 10, color: t.sub, maxWidth: 46, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "center" } }, p.name + (p.isUser ? "(你)" : "")));
+      }));
+
+    // 谜面卡（海龟汤常驻；25问显类别 + 计数）
+    const puzzleCard = kind === "haigui"
+      ? h("div", { style: { background: t.tint + "12", border: "1px solid " + t.tint, borderRadius: 13, padding: "12px 14px", margin: "10px 16px 2px" } },
+          h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.tint, letterSpacing: 1, marginBottom: 5 } }, "🐢 汤面"),
+          h("div", { style: { fontFamily: "'Noto Serif SC',serif", fontSize: 14.5, color: t.ink, lineHeight: 1.75, whiteSpace: "pre-line" } }, ctx ? ctx.surface : ""))
+      : h("div", { style: { display: "flex", alignItems: "center", gap: 8, margin: "10px 16px 2px" } },
+          h("div", { style: { flex: 1, fontFamily: F_BODY, fontSize: 12.5, color: t.sub } }, "类别提示：", h("b", { style: { color: t.ink } }, ctx ? ctx.category : "")),
+          h("div", { style: { fontFamily: F_DISPLAY, fontSize: 13, color: (limitLeft != null && limitLeft <= 5) ? "#c0553f" : t.tint } }, "剩 " + (limitLeft == null ? "∞" : limitLeft) + " 问"));
+
+    const logView = h("div", { ref: logRef, className: "flex-1 overflow-y-auto", style: { padding: "10px 16px 16px" } },
+      log.map(function (it, i) {
+        if (it.type === "info") return h("div", { key: i, style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, lineHeight: 1.6, margin: "8px 0", textAlign: "center" } }, it.text);
+        if (it.type === "solve") return h("div", { key: i, style: { textAlign: "center", margin: "10px 0", fontFamily: F_BODY, fontSize: 14, color: "#3f6d5a" } }, "🎉 " + it.name + (it.isUser ? "(你)" : "") + " 破了题！" + (it.note ? "\n" + it.note : ""));
+        if (it.type === "q") {
+          const p = pByName(it.name);
+          return h("div", { key: i, style: { display: "flex", gap: 8, margin: "8px 0 2px" } }, pAvatar(p, 28),
+            h("div", { style: { flex: 1 } },
+              h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginBottom: 2 } }, it.name + (it.mine ? "(你)" : "")),
+              it.text ? h("div", { style: { display: "inline-block", fontFamily: F_BODY, fontSize: 14, lineHeight: 1.5, color: t.ink, background: it.mine ? (t.tint + "1c") : t.bg2, borderRadius: 10, padding: "7px 11px" } }, it.text) : null,
+              it.question ? h("div", { style: { display: "inline-block", fontFamily: F_BODY, fontSize: 14, lineHeight: 1.5, color: t.ink, background: t.bg2, borderRadius: 10, padding: "7px 11px" } }, it.question) : null));
+        }
+        if (it.type === "a") {
+          const c = VERDICT_COLOR[it.verdict] || t.tint;
+          return h("div", { key: i, style: { display: "flex", alignItems: "center", gap: 6, margin: "0 0 6px 36px", fontFamily: F_BODY, fontSize: 12.5 } },
+            h("span", { style: { color: t.fog } }, "主持人"),
+            h("span", { style: { color: "#fff", background: c, borderRadius: 999, padding: "1px 9px", fontWeight: 700, fontSize: 12 } }, it.verdict || "…"),
+            it.note ? h("span", { style: { color: t.sub } }, it.note) : null);
+        }
+        return null;
+      }));
+
+    // 底部动作
+    let action;
+    if (phase === "result") {
+      action = h("div", null,
+        h("div", { style: { textAlign: "center", fontFamily: F_DISPLAY, fontSize: 19, color: won ? "#3f6d5a" : t.sub, marginBottom: 6 } }, won ? "🎉 你破题了" : (log.some(function (x) { return x.type === "solve"; }) ? "这局被别人抢先破了" : "揭晓答案")),
+        h("div", { style: { background: t.bg2, borderRadius: 12, padding: "12px 14px", marginBottom: 12 } },
+          h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.tint, letterSpacing: 1, marginBottom: 4 } }, kind === "haigui" ? "汤底" : "答案"),
+          h("div", { style: { fontFamily: "'Noto Serif SC',serif", fontSize: 14.5, color: t.ink, lineHeight: 1.75, whiteSpace: "pre-line" } }, reveal || "")),
+        h("div", { style: { display: "flex", gap: 10 } },
+          h("button", { onClick: props.onBack, className: "flex-1 active:opacity-80", style: { fontFamily: F_BODY, fontSize: 14, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 12, padding: "12px" } }, "返回"),
+          h("button", { onClick: props.onBack, className: "flex-1 active:opacity-80", style: { fontFamily: F_BODY, fontSize: 14, fontWeight: 700, color: "#f3efe6", background: t.ink, borderRadius: 12, padding: "12px" } }, "回中枢再来一局")));
+    } else if (busy) {
+      action = h("div", { style: { textAlign: "center", fontFamily: F_BODY, fontSize: 13, color: t.fog, padding: "10px 0" } }, "…大家在琢磨");
+    } else if (guessing) {
+      action = h("div", null,
+        h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.sub, textAlign: "center", marginBottom: 8 } }, kind === "haigui" ? "说出你还原的汤底真相" : "你觉得那个东西是？"),
+        h("div", { style: { display: "flex", gap: 8 } },
+          h("input", { value: guessText, autoFocus: true, onChange: function (e) { setGuessText(e.target.value); }, onKeyDown: function (e) { if (e.key === "Enter") submitGuess(); }, placeholder: kind === "haigui" ? "把你推理出的真相讲一遍…" : "直接写那个东西", style: { flex: 1, fontFamily: F_BODY, fontSize: 14, padding: "11px 14px", borderRadius: 12, border: "1px solid " + t.tint, background: t.bg2, color: t.ink, outline: "none" } }),
+          h("button", { onClick: submitGuess, style: { fontFamily: F_BODY, fontSize: 14, fontWeight: 700, color: "#fff", background: t.tint, borderRadius: 12, padding: "0 16px" } }, "定"),
+          h("button", { onClick: function () { setGuessing(false); setGuessText(""); }, style: { fontFamily: F_BODY, fontSize: 13, color: t.fog, padding: "0 6px" } }, "×")));
+    } else if (me && cfg.mode !== "spectate") {
+      action = h("div", null,
+        h("div", { style: { display: "flex", gap: 8, marginBottom: 8 } },
+          h("input", { value: userQ, onChange: function (e) { setUserQ(e.target.value); }, onKeyDown: function (e) { if (e.key === "Enter") submitUserQ(); }, placeholder: "问一个是 / 否问题…", style: { flex: 1, fontFamily: F_BODY, fontSize: 14, padding: "11px 14px", borderRadius: 12, border: "1px solid " + t.line, background: t.bg2, color: t.ink, outline: "none" } }),
+          h("button", { onClick: submitUserQ, style: { fontFamily: F_BODY, fontSize: 14, fontWeight: 700, color: "#fff", background: t.ink, borderRadius: 12, padding: "0 16px" } }, "问")),
+        h("div", { style: { display: "flex", gap: 8, justifyContent: "center" } },
+          h("button", { onClick: function () { runRound(""); }, style: { fontFamily: F_BODY, fontSize: 12.5, color: t.sub, background: t.bg2, border: "1px solid " + t.line, borderRadius: 999, padding: "6px 14px" } }, "让他们问一轮"),
+          h("button", { onClick: function () { setGuessing(true); }, style: { fontFamily: F_BODY, fontSize: 12.5, fontWeight: 700, color: "#fff", background: t.tint, borderRadius: 999, padding: "6px 16px" } }, "🎯 我要猜答案"),
+          h("button", { onClick: giveUp, style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog, padding: "6px 8px" } }, "看答案")));
+    } else {
+      // 观战
+      action = h("div", { style: { display: "flex", gap: 8, justifyContent: "center" } },
+        h("button", { onClick: function () { runRound(""); }, className: "flex-1 active:opacity-80", style: { fontFamily: F_BODY, fontSize: 14, fontWeight: 700, color: "#f3efe6", background: t.ink, borderRadius: 12, padding: "12px" } }, "看他们问下一轮"),
+        h("button", { onClick: giveUp, style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog, padding: "6px 10px" } }, "看答案"));
+    }
+
+    return h("div", { className: "h-full flex flex-col", style: { position: "relative" } }, header, roster,
+      phase === "play" || phase === "result" ? puzzleCard : null, logView,
+      h("div", { className: "shrink-0", style: { borderTop: "1px solid " + t.line, padding: "12px 16px calc(env(safe-area-inset-bottom) + 14px)", maxHeight: "40vh", overflowY: "auto" } }, action),
+      detail ? h(PlayerCard, { p: detail, t: t, avatar: pAvatar(detail, 44), onClose: function () { setDetail(null); } }) : null);
+  }
+
+  // ============================================================
+  // 真心话大冒险 · 引擎（转瓶子 → 真心话 / 大冒险 → 全场反应）
+  // ============================================================
+  async function setupTD(api, realPlayers, npcCount) {
+    const lines = realPlayers.map(function (p, i) { return (i + 1) + ". " + p.name + "：" + (p.persona || "（没写人设）"); }).join("\n");
+    const sys = AC + "你是「真心话大冒险」的主持。生成 " + npcCount + " 个 NPC 玩家（name 中文名 + persona 一句含职业与性格的人设，多样别雷同）。\n" +
+      "【已有真实玩家】\n" + (lines || "（只有 NPC）") + "\n\n只输出 JSON：{\"npcs\":[{\"name\":\"\",\"persona\":\"\"}]}";
+    if (!npcCount) return { npcs: [] };
+    const raw = await callRetry(api, sys, [{ role: "user", content: "生成 NPC。" }], { maxTokens: 1500 });
+    return extractJSON(raw) || { npcs: [] };
+  }
+  // AI 被指到：一次拿全整段（选真话/大冒险 + 谁出题 + 题 + TA 的回应 + 全场反应）
+  async function genTDForAI(api, target, others, mode, hot) {
+    const who = others.map(function (p) { return p.name + "（" + (p.persona || (p.char && p.char.tagline) || "") + "）"; }).join("；");
+    const spice = hot ? "尺度可以暧昧 / 大胆一点（但不露骨、不涉违法），朋友间那种起哄的度。" : "保持轻松好玩、朋友聚会的尺度。";
+    const easy = mode === "easy" ? "整体轻松、别太为难人。" : "";
+    const sys = AC + "你在主持一局「真心话大冒险」。当前瓶子指到了【" + target.name + "】：" + (target.persona || (target.char && target.char.tagline) || "（照 TA 人设来）") +
+      "\n在场其他人：" + who +
+      "\n\n请把这一次完整演出来：\n1. choice：" + target.name + "会选「真心话」还是「大冒险」（按 TA 性格，别每次都一样）。\n2. asker：从在场其他人里选一个来出题的人。\n3. prompt：asker 出的题（真心话=一个够劲的问题；大冒险=一个具体可执行的动作），一句话，符合 asker 口吻。" + spice + easy +
+      "\n4. response：" + target.name + "怎么回应／完成（带 TA 的语气和小动作，2~4 句，真实有戏）。\n5. reactions：在场 1~3 个人的即时起哄 / 吐槽，每条 {name,text} 一句。\n\n只输出 JSON：{\"choice\":\"真心话\"或\"大冒险\",\"asker\":\"\",\"prompt\":\"\",\"response\":\"\",\"reactions\":[{\"name\":\"\",\"text\":\"\"}]}";
+    const raw = await callRetry(api, sys, [{ role: "user", content: "开演。" }], { maxTokens: 1600 });
+    return extractJSON(raw) || {};
+  }
+  // 用户被指到并选了 真话/大冒险：生成出题人 + 题
+  async function genTDPrompt(api, choice, others, hot, mode) {
+    const who = others.map(function (p) { return p.name + "（" + (p.persona || (p.char && p.char.tagline) || "") + "）"; }).join("；");
+    const spice = hot ? "尺度可暧昧 / 大胆些（不露骨、不违法）。" : "轻松好玩的尺度。";
+    const sys = AC + "「真心话大冒险」里轮到真人玩家了，TA 选了【" + choice + "】。从在场这些人里选一个来给 TA 出题：" + who +
+      "\n出一道" + (choice === "真心话" ? "够味的真心话问题" : "具体可执行的大冒险动作") + "，一句话，符合出题人口吻。" + spice + (mode === "easy" ? "别太为难。" : "") +
+      "\n只输出 JSON：{\"asker\":\"\",\"prompt\":\"\"}";
+    const raw = await callRetry(api, sys, [{ role: "user", content: "出题。" }], { maxTokens: 700 });
+    return extractJSON(raw) || {};
+  }
+  // 用户回应后的全场反应
+  async function genTDReactions(api, choice, prompt, userResp, others) {
+    const who = others.map(function (p) { return p.name + "（" + (p.persona || (p.char && p.char.tagline) || "") + "）"; }).join("；");
+    const sys = AC + "「真心话大冒险」里真人玩家刚完成了 TA 的【" + choice + "】。\n题目：" + prompt + "\nTA 的回应：" + userResp +
+      "\n在场其他人：" + who + "\n让其中 2~4 个人即时起哄 / 调侃 / 追问，每条一句，符合各自人设。\n只输出 JSON：{\"reactions\":[{\"name\":\"\",\"text\":\"\"}]}";
+    const raw = await callRetry(api, sys, [{ role: "user", content: "起哄。" }], { maxTokens: 1000 });
+    return extractJSON(raw) || { reactions: [] };
+  }
+
+  function TruthDareGame(props) {
+    const t = props.t, cfg = props.config, api = props.active;
+    const [phase, setPhase] = useState("loading"); // loading|idle|spinning|userChoose|userAnswer|error
+    const [players, setPlayers] = useState([]);
+    const [log, setLog] = useState([]);
+    const [busy, setBusy] = useState(false);
+    const [errMsg, setErrMsg] = useState("");
+    const [detail, setDetail] = useState(null);
+    const [hot, setHot] = useState(false);          // 尺度开关
+    const [target, setTarget] = useState(null);     // 当前被指到的人
+    const [userPrompt, setUserPrompt] = useState(null); // {choice,asker,prompt}
+    const [userResp, setUserResp] = useState("");
+    const [spinName, setSpinName] = useState("");   // 转动动画显示的名字
+    const logRef = useRef(null);
+    const started = useRef(false);
+    const pAvatar = avatarFor(t);
+    const pByName = function (nm) { return players.find(function (p) { return p.name === nm || (nm && nm.indexOf(p.name) >= 0); }); };
+    const pushLog = function (items) { setLog(function (L) { return L.concat(items); }); };
+    useEffect(function () { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [log, phase, busy]);
+
+    useEffect(function () {
+      if (started.current) return; started.current = true;
+      (async function () {
+        try {
+          if (!api) { setErrMsg("请先到设置配置 API"); setPhase("error"); return; }
+          const rp = realPlayerLines(cfg, props);
+          const data = await setupTD(api, rp, cfg.npcCount || 0);
+          const list = buildRoster(cfg, props, t, data.npcs, []);
+          setPlayers(list);
+          pushLog([{ type: "info", text: "🍾 " + list.length + " 个人围一圈坐下。点「转瓶子」开始——指到谁，谁就选真心话或大冒险。" }]);
+          setPhase("idle");
+        } catch (e) { setErrMsg((e && e.message) || "开局失败，重试"); setPhase("error"); }
+      })();
+    }, []);
+
+    const doAITurn = async function (tgt) {
+      setBusy(true);
+      try {
+        const others = players.filter(function (p) { return p.name !== tgt.name; });
+        const r = await genTDForAI(api, tgt, others, cfg.mode, hot);
+        pushLog([{ type: "td", name: tgt.name, choice: r.choice || "真心话", asker: r.asker, prompt: r.prompt || "", response: r.response || "" }]
+          .concat((r.reactions || []).map(function (x) { return { type: "react", name: x.name, text: x.text }; })));
+        setPhase("idle");
+      } catch (e) { props.toast && props.toast("出错：" + ((e && e.message) || "重试")); setPhase("idle"); }
+      finally { setBusy(false); }
+    };
+
+    // 转瓶子：随机指一人（观战时只在 AI 里指）
+    const spin = function () {
+      if (busy) return;
+      const pool = cfg.mode === "spectate" ? players.filter(function (p) { return !p.isUser; }) : players;
+      if (!pool.length) return;
+      const tgt = pool[Math.floor(Math.random() * pool.length)];
+      setPhase("spinning");
+      // 简单转动动画：快速轮换名字
+      let ticks = 0;
+      const names = pool.map(function (p) { return p.name; });
+      const iv = setInterval(function () {
+        setSpinName(names[Math.floor(Math.random() * names.length)]);
+        ticks++;
+        if (ticks > 12) {
+          clearInterval(iv);
+          setSpinName("");
+          setTarget(tgt);
+          pushLog([{ type: "spin", name: tgt.name, isUser: tgt.isUser }]);
+          if (tgt.isUser) setPhase("userChoose");
+          else doAITurn(tgt);
+        }
+      }, 90);
+    };
+
+    const userChoose = async function (choice) {
+      setBusy(true); setPhase("userAnswer");
+      try {
+        const others = players.filter(function (p) { return !p.isUser; });
+        const r = await genTDPrompt(api, choice, others, hot, cfg.mode);
+        setUserPrompt({ choice: choice, asker: r.asker || (others[0] && others[0].name) || "大家", prompt: r.prompt || (choice === "真心话" ? "说说你最近最上头的一件事。" : "学一个你最不擅长的动物叫。") });
+      } catch (e) { props.toast && props.toast("出题出错：" + ((e && e.message) || "重试")); setUserPrompt({ choice: choice, asker: "大家", prompt: choice === "真心话" ? "说一件你没跟人讲过的小事。" : "原地转三圈再坐下。" }); }
+      finally { setBusy(false); }
+    };
+    const submitUserResp = async function () {
+      const v = userResp.trim(); if (!v || busy) return;
+      setBusy(true);
+      const up = userPrompt;
+      pushLog([{ type: "td", name: (props.profile && props.profile.name) || "你", mine: true, choice: up.choice, asker: up.asker, prompt: up.prompt, response: v }]);
+      setUserResp(""); setUserPrompt(null); setPhase("idle");
+      try {
+        const others = players.filter(function (p) { return !p.isUser; });
+        const r = await genTDReactions(api, up.choice, up.prompt, v, others);
+        if (r.reactions && r.reactions.length) pushLog(r.reactions.map(function (x) { return { type: "react", name: x.name, text: x.text }; }));
+      } catch (e) { /* 反应可有可无 */ }
+      finally { setBusy(false); }
+    };
+
+    const header = h(Head, { zh: "真心话大冒险", en: "Truth or Dare", onBack: props.onBack });
+
+    if (phase === "error") return h("div", { className: "h-full flex flex-col" }, header,
+      h("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, padding: 30 } },
+        h("div", { style: { fontSize: 40 } }, "🎲"),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 14, color: t.sub, textAlign: "center", lineHeight: 1.6 } }, errMsg),
+        h("button", { onClick: props.onBack, style: { fontFamily: F_BODY, fontSize: 14, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 999, padding: "10px 24px" } }, "返回")));
+
+    if (phase === "loading") return h("div", { className: "h-full flex flex-col" }, header,
+      h("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 } },
+        h("div", { style: { fontSize: 40 } }, "🍾"),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 14, color: t.fog } }, "大家围一圈坐好…")));
+
+    const roster = h("div", { className: "shrink-0", style: { display: "flex", gap: 10, overflowX: "auto", padding: "10px 16px", borderBottom: "1px solid " + t.line } },
+      players.map(function (p) {
+        const isTgt = target && phase !== "idle" && p.name === target.name;
+        return h("button", { key: p.key, onClick: function () { setDetail(p); }, className: "active:opacity-70", style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flexShrink: 0, width: 46 } },
+          h("div", { style: { borderRadius: 13, padding: 2, border: "2px solid " + (isTgt ? t.tint : "transparent") } }, pAvatar(p, 34)),
+          h("div", { style: { fontFamily: F_BODY, fontSize: 10, color: t.sub, maxWidth: 46, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "center" } }, p.name + (p.isUser ? "(你)" : "")));
+      }));
+
+    const choiceColor = function (c) { return c === "大冒险" ? "#c0553f" : "#3f6d5a"; };
+    const logView = h("div", { ref: logRef, className: "flex-1 overflow-y-auto", style: { padding: "12px 16px 16px" } },
+      log.map(function (it, i) {
+        if (it.type === "info") return h("div", { key: i, style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, lineHeight: 1.7, margin: "6px 0", textAlign: "center" } }, it.text);
+        if (it.type === "spin") return h("div", { key: i, style: { textAlign: "center", fontFamily: F_BODY, fontSize: 13, color: t.tint, margin: "12px 0 4px" } }, "🍾 瓶子指向了 " + it.name + (it.isUser ? "(你)" : ""));
+        if (it.type === "react") { const p = pByName(it.name); return h("div", { key: i, style: { display: "flex", gap: 7, margin: "4px 0 4px 14px", alignItems: "flex-start" } }, pAvatar(p, 22), h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.sub, lineHeight: 1.5 } }, h("b", { style: { color: t.fog, fontWeight: 400 } }, it.name + "："), it.text)); }
+        if (it.type === "td") {
+          const p = pByName(it.name);
+          return h("div", { key: i, style: { background: it.mine ? (t.tint + "10") : t.bg2, border: "1px solid " + (it.mine ? t.tint + "44" : t.line), borderRadius: 13, padding: "11px 13px", margin: "8px 0" } },
+            h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 7 } }, pAvatar(p, 26),
+              h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14.5, color: t.ink } }, it.name + (it.mine ? "(你)" : "")),
+              h("div", { style: { fontFamily: F_BODY, fontSize: 11, fontWeight: 700, color: "#fff", background: choiceColor(it.choice), borderRadius: 999, padding: "2px 10px" } }, it.choice)),
+            h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.sub, lineHeight: 1.55, marginBottom: 6 } }, (it.asker ? it.asker + "：" : "题目："), it.prompt),
+            h("div", { style: { fontFamily: "'Noto Serif SC',serif", fontSize: 14, color: t.ink, lineHeight: 1.75, whiteSpace: "pre-line" } }, it.response));
+        }
+        return null;
+      }));
+
+    let action;
+    if (phase === "spinning") action = h("div", { style: { textAlign: "center", padding: "12px 0" } },
+      h("div", { style: { fontSize: 30 } }, "🍾"),
+      h("div", { style: { fontFamily: F_DISPLAY, fontSize: 20, color: t.tint, marginTop: 6, minHeight: 26 } }, spinName || "…"));
+    else if (busy && phase !== "userAnswer") action = h("div", { style: { textAlign: "center", fontFamily: F_BODY, fontSize: 13, color: t.fog, padding: "12px 0" } }, "…在起哄");
+    else if (phase === "userChoose") action = h("div", null,
+      h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.sub, textAlign: "center", marginBottom: 10 } }, "轮到你了！选一个："),
+      h("div", { style: { display: "flex", gap: 12 } },
+        h("button", { onClick: function () { userChoose("真心话"); }, className: "flex-1 active:opacity-80", style: { fontFamily: F_BODY, fontSize: 15, fontWeight: 700, color: "#fff", background: "#3f6d5a", borderRadius: 13, padding: "13px" } }, "真心话"),
+        h("button", { onClick: function () { userChoose("大冒险"); }, className: "flex-1 active:opacity-80", style: { fontFamily: F_BODY, fontSize: 15, fontWeight: 700, color: "#fff", background: "#c0553f", borderRadius: 13, padding: "13px" } }, "大冒险")));
+    else if (phase === "userAnswer") action = busy && !userPrompt
+      ? h("div", { style: { textAlign: "center", fontFamily: F_BODY, fontSize: 13, color: t.fog, padding: "12px 0" } }, "…在给你出题")
+      : h("div", null,
+          h("div", { style: { background: t.bg2, borderRadius: 12, padding: "10px 13px", marginBottom: 8 } },
+            h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.tint, marginBottom: 3 } }, (userPrompt && userPrompt.asker ? userPrompt.asker + " 出的 " : "") + (userPrompt && userPrompt.choice)),
+            h("div", { style: { fontFamily: F_BODY, fontSize: 14, color: t.ink, lineHeight: 1.6 } }, userPrompt && userPrompt.prompt)),
+          h("div", { style: { display: "flex", gap: 8 } },
+            h("input", { value: userResp, autoFocus: true, onChange: function (e) { setUserResp(e.target.value); }, onKeyDown: function (e) { if (e.key === "Enter") submitUserResp(); }, placeholder: userPrompt && userPrompt.choice === "真心话" ? "老实交代…" : "描述你怎么完成…", style: { flex: 1, fontFamily: F_BODY, fontSize: 14, padding: "11px 14px", borderRadius: 12, border: "1px solid " + t.line, background: t.bg2, color: t.ink, outline: "none" } }),
+            h("button", { onClick: submitUserResp, style: { fontFamily: F_BODY, fontSize: 14, fontWeight: 700, color: "#fff", background: t.ink, borderRadius: 12, padding: "0 18px" } }, "交")));
+    else action = h("div", null,
+      h(ToggleRow, { t: t, label: "尺度放开点", sub: "真心话 / 大冒险 会更暧昧大胆（仍不露骨、不涉违法）。", on: hot, onToggle: function () { setHot(!hot); } }),
+      h("button", { onClick: spin, className: "w-full active:opacity-80", style: { marginTop: 6, fontFamily: F_BODY, fontSize: 16, fontWeight: 700, color: "#f3efe6", background: t.ink, borderRadius: 13, padding: "14px" } }, "🍾 转瓶子"));
+
+    return h("div", { className: "h-full flex flex-col", style: { position: "relative" } }, header, roster, logView,
+      h("div", { className: "shrink-0", style: { borderTop: "1px solid " + t.line, padding: "12px 16px calc(env(safe-area-inset-bottom) + 14px)", maxHeight: "44vh", overflowY: "auto" } }, action),
+      detail ? h(PlayerCard, { p: detail, t: t, avatar: pAvatar(detail, 44), onClose: function () { setDetail(null); } }) : null);
   }
 
   window.Games = Games;
