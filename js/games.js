@@ -561,6 +561,13 @@
   function wolfCount(n) { return n >= 9 ? 3 : n >= 6 ? 2 : 1; }
   // 身份铁律：只有这三种，别自创第四种。以后加神职时改这一处即可。
   const BOARD_LINE = "【身份铁律】本局只有【狼人 / 预言家 / 平民】三种身份，谁都别自创或声称第四种身份——没有女巫、警长、警官、猎人、守卫、白痴等任何神职或头衔；能跳的身份只有『预言家』，狼人也只能悍跳预言家。";
+  // 战术参考：让 AI 打出真套路/反套路（按各人水平自然运用，别生搬术语、别人人都用）
+  const WOLF_TACTICS = "【狼人杀常见套路（按各人真实水平自然运用；水平高的会用、会拆，水平低的只会朴素发言——别生搬术语、别每个人都套路满满）】\n" +
+    "· 预言家跳身份后报【查杀】(验出来的狼，直接带票投)或【金水】(验出来的好人，帮 TA 洗清)；\n" +
+    "· 狼可以【悍跳】假冒预言家、和真预言家【对跳】，逼好人从两个『预言家』里二选一分辨真假——好人就靠对比双方的验人逻辑、发言合理性来站边；\n" +
+    "· 狼的进阶：【倒钩】(装好人、甚至跟着好人踩自己队友来骗信任)、【递刀】(发言暗示队友今晚刀谁)、【归票】(把大家的票带到某个好人身上)、队友保不住时【切队友】自保；\n" +
+    "· 谁【划水】(全程不表态、不站边)容易被当狼查；被怀疑就要【扛推】自证。\n" +
+    "· 核心：别空喊口号，给【具体理由】——谁发言前后矛盾、谁的票投得可疑、谁的身份声称站不住脚。";
 
   // 开局：生成 NPC + 每人「牌桌能力小传」（狼人杀相关：悍跳/伪装/逻辑/带节奏）
   async function setupWolf(api, realPlayers, npcCount) {
@@ -606,7 +613,7 @@
     const p = prior.length ? prior.map(function (c) { return "· " + c.name + "：" + c.text; }).join("\n") : "（你们最先发言）";
     const easy = mode === "easy" ? "\n【放水局】狼别演得滴水不漏，给真人留点破绽。" : "";
     const day1 = dayNum <= 1 ? "\n【第一天·信息很少】刚死一个人、还没任何验人公开，别硬咬死谁是狼；多给方向、贴印象、定策略。真预言家自己判断要不要今天就跳——要跳就直接报验人结果，别光在那催『预言家快跳』。" : "";
-    const sys = AC + SKILL_RULE + "\n\n" + BOARD_LINE + "\n\n狼人杀·第 " + dayNum + " 天白天发言。每人轮流发一段【短发言】(2~4句)：分析昨晚的死、站边、表身份或隐藏、抓狼或自证。狼要伪装/悍跳预言家/带偏好人/护队友；预言家可跳身份报验人建信任；平民靠逻辑找狼。\n**别所有人都重复同一句空话**（尤其别全场都在喊『预言家快跳』）——每个人说点不一样的：报自己身份倾向、给具体某人一个印象/理由、定个策略。\n**只写这人会当众说的话，别写旁白、别泄露不该公开的上帝视角。**按真实水平决定发言质量。" + day1 + easy + stanceText(stances) +
+    const sys = AC + SKILL_RULE + "\n\n" + BOARD_LINE + "\n\n" + WOLF_TACTICS + "\n\n狼人杀·第 " + dayNum + " 天白天发言。每人按顺序发一段【短发言】(2~4句)：分析昨晚的死、站边、表身份或隐藏、抓狼或自证，能用套路就用（对跳/查杀/金水/倒钩/归票…按水平来）。\n**别所有人都重复同一句空话**（尤其别全场都在喊『预言家快跳』）——每个人说点不一样的：报自己身份倾向、给具体某人一个印象/理由、定个策略。\n**只写这人会当众说的话，别写旁白、别泄露不该公开的上帝视角。**按真实水平决定发言质量。" + day1 + easy + stanceText(stances) +
       "\n\n【昨晚】" + (deaths || "平安夜") + "\n\n【已发言】\n" + p + "\n\n【现在依次发言】\n" + who +
       "\n\n【输出】只输出 JSON：{\"speeches\":[{\"name\":\"\",\"text\":\"发言\"}],\"stances\":[{\"name\":\"发言人\",\"stance\":\"一句话概括 TA 现在的身份声称/站谁/怀疑谁（用于之后保持一致）\"}]}，speeches 顺序照上面。";
     const raw = await callRetry(api, sys, [{ role: "user", content: "依次发言。" }], { maxTokens: 6000 });
@@ -665,7 +672,7 @@
     useEffect(function () { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [log, phase, nightStage, busy]);
 
     // ---- 存档：进到 reveal/night/day 三个稳定节点各存一次；结束清掉。退出后中枢显示「继续」 ----
-    const serializePlayers = function (list) { return list.map(function (p) { return { key: p.key, name: p.name, isUser: !!p.isUser, isNpc: !!p.isNpc, skill: p.skill, role: p.role, alive: p.alive, persona: p.persona || "" }; }); };
+    const serializePlayers = function (list) { return list.map(function (p) { return { key: p.key, name: p.name, isUser: !!p.isUser, isNpc: !!p.isNpc, skill: p.skill, role: p.role, alive: p.alive, persona: p.persona || "", seat: p.seat }; }); };
     const hydratePlayers = function (arr) {
       const pf = props.profile || {};
       return arr.map(function (p) {
@@ -735,8 +742,11 @@
           for (let i = 0; i < nW; i++) roleAt[idx[k++]] = "wolf";
           roleAt[idx[k++]] = "seer";
           list.forEach(function (p, i) { p.role = roleAt[i] || "villager"; p.alive = true; });
+          // 定座位：你固定 1 号；发言顺序固定，每轮起始向后轮一位（仿真实狼人杀）
+          const seatArr = list.filter(function (p) { return p.isUser; }).concat(list.filter(function (p) { return !p.isUser; }));
+          seatArr.forEach(function (p, i) { p.seat = i; });
           setPlayers(list);
-          pushLog([{ type: "info", text: "本局 " + list.length + " 人：" + nW + " 狼、1 预言家、" + (list.length - nW - 1) + " 平民。不翻牌——死了不亮身份。" }]);
+          pushLog([{ type: "info", text: "本局 " + list.length + " 人：" + nW + " 狼、1 预言家、" + (list.length - nW - 1) + " 平民。不翻牌。发言按固定座位、每轮开头向后轮一位。" }]);
           setPhase("reveal");
         } catch (e) { setErrMsg((e && e.message) || "开局失败，重试"); setPhase("error"); }
       })();
@@ -807,23 +817,36 @@
     const seerDone = function () { const info = nightAI; resolveNight(info.list, tallyKill(info.wolfVotes, info.list), null, info.n, info.wolfVotes, false); };
 
     // ---- 白天 ----
+    // 固定座位 → 每轮起始向后轮一位：存活玩家按座位号、从本轮起始座位起绕圈排
+    const speakOrder = function (list, n) {
+      const N = list.length;
+      const alive = list.map(function (p, i) { return { p: p, seat: (typeof p.seat === "number" ? p.seat : i) }; }).filter(function (x) { return x.p.alive; });
+      const start = ((n - 1) % N + N) % N;
+      alive.sort(function (a, b) { return ((a.seat - start + N) % N) - ((b.seat - start + N) % N); });
+      return alive.map(function (x) { return x.p; });
+    };
     const startDay = function (list, n) {
       setPhase("day"); setDaySpeeches([]); setUserSpeech(""); setUserVote(null);
-      const meA = list.find(function (p) { return p.isUser; });
-      if (!(meA && meA.alive)) aiSpeak(list, [], n);
+      const order = speakOrder(list, n);
+      const meIdx = order.findIndex(function (p) { return p.isUser && p.alive; });
+      if (meIdx < 0) aiSpeakSeq(list, order, [], n, true);                 // 用户不在场/已死 → 全 AI 按序说完进投票
+      else if (meIdx > 0) aiSpeakSeq(list, order.slice(0, meIdx), [], n, false); // 轮到用户前的先说，停下等用户
+      // meIdx===0：轮到用户先发言，直接等输入
     };
-    const aiSpeak = async function (list, prior, n) {
+    // 让一批 AI【按给定顺序】依次发言；final=true 说完进投票，否则停下等用户
+    const aiSpeakSeq = async function (list, group, prior, n, final) {
+      const ai = group.filter(function (p) { return !p.isUser; });
+      if (!ai.length) { if (final) { setPhase("dayvote"); setUserVote(null); } return; }
       setBusy(true);
       try {
-        const aiAlive = list.filter(function (p) { return p.alive && !p.isUser; });
-        const speakers = shuffle(aiAlive).map(function (p) { return { name: p.name, skill: p.skill, priv: privateFor(p, list) }; });
+        const speakers = ai.map(function (p) { return { name: p.name, skill: p.skill, priv: privateFor(p, list) }; });
         const res = await genSpeeches(api, speakers, n, prior, lastDeath, cfg.mode, (list.find(function (p) { return p.isUser && p.alive; }) || {}).name || "", stanceRef.current);
         const sp = res.speeches;
         (res.stances || []).forEach(function (s) { if (s && s.name && s.stance) { const hit = speakers.find(function (x) { return s.name.indexOf(x.name) >= 0 || x.name.indexOf(s.name) >= 0; }); if (hit) stanceRef.current[hit.name] = s.stance; } });
         const norm = speakers.map(function (s) { const hit = sp.find(function (c) { return c.name && (c.name.indexOf(s.name) >= 0 || s.name.indexOf(c.name) >= 0); }); return { name: s.name, text: (hit && hit.text) || "……（沉默了一下，没多说）" }; });
-        setDaySpeeches(function (D) { return D.concat(prior).concat(norm); });
+        setDaySpeeches(function (D) { return D.concat(norm); });
         pushLog(norm.map(function (c) { return { type: "speech", name: c.name, text: c.text }; }));
-        setPhase("dayvote"); setUserVote(null);
+        if (final) { setPhase("dayvote"); setUserVote(null); }
       } catch (e) { props.toast && props.toast("发言失败：" + ((e && e.message) || "重试")); }
       finally { setBusy(false); }
     };
@@ -831,8 +854,15 @@
       const v = userSpeech.trim(); if (!v || !me) return;
       pushLog([{ type: "speech", name: me.name, text: v, mine: true }]);
       stanceRef.current[me.name] = v.slice(0, 60); // 记下你的立场，AI 后续保持连贯
+      const mine = { name: me.name, text: v };
+      setDaySpeeches(function (D) { return D.concat([mine]); });
       setUserSpeech("");
-      aiSpeak(players, [{ name: me.name, text: v }], cycle);
+      const order = speakOrder(players, cycle);
+      const meIdx = order.findIndex(function (p) { return p.isUser; });
+      const after = order.slice(meIdx + 1);
+      const prior = daySpeeches.concat([mine]); // 轮到用户前那批 + 用户这句
+      if (after.filter(function (p) { return !p.isUser; }).length) aiSpeakSeq(players, after, prior, cycle, true);
+      else { setPhase("dayvote"); setUserVote(null); }
     };
     // ---- 投票 ----
     const runDayVote = async function (userTarget) {
@@ -888,10 +918,13 @@
         h("div", { style: { fontSize: 40 } }, "🌙"),
         h("div", { style: { fontFamily: F_BODY, fontSize: 14, color: t.fog } }, "发身份·评估每个人的真实水平…")));
 
+    const seated = players.slice().sort(function (a, b) { return (typeof a.seat === "number" ? a.seat : 0) - (typeof b.seat === "number" ? b.seat : 0); });
     const roster = h("div", { className: "shrink-0", style: { display: "flex", gap: 10, overflowX: "auto", padding: "10px 16px", borderBottom: "1px solid " + t.line } },
-      players.map(function (p) {
+      seated.map(function (p, i) {
         return h("button", { key: p.key, onClick: function () { setDetail(p); }, className: "active:opacity-70", style: { display: "flex", flexDirection: "column", alignItems: "center", gap: 3, opacity: p.alive ? 1 : 0.32, flexShrink: 0, width: 46 } },
-          h("div", { style: { position: "relative" } }, pAvatar(p, 38), !p.alive ? h("div", { style: { position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 } }, "✖") : null),
+          h("div", { style: { position: "relative" } }, pAvatar(p, 38),
+            h("div", { style: { position: "absolute", top: -3, left: -3, minWidth: 15, height: 15, borderRadius: 999, background: t.ink, color: "#f3efe6", fontFamily: F_BODY, fontSize: 9, lineHeight: "15px", textAlign: "center", padding: "0 2px" } }, (typeof p.seat === "number" ? p.seat : i) + 1),
+            !p.alive ? h("div", { style: { position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 } }, "✖") : null),
           h("div", { style: { fontFamily: F_BODY, fontSize: 10, color: t.sub, maxWidth: 46, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "center" } }, p.name + (p.isUser ? "(你)" : "")));
       }));
 
