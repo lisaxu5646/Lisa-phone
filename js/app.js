@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v47.08";
+const APP_VERSION = "v47.09";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -444,6 +444,16 @@ function App() {
     setGroupChats(gm);
     setLoaded(true);
   }, []);
+  // 点锁屏通知回到 app：打开对应角色的私聊（index.html 的 SW 监听里会调这个）
+  useEffect(() => {
+    window.__openFromNotif = (charId, screen) => {
+      const c = charId && characters.find(x => x.id === charId);
+      if (c) { setActiveChar(c); clearUnread(c.id); setScreen("thread"); }
+      else if (screen) setScreen(screen);
+      else setScreen("messages");
+    };
+    return () => { if (window.__openFromNotif) delete window.__openFromNotif; };
+  }, [characters]);
   const active = apiProfiles.find(p => p.id === activeId) || apiProfiles[0];
   // 后台任务(抽取/日程/钱包/查手机)用的 API：选了便宜的就用它，没选就回退主 API（默认，不改变现状）
   const bgActive = (bgApiId && apiProfiles.find(p => p.id === bgApiId)) || active;
@@ -1594,6 +1604,8 @@ function App() {
           turnId
         }]);
       }
+      // 切出去/锁屏时，把这条回复弹成锁屏通知（Notify 内部判是否开启 + 是否在前台）
+      if (words.length && window.Notify) window.Notify.push({ title: char.name + " 发来消息", body: words.join(" "), tag: "chat-" + charId, charId: charId });
       // TA 甩了一张表情：按关键词匹配可用表情，作为一条 emote 消息
       const emoteKw = parsed.emote && String(parsed.emote).toLowerCase() !== "null" ? String(parsed.emote).trim() : null;
       if (emoteKw && emotes.length) {
@@ -1667,14 +1679,14 @@ function App() {
         liked: false,
         likeCount: 0,
         comments: []
-      }, ...p]); notifyApp("moments"); }
+      }, ...p]); notifyApp("moments"); if (window.Notify) window.Notify.push({ title: char.name + " 发了条朋友圈", body: mo, tag: "mom-" + charId, charId: charId }); }
       // #A 给恋人留悄悄话（论坛发帖已移除每轮自发，改由 tickAmbient 计数器按 50轮/3天 定时发）
       let ambForum = false, ambWhisper = false;
       if (parsed.whisper && String(parsed.whisper).toLowerCase() !== "null" && couples[charId] && couples[charId].status === "together") {
         // 悄悄话 = 贴到你俩的「便签墙」上（authorId=角色，默认盖着，点开才看得到）——不再进无处显示的 whispers 数组
         const wtext = String(parsed.whisper).trim();
         setCoupleNotes(p => { const n = [{ id: "note_" + Date.now(), characterId: charId, authorId: charId, content: wtext, style: Math.floor(Math.random() * 5), createdAt: Date.now(), replies: [] }, ...p]; saveJSON("x_coupleNotes", n); return n; });
-        notifyApp("whisper"); ambWhisper = true;
+        notifyApp("whisper"); ambWhisper = true; if (window.Notify) window.Notify.push({ title: char.name + " 给你留了句悄悄话", body: wtext, tag: "wh-" + charId, charId: charId });
       }
       // 动态保底：每轮回复计数，很久没发就强制补一条（不影响本轮已自发的）
       if (!opts.proactive) tickAmbient(charId, { moment: !!mo, whisper: ambWhisper, forum: ambForum });
@@ -2787,13 +2799,13 @@ function App() {
       // 模型可能回「吐槽」也可能回「吐槽吧」，统一归到四版块的正式名（否则帖子 board 不在 FORUM_BOARDS，版块/关注页都筛不到）
       const bmap = { "吐槽": "吐槽吧", "日常": "日常吧", "求助": "求助吧" };
       const board = bmap[String((d && d.board) || "").replace(/吧$/, "")] || "日常吧";
-      if (d && d.title) { postCharToForum(char, board, { title: String(d.title), body: String(d.body || "") }, "auto"); notifyApp("forum"); toast(char.name + " 在论坛发了帖"); }
+      if (d && d.title) { postCharToForum(char, board, { title: String(d.title), body: String(d.body || "") }, "auto"); notifyApp("forum"); toast(char.name + " 在论坛发了帖"); if (window.Notify) window.Notify.push({ title: char.name + " 在论坛发了帖", body: String(d.title), tag: "forum-" + char.id, charId: char.id }); }
     } catch (e) {}
   };
   const forceAmbient = async (char, type) => {
     try {
-      if (type === "moment") { await genMoment(char); notifyApp("moments"); toast(char.name + " 发了条朋友圈"); }
-      else if (type === "whisper") { await genWhisper(char); notifyApp("whisper"); toast(char.name + " 给你留了句悄悄话"); }
+      if (type === "moment") { await genMoment(char); notifyApp("moments"); toast(char.name + " 发了条朋友圈"); if (window.Notify) window.Notify.push({ title: char.name + " 发了条朋友圈", body: "去朋友圈看看吧", tag: "mom-" + char.id, charId: char.id }); }
+      else if (type === "whisper") { await genWhisper(char); notifyApp("whisper"); toast(char.name + " 给你留了句悄悄话"); if (window.Notify) window.Notify.push({ title: char.name + " 给你留了句悄悄话", body: "点开看看", tag: "wh-" + char.id, charId: char.id }); }
       else if (type === "forum") { await autoForumForChar(char); }
     } catch (e) {}
   };
