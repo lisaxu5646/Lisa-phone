@@ -1691,6 +1691,14 @@
   // ============================================================
   // 真心话大冒险 · 引擎（转瓶子 → 真心话 / 大冒险 → 全场反应）
   // ============================================================
+  // 取角色【完整人设】喂给生成（真人角色读 char.persona 全量，NPC 读生成的人设；别只喂一句 tagline，否则严重 OOC）
+  function tdDesc(p, cap) {
+    const s = p.isNpc ? (p.persona || "") : ((p.char && (p.char.persona || p.char.tagline)) || p.persona || "");
+    return (cap && s.length > cap) ? s.slice(0, cap) + "…" : (s || "（没写人设）");
+  }
+  function tdRoster(list, cap) { return list.map(function (p) { return "【" + p.name + "】" + tdDesc(p, cap); }).join("\n\n"); }
+  // 贴人设铁律：焊进真心话每个生成，治 OOC + 性别/关系搞错
+  const TD_IC = "【严格贴人设 · 别 OOC】每个角色的语气、态度、会问什么、敢做什么，都必须符合 TA 的人设与身份；性别、年龄、和别人的关系、称呼一律按人设来别搞错（例：双胞胎哥哥的弟弟就是弟弟、别写成妹妹；冷淡的人别写成话痨）。宁可克制也别为了效果让角色崩人设、或编造人设里没有的关系/身份。";
   async function setupTD(api, realPlayers, npcCount) {
     const lines = realPlayers.map(function (p, i) { return (i + 1) + ". " + p.name + "：" + (p.persona || "（没写人设）"); }).join("\n");
     const sys = AC + "你是「真心话大冒险」的主持。生成 " + npcCount + " 个 NPC 玩家（name 中文名 + persona 一句含职业与性格的人设，多样别雷同）。\n" +
@@ -1702,31 +1710,31 @@
   // AI 被指到：一次拿全整段（选真话/大冒险 + 谁出题 + 题 + TA 的回应 + 全场反应）
   // others 只含【角色/NPC】、不含真人——出题人和起哄的人都不能是真人，绝不替真人写话
   async function genTDForAI(api, target, others, mode, hot) {
-    const who = others.length ? others.map(function (p) { return p.name + "（" + (p.persona || (p.char && p.char.tagline) || "") + "）"; }).join("；") : "（没有别的角色，出题人写「大家」）";
+    const who = others.length ? tdRoster(others, 700) : "（没有别的角色，出题人写「大家」）";
     const spice = hot ? "尺度可以暧昧 / 大胆一点，什么都可以问，挖出角色最深的欲望。" : "保持轻松好玩、朋友聚会的尺度。";
     const easy = mode === "easy" ? "整体轻松、别太为难人。" : "";
-    const sys = AC + "你在主持一局「真心话大冒险」。当前瓶子指到了【" + target.name + "】：" + (target.persona || (target.char && target.char.tagline) || "（照 TA 人设来）") +
-      "\n在场其他角色（出题人和起哄的人【只能】从这里选，【绝不能】是真人玩家、也不要替真人玩家写任何话）：" + who +
-      "\n\n请把这一次完整演出来，放开写、别怕长：\n1. choice：" + target.name + "会选「真心话」还是「大冒险」（按 TA 性格，别每次都一样）。\n2. asker：从上面的角色里选一个来出题的人。\n3. prompt：asker 出的题（真心话=一个够劲的问题；大冒险=一个具体可执行的动作），符合 asker 口吻。" + spice + easy +
-      "\n4. response：" + target.name + "怎么回应／完成（带 TA 的语气和小动作，写足 3~5 句、有戏，别草草收尾）。\n5. reactions：在场 2~4 个角色的即时起哄 / 吐槽 / 追问，每条 {name,text} 一句，符合各自人设。\n\n只输出 JSON：{\"choice\":\"真心话\"或\"大冒险\",\"asker\":\"\",\"prompt\":\"\",\"response\":\"\",\"reactions\":[{\"name\":\"\",\"text\":\"\"}]}";
+    const sys = AC + TD_IC + "\n\n你在主持一局「真心话大冒险」。当前瓶子指到了【" + target.name + "】，TA 的完整人设：\n" + tdDesc(target) +
+      "\n\n在场其他角色（出题人和起哄的人【只能】从这里选，【绝不能】是真人玩家、也不要替真人玩家写任何话）：\n" + who +
+      "\n\n请把这一次完整演出来，放开写、别怕长，但每个人都要【严格贴自己的人设】：\n1. choice：" + target.name + "会选「真心话」还是「大冒险」（按 TA 性格，别每次都一样）。\n2. asker：从上面的角色里选一个来出题的人。\n3. prompt：asker 出的题（真心话=一个够劲的问题；大冒险=一个具体可执行的动作），符合 asker 口吻。" + spice + easy +
+      "\n4. response：" + target.name + "怎么回应／完成（带 TA 的语气和小动作、贴 TA 人设，写足 3~5 句、有戏，别草草收尾）。\n5. reactions：在场 2~4 个角色的即时起哄 / 吐槽 / 追问，每条 {name,text} 一句，各说各人设该说的话。\n\n只输出 JSON：{\"choice\":\"真心话\"或\"大冒险\",\"asker\":\"\",\"prompt\":\"\",\"response\":\"\",\"reactions\":[{\"name\":\"\",\"text\":\"\"}]}";
     const raw = await callRetry(api, sys, [{ role: "user", content: "开演。" }], { maxTokens: 4000 });
     return extractJSON(raw) || {};
   }
   // 用户被指到并选了 真话/大冒险：由一个角色给 TA 出题（出题人绝不是真人自己）
   async function genTDPrompt(api, choice, others, hot, mode) {
-    const who = others.length ? others.map(function (p) { return p.name + "（" + (p.persona || (p.char && p.char.tagline) || "") + "）"; }).join("；") : "（没有别的角色，出题人写「大家」）";
+    const who = others.length ? tdRoster(others, 700) : "（没有别的角色，出题人写「大家」）";
     const spice = hot ? "尺度可暧昧 / 大胆些，什么都可以问，挖出角色最深的欲望。" : "轻松好玩的尺度。";
-    const sys = AC + "「真心话大冒险」里轮到真人玩家了，TA 选了【" + choice + "】。从在场这些【角色】里选一个来给 TA 出题（出题人只能是这里的角色，不是真人自己）：" + who +
-      "\n出一道" + (choice === "真心话" ? "够味的真心话问题" : "具体可执行的大冒险动作") + "，符合出题人口吻。" + spice + (mode === "easy" ? "别太为难。" : "") +
+    const sys = AC + TD_IC + "\n\n「真心话大冒险」里轮到真人玩家了，TA 选了【" + choice + "】。从在场这些【角色】里选一个来给 TA 出题（出题人只能是这里的角色，不是真人自己），出的题要符合这个角色的人设口吻：\n" + who +
+      "\n\n出一道" + (choice === "真心话" ? "够味的真心话问题" : "具体可执行的大冒险动作") + "，符合出题人口吻。" + spice + (mode === "easy" ? "别太为难。" : "") +
       "\n只输出 JSON：{\"asker\":\"\",\"prompt\":\"\"}";
     const raw = await callRetry(api, sys, [{ role: "user", content: "出题。" }], { maxTokens: 1200 });
     return extractJSON(raw) || {};
   }
   // 用户回应后的全场反应（起哄的只有角色，不含真人）
   async function genTDReactions(api, choice, prompt, userResp, others) {
-    const who = others.map(function (p) { return p.name + "（" + (p.persona || (p.char && p.char.tagline) || "") + "）"; }).join("；");
-    const sys = AC + "「真心话大冒险」里真人玩家刚完成了 TA 的【" + choice + "】。\n题目：" + prompt + "\nTA 的回应：" + userResp +
-      "\n在场角色（只有这些角色起哄，别替真人写话）：" + who + "\n让其中 2~4 个角色即时起哄 / 调侃 / 追问，每条一句，符合各自人设。\n只输出 JSON：{\"reactions\":[{\"name\":\"\",\"text\":\"\"}]}";
+    const who = tdRoster(others, 700);
+    const sys = AC + TD_IC + "\n\n「真心话大冒险」里真人玩家刚完成了 TA 的【" + choice + "】。\n题目：" + prompt + "\nTA 的回应：" + userResp +
+      "\n\n在场角色（只有这些角色起哄，别替真人写话）：\n" + who + "\n\n让其中 2~4 个角色即时起哄 / 调侃 / 追问，每条一句，各按自己人设的口吻反应。\n只输出 JSON：{\"reactions\":[{\"name\":\"\",\"text\":\"\"}]}";
     const raw = await callRetry(api, sys, [{ role: "user", content: "起哄。" }], { maxTokens: 2500 });
     return extractJSON(raw) || { reactions: [] };
   }
@@ -1740,8 +1748,8 @@
     }).filter(Boolean).join("\n");
   }
   async function genTDDiscuss(api, chars, recentText, userMsg, hot) {
-    const who = chars.map(function (p) { return p.name + "（" + (p.persona || (p.char && p.char.tagline) || "") + "）"; }).join("；");
-    const sys = AC + "「真心话大冒险」的自由聊天时间——大家围着刚才的事继续瞎聊、起哄、追问、翻旧账、跑题打闹都行。在场角色（只有这些角色开口，【绝不替真人玩家说话】）：" + who +
+    const who = tdRoster(chars, 700);
+    const sys = AC + TD_IC + "\n\n「真心话大冒险」的自由聊天时间——大家围着刚才的事继续瞎聊、起哄、追问、翻旧账、跑题打闹都行。在场角色（只有这些角色开口，【绝不替真人玩家说话】，每人都要贴自己人设）：\n" + who +
       "\n\n刚才这些话你们都听见了，【接着往下聊】、互相搭话点名回应，别重复已经说过的、别把上面的话再说一遍：\n" + (recentText || "（刚开场，随便起个话头）") +
       (userMsg ? "\n\n真人玩家刚插了一句：「" + userMsg + "」——让相关的角色自然接住这句往下说，别冷场、别答非所问。" : "\n\n真人玩家这轮没开口、把话筒交给你们——让几个角色自然地你一言我一语聊下去（可以互相拱火、追问上一个人、或顺势跑题），像一群人真在聊天那样有来有回。") +
       "\n每条一句、符合各自人设、彼此能接上。" + (hot ? "尺度可暧昧大胆些，什么都可以聊。" : "轻松好玩。") + "给 " + (userMsg ? "2~4" : "4~6") + " 条。\n只输出 JSON：{\"chat\":[{\"name\":\"\",\"text\":\"\"}]}";
