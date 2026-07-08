@@ -3386,6 +3386,14 @@ function MemoryLib({
     const c = characters.find(x => x.id === id);
     return c ? c.remark || c.name : "未知";
   };
+  // 情绪小圆点：愉悦度→暖/冷/中色，强度→大小与浓度（Ombre Brain 借鉴）
+  const emoDot = e => {
+    const v = e.v || 0, a = e.a == null ? 1 : e.a;
+    if (!v && a <= 1) return null;
+    const col = v >= 2 ? "#c98a3c" : v <= -2 ? "#5f7c9a" : "#a59a86";
+    const sz = 6 + Math.min(5, a);
+    return h("span", { key: "emo", title: "情绪 愉悦" + v + "·强度" + a, style: { width: sz, height: sz, borderRadius: 999, background: col, flexShrink: 0, opacity: 0.45 + a * 0.1 } });
+  };
   const qlc = q.trim().toLowerCase();
   const list = (entries || []).filter(e => (filter === "all" || !e.charIds || e.charIds.length === 0 || e.charIds.includes(filter)) && (!qlc || (String(e.text || "") + " " + (e.tags || []).join(" ") + " " + (e.charIds || []).map(nameOf).join(" ")).toLowerCase().indexOf(qlc) >= 0)).slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (b.ts || 0) - (a.ts || 0));
   const importable = focusChar && oldMemories && (oldMemories[focusChar.id] || "").trim();
@@ -3459,7 +3467,7 @@ function MemoryLib({
     }
   }, "置顶")), h("div", {
     className: "flex flex-wrap items-center gap-1.5 mt-2"
-  }, (e.tags || []).map((tag, i) => h("span", {
+  }, emoDot(e), e.open ? h("span", { key: "open", style: { fontFamily: F_BODY, fontSize: 10.5, color: "#fff", background: "#b06a4f", padding: "1px 7px", borderRadius: 999 } }, "未了") : null, (e.tags || []).map((tag, i) => h("span", {
     key: i,
     style: {
       fontFamily: F_BODY,
@@ -3538,6 +3546,9 @@ function MemEntrySheet({
   const [tagStr, setTagStr] = useState(entry ? (entry.tags || []).join("、") : "");
   const [charIds, setCharIds] = useState(entry ? entry.charIds || [] : focusChar ? [focusChar.id] : []);
   const [pinned, setPinned] = useState(entry ? !!entry.pinned : false);
+  const [open, setOpen] = useState(entry ? !!entry.open : false);
+  const [vv, setVv] = useState(entry && typeof entry.v === "number" ? entry.v : 0);
+  const [aa, setAa] = useState(entry && typeof entry.a === "number" ? entry.a : 1);
   const toggleChar = id => setCharIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
   const save = () => {
     const tt = text.trim();
@@ -3547,7 +3558,10 @@ function MemEntrySheet({
       text: tt,
       tags,
       charIds,
-      pinned
+      pinned,
+      open,
+      v: vv,
+      a: aa
     });
   };
   return h(Sheet, {
@@ -3632,7 +3646,29 @@ function MemEntrySheet({
       transition: "left .2s",
       boxShadow: "0 1px 3px rgba(0,0,0,0.2)"
     }
-  }))), onDelete && h("button", {
+  }))),
+  // 未了结（Ombre Brain·承诺可标记完成）：勾上会更常被想起，办完/翻篇点掉它就不再惦记
+  h("div", { className: "flex items-center justify-between pt-6" },
+    h("div", { style: { flex: 1, paddingRight: 12 } },
+      h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.sub } }, "还没了结（约定 / 心结）"),
+      h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 2, lineHeight: 1.5 } }, "标记后 TA 会更常惦记这件事；等兑现了 / 翻篇了，点掉它就不再念叨")),
+    h("button", { onClick: () => setOpen(v => !v), className: "shrink-0", style: { width: 46, height: 27, borderRadius: 999, background: open ? "#b06a4f" : t.line, position: "relative", transition: "background .2s" } },
+      h("span", { style: { position: "absolute", top: 3, left: open ? 22 : 3, width: 21, height: 21, borderRadius: 999, background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" } }))),
+  // 情绪坐标（Ombre Brain·valence/arousal）：愉悦度 + 强度，影响被想起的权重
+  (() => {
+    const stepper = (label, val, lo, hi, onCh) => h("div", { className: "flex items-center justify-between", style: { padding: "8px 0" } },
+      h("span", { style: { fontFamily: F_BODY, fontSize: 13, color: t.sub } }, label),
+      h("div", { className: "flex items-center", style: { gap: 12 } },
+        h("button", { onClick: () => onCh(Math.max(lo, val - 1)), className: "active:opacity-60", style: { width: 26, height: 26, borderRadius: 999, border: "1px solid " + t.line, color: t.ink, fontFamily: F_DISPLAY, fontSize: 15 } }, "−"),
+        h("span", { style: { minWidth: 24, textAlign: "center", fontFamily: F_DISPLAY, fontSize: 15, color: t.accent } }, val),
+        h("button", { onClick: () => onCh(Math.min(hi, val + 1)), className: "active:opacity-60", style: { width: 26, height: 26, borderRadius: 999, border: "1px solid " + t.line, color: t.ink, fontFamily: F_DISPLAY, fontSize: 15 } }, "＋")));
+    return h("div", { className: "pt-4", style: { borderTop: "1px solid " + t.line, marginTop: 14 } },
+      h(Eyebrow, { style: { marginBottom: 4 } }, "情绪坐标"),
+      h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginBottom: 4, lineHeight: 1.5 } }, "越激动、越强烈的事越难忘、越常被想起。自动抽取会自己判断，也可手调"),
+      stepper("愉悦度（-5 难过 ～ +5 开心）", vv, -5, 5, setVv),
+      stepper("强度（0 平淡 ～ 5 刻骨）", aa, 0, 5, setAa));
+  })(),
+  onDelete && h("button", {
     onClick: onDelete,
     className: "w-full text-center pt-6",
     style: {

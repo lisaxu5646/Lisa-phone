@@ -405,7 +405,10 @@ function scoreMemEntry(entry, qTokens, now) {
   // 时间新近度：半衰期 30 天，映射到 0~1
   const days = Math.max(0, (now - (entry.ts || now)) / 86400000);
   const recency = Math.pow(0.5, days / 30);
-  return keyword + recency * 0.8 + (entry.pinned ? 100 : 0);
+  // 权重池（Ombre Brain 借鉴）：情绪强度 arousal 越高越难忘、未了结 open 的开环会一直惦记 → 更容易被想起
+  const arousalW = (Math.max(0, Math.min(5, entry.a == null ? 1 : entry.a)) / 5) * 1.1;
+  const openW = entry.open ? (0.7 + arousalW * 0.4) : 0;
+  return keyword + recency * 0.8 + arousalW + openW + (entry.pinned ? 100 : 0);
 }
 function retrieveMemories(lib, charId, queryText, opts = {}) {
   const limit = opts.limit || 6;
@@ -421,7 +424,8 @@ function retrieveMemories(lib, charId, queryText, opts = {}) {
 function formatMemLib(entries) {
   return (entries || []).map(e => {
     const tags = (e.tags && e.tags.length) ? "（" + e.tags.join("、") + "）" : "";
-    return "· " + e.text + tags;
+    const openMark = e.open ? "〔还没了结·你心里还惦记着〕" : "";
+    return "· " + e.text + openMark + tags;
   }).join("\n");
 }
 // 微信式随机红包拆分：total(元)拆成 count 份，每份 >=0.01，和为 total
@@ -468,7 +472,8 @@ async function extractMemories(p, ctx, msgs, opts = {}) {
     "· 一句话、具体可复用；**每条开头必须点明这条是关于谁的**，用真名写清主语：关于用户「" + uName + "」的、关于角色「" + charName + "」自己的、还是关于「他俩之间」的。例：『" + uName + " 下周要去比赛』『" + charName + " 小时候在乡下长大』『" + uName + " 和 " + charName + " 约好周末见面』。\n" +
     "· **绝对不许张冠李戴**：用户的经历/喜好/身份/计划，就记在用户「" + uName + "」名下，【不要写成角色自己的】；角色的就记在「" + charName + "」名下。分不清是谁的就别记这条。\n" +
     "· 同一件事【只记一条】，别把一件事拆成好几条重复的；忽略寒暄和没信息量的闲聊。为每条配 1~3 个中文标签。" + avoid + "\n" +
-    "【输出】只输出合法 JSON 数组，无 markdown：\n[{\"text\":\"一句话事实（开头带主语真名）\",\"tags\":[\"标签1\"]}]\n没有值得记的、或全都已记过，就输出 []。";
+    "· 每条再标注情绪与状态：**v**=这件事的情绪愉悦度（整数 -5~5，负=难过/生气/难堪/委屈，0=中性事实，正=开心/温暖/心动）；**a**=情绪强度（整数 0~5，0=平淡的事实，5=强烈动情/激烈冲突/刻骨铭心）；**open**=是不是【还没了结的开环】（true=没兑现的约定/没和好的争执/悬着的心事/在等的结果这类还惦记着、还没画句号的；false=已了结的、或本来就是静态事实/偏好/背景）。\n" +
+    "【输出】只输出合法 JSON 数组，无 markdown：\n[{\"text\":\"一句话事实（开头带主语真名）\",\"tags\":[\"标签1\"],\"v\":0,\"a\":1,\"open\":false}]\n没有值得记的、或全都已记过，就输出 []。";
   const raw = await callAI(p, system, [{ role: "user", content: "【对话】\n" + text }], { maxTokens: 3500 });
   const parsed = extractJSON(raw);
   return Array.isArray(parsed) ? parsed.filter(x => x && x.text) : [];

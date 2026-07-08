@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v46.96";
+const APP_VERSION = "v46.97";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -604,6 +604,7 @@ function App() {
       return s.length >= 6 && l.indexOf(s) >= 0 && s.length / l.length > 0.72;
     });
   };
+  const clampInt = (x, lo, hi, dflt) => typeof x === "number" && !isNaN(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : dflt;
   const addMemEntry = e => {
     const entry = {
       id: "m_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
@@ -612,7 +613,10 @@ function App() {
       charIds: e.charIds || [],
       ts: e.ts || Date.now(),
       source: e.source || "manual",
-      pinned: !!e.pinned
+      pinned: !!e.pinned,
+      v: clampInt(e.v, -5, 5, 0),   // 情绪愉悦度 -5~5
+      a: clampInt(e.a, 0, 5, 1),    // 情绪强度 0~5
+      open: !!e.open                // 还没了结的开环
     };
     if (!entry.text) return;
     // 自动来源（抽取/总结）去重，别把同一件事塞好几条；手动记的放行（用户自己要加就加）
@@ -637,7 +641,8 @@ function App() {
       const now = Date.now();
       const batchSeen = [];
       const entries = items.map((it, i) => ({
-        id: uniqMemId(now, i), text: String(it.text).trim(), tags: Array.isArray(it.tags) ? it.tags : [], charIds: [charId], ts: now, source: "auto", pinned: false
+        id: uniqMemId(now, i), text: String(it.text).trim(), tags: Array.isArray(it.tags) ? it.tags : [], charIds: [charId], ts: now, source: "auto", pinned: false,
+        v: clampInt(it.v, -5, 5, 0), a: clampInt(it.a, 0, 5, 1), open: !!it.open
       })).filter(x => x.text).filter(x => {
         if (isDupMem(x.text, [charId])) return false;            // 和库里已有重复
         if (isDupMem(x.text, [charId], batchSeen)) return false; // 和本批已收的重复
