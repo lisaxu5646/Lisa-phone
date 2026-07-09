@@ -1004,12 +1004,27 @@ function loadJSON(k, fb) {
     return fb;
   }
 }
+function isQuotaError(e) {
+  return !!e && (e.name === "QuotaExceededError" || e.name === "NS_ERROR_DOM_QUOTA_REACHED" || e.code === 22 || e.code === 1014 || /quota|exceed|storage/i.test(String(e.message || "")));
+}
+// 写 localStorage。成功返回 true；写满(quota)时【弹全局警告】并返回 false——不再默默丢数据。
 function saveJSON(k, v) {
   try {
     localStorage.setItem(k, JSON.stringify(v));
+    return true;
   } catch (e) {
-    console.error(e);
+    console.error("saveJSON failed:", k, e);
+    if (isQuotaError(e) && typeof window !== "undefined" && typeof window.__storageFull === "function") {
+      try { window.__storageFull(k); } catch (x) {}
+    }
+    return false;
   }
+}
+// 估算 localStorage 已占字节（近似：键+值字符数×2，UTF-16）
+function localStorageBytes() {
+  let n = 0;
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); const v = localStorage.getItem(k) || ""; n += (k.length + v.length) * 2; } } catch (e) {}
+  return n;
 }
 function resizeImageFile(file, maxDim = 400, q = 0.85) {
   return new Promise((res, rej) => {

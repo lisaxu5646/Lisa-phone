@@ -3433,6 +3433,32 @@ function CloudSync({ toast }) {
   return h("div", { className: "pt-6 pb-6", style: { borderBottom: `1px solid ${t.line}` } },
     label("云备份"), ...inner);
 }
+// 本地存储占用条：localStorage 约 5MB 上限（图片吃大头），快满时红色预警——防「悄悄写满丢数据」
+function StorageMeter() {
+  const t = useTheme();
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    const ls = (typeof localStorageBytes === "function") ? localStorageBytes() : 0;
+    const LIMIT = 5 * 1024 * 1024;
+    if (navigator.storage && navigator.storage.estimate) {
+      navigator.storage.estimate().then(est => setInfo({ ls: ls, lim: LIMIT, idbUsed: est.usage || 0, idbQuota: est.quota || 0 })).catch(() => setInfo({ ls: ls, lim: LIMIT }));
+    } else setInfo({ ls: ls, lim: LIMIT });
+  }, []);
+  if (!info) return null;
+  const pct = Math.min(100, Math.round(info.ls / info.lim * 100));
+  const near = pct >= 80;
+  const mb = n => (n / 1048576).toFixed(1);
+  return h("div", { style: { marginBottom: 20, padding: "14px 15px", background: t.bg2, border: "1px solid " + (near ? "#c25a4a" : t.line), borderRadius: 12 } },
+    h("div", { className: "flex items-center justify-between", style: { marginBottom: 8 } },
+      h("span", { style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.ink } }, "本地存储占用"),
+      h("span", { style: { fontFamily: F_BODY, fontSize: 12, color: near ? "#c25a4a" : t.fog } }, mb(info.ls) + " / ~5 MB（" + pct + "%）")),
+    h("div", { style: { height: 8, borderRadius: 999, background: t.line, overflow: "hidden" } },
+      h("div", { style: { width: pct + "%", height: "100%", borderRadius: 999, background: near ? "#c25a4a" : (pct >= 60 ? "#b89150" : t.tint), transition: "width .3s" } })),
+    h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 8, lineHeight: 1.6 } },
+      near ? "⚠️ 快满了！主要是图片（头像/壁纸/朋友圈图/表情包）占地方——删掉些用不到的图、或导出备份后清理。满了新消息会存不进、可能丢。"
+        : "文字＋图片都存这里（上限约 5MB），图片占大头。快满时 app 会提前弹警告。"),
+    info.idbQuota ? h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 6 } }, "音频 / 自拍 / 书正文另存在 IndexedDB（已用 " + mb(info.idbUsed) + " MB，空间大得多、不占这 5MB）") : null);
+}
 function DataConfig({
   onExport,
   onImport,
@@ -3444,7 +3470,7 @@ function DataConfig({
   const ref = useRef(null);
   return /*#__PURE__*/React.createElement("div", {
     className: "pt-6"
-  }, h(CloudSync, { toast: toast }), /*#__PURE__*/React.createElement("div", {
+  }, h(StorageMeter, null), h(CloudSync, { toast: toast }), /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: F_BODY,
       fontSize: 13,

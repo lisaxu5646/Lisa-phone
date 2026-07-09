@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v47.30";
+const APP_VERSION = "v47.31";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -458,6 +458,17 @@ function App() {
     };
     return () => { if (window.__openFromNotif) delete window.__openFromNotif; };
   }, [characters]);
+  // 本地存储写满 → saveJSON 会调这个(engine.js)，弹警告防「悄悄丢数据」；20s 内只弹一次
+  const storageWarnTs = useRef(0);
+  useEffect(() => {
+    window.__storageFull = () => {
+      const now = Date.now();
+      if (now - storageWarnTs.current < 20000) return;
+      storageWarnTs.current = now;
+      toast("⚠️ 手机本地存储快满了，新内容可能存不进/会丢！去 设置·数据 看占用、清掉些图片，或先导出备份");
+    };
+    return () => { if (window.__storageFull) delete window.__storageFull; };
+  }, []);
   const active = apiProfiles.find(p => p.id === activeId) || apiProfiles[0];
   // 后台任务(抽取/日程/钱包/查手机)用的 API：选了便宜的就用它，没选就回退主 API（默认，不改变现状）
   const bgActive = (bgApiId && apiProfiles.find(p => p.id === bgApiId)) || active;
