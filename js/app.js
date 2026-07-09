@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v47.14";
+const APP_VERSION = "v47.15";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -699,7 +699,7 @@ function App() {
   };
   const extractMemForChar = async charId => {
     if (!active) { toast("请先到设置配置 API"); return; }
-    const msgs = (chatsRef.current[charId] || []).filter(m => !m.recalled).slice(-40);
+    const msgs = (chatsRef.current[charId] || []).filter(m => !m.recalled && m.kind !== "offlinelog").slice(-40);
     if (msgs.length < 2) { toast("对话太少，先多聊几句"); return; }
     startLane("c:" + charId);
     try { const n = await extractAndAddForChar(charId, msgs); toast(n ? "已抽取 " + n + " 条记忆" : "没有抽到新的记忆点（都已经记过了）"); }
@@ -714,7 +714,7 @@ function App() {
     const cnt = (memExtractCtrRef.current[charId] || 0) + 1;
     memExtractCtrRef.current[charId] = cnt;
     if (cnt % interval !== 0) return;
-    const msgs = (chatsRef.current[charId] || []).filter(m => !m.recalled).slice(-24);
+    const msgs = (chatsRef.current[charId] || []).filter(m => !m.recalled && m.kind !== "offlinelog").slice(-24);
     if (msgs.length < 4) return;
     try { await extractAndAddForChar(charId, msgs); } catch (e) {/* 静默 */}
   };
@@ -1166,6 +1166,10 @@ function App() {
     } catch (e) {}
     pOffline(charId, list => list.map(s => s.id === sess.id ? { ...s, endTs: Date.now(), summary } : s));
     if (summary) addMemEntry({ text: summary, tags: ["线下"], charIds: [charId], source: "auto" });
+    // 把这段线下经过回写进线上聊天记录，接上线上/线下的连贯：否则线上角色读不到刚才线下发生了什么，
+    // 会接着线下前的最后一句继续（比如还以为自己在公司楼下等你）。这条 offlinelog 既显示给用户当分隔，
+    // 也会作为「场景」注入线上回复的历史里。
+    pChat(charId, p => [...p, { role: "system", kind: "offlinelog", content: summary || "你们刚在线下见了一面。", ts: Date.now() }]);
     // TODO(日程覆盖，用户说后面再弄)：把本次线下时间段的日程覆盖成这段经过 + 角色想法。
     endLane("c:" + charId);
     toast(summary ? "已记入记忆库" : "已结束");
@@ -1333,6 +1337,8 @@ function App() {
     const interopOn = gsFor(groupId).memoryInterop;
     pGOffline(groupId, list => list.map(s => s.id === sess.id ? { ...s, endTs: Date.now(), summary } : s));
     if (summary && group && interopOn) addMemEntry({ text: summary, tags: ["线下", "群聊"], charIds: group.memberIds || [], source: "auto" });
+    // 回写进线上群聊记录，接上线上/线下连贯（群成员回到线上不会还停在线下前的状态）
+    pGChat(groupId, p => [...p, { role: "system", kind: "offlinelog", content: summary || "你们刚一起在线下见了一面。", ts: Date.now() }]);
     // TODO(日程覆盖，用户说后面再弄)：把本次群聊线下时间段的日程覆盖成这段经过 + 各角色想法。
     endLane("g:" + groupId);
     toast(summary ? (interopOn ? "已记入记忆库" : "已结束（记忆只留在本群）") : "已结束");
@@ -1511,6 +1517,11 @@ function App() {
       const system = bundle + ("\n\n【任务】完全代入「" + char.name + "」用手机即时通讯和用户聊天。**把话拆成多条短气泡：word 给多个元素，每条一两句、像发微信一句一条连着发，别把一大段塞进一个气泡。**语气自然，不写旁白/动作/括号小动作；按关系网与好感度把握亲密度，不剧透未发生的剧情。开了时间/位置感知可自然回应，别生硬报数据。" + callHint + proactiveHint + gapHint + wearHint + actHint + ambientHint + listenHint + inviteHint +"\n【quote 引用】多数填 null；仅当用户连发数条、你要指明在回其中较早某句时，才把那句原文放 quote，别每条都引用。\n【transfer 转账】想给用户转钱（还钱/心意/打赏）填 {\"amount\":数字,\"note\":\"附言\"}，否则 null。【location 位置】想把自己所在地发给 Ta 填 {\"name\":\"地点名\"}，否则 null。\n【gift 送东西/外卖】只要你这轮【说了】要给用户买东西/点外卖奶茶咖啡/送吃的花礼物惊喜——**必须**填 gift:{\"name\":\"具体东西，如 一杯生椰拿铁／麻辣烫外卖／一束花\"}（只嘴上说不填就不会真送到、Ta 收不到）；没有就 null，别频繁乱送。会像外卖一样过会儿送到。" + kinHint + emoteHint + "\n【voice 语音】想发语音（懒得打字/唱一句/情绪重/想让 Ta 听见）就把话放 voice 数组，每个元素是一条语音的转文字；平时仍以文字 word 为主，voice 偶尔用，不发给 []。\n【call 通话】很想直接通话（想听声音/急事/撒娇/煲电话粥）时主动发起：call 填 \"voice\" 或 \"video\"，会给对方弹来电卡；否则 null，别频繁。" + blockHint + "\n【recall 撤回】发出后后悔/说漏嘴/不想让 Ta 看到，可撤回那句：填 recall:{\"text\":\"要撤回的原句（和 word 里某句一致或另说）\",\"reason\":\"撤回的心里原因\"}，否则 null，别频繁。\n【momentComment 朋友圈】聊到 Ta 朋友圈、或你此刻想去补条评论/点赞（尤其之前没评现在说要评），填 momentComment（会真发到 Ta 最新那条下），否则 null。\n【输出】只输出一个 JSON，不要代码块：\n{\"word\":[\"气泡1\",\"气泡2\"],\"quote\":\"你在回应的用户那句话原文或null\",\"transfer\":null,\"location\":null,\"gift\":null,\"kinshipcard\":null,\"block\":false,\"blockreason\":null,\"recall\":null,\"momentComment\":null,\"whisper\":null,\"thought\":" + JSON.stringify(thoughtSpec) + ",\"moment\":\"想发的动态或null（别和自己最近发过的朋友圈复读同一件事/同一心情，没新东西就填null）\",\"affinityDelta\":整数(-5到5通常0),\"mood\":{\"label\":\"此刻心情词\",\"baseline\":\"平复后的心情词\",\"softened\":\"半衰后的心情词\"},\"wearing\":\"此刻穿着一句\",\"action\":\"此刻正在做的动作，一句短的，【每轮都更新】反映你此刻真在做什么、别照抄上一轮（相当于简单RP动作，只写在这里别写进气泡）；情境需要时可两三句更具体\",\"emote\":\"想发的表情关键词或null\",\"voice\":[],\"call\":null,\"songSwitch\":null,\"listenInvite\":null}").replace(/用户/g, uName);
       const g = [];
       for (const m of history) {
+        if (m.kind === "offlinelog") {
+          // 线下经过：既不算用户发言也不算角色发言，作为「刚发生的场景」注入，让线上接得上线下
+          g.push({ role: "user", content: "【你和" + uName + "刚刚在线下见了一面，经过如下——这发生在上面聊天之后、现在你们已结束线下回到线上，请据此接话，别再停留在线下前的状态】\n" + m.content });
+          continue;
+        }
         if (m.role === "user") {
           const lu = g[g.length - 1];
           const qpfx = m.replyTo ? "（我在回应你说的「" + String(m.replyTo).slice(0, 40) + "」）" : "";
@@ -1871,7 +1882,7 @@ function App() {
     try {
       if (!active) throw new Error("请先配置 API");
       const gchat = groupChatsRef.current[groupId] || [];
-      const hist = gchat.filter(m => m.kind !== "ooc").slice(-(gs.ctxN || 30)).map(m => m.role === "narration" ? "【旁白】" + m.content : m.role === "system" ? "（" + m.content + "）" : (m.role === "user" ? profile.name || "用户" : m.senderName || "某人") + ": " + (m.kind === "poll" ? "[发起投票]" + m.title : m.kind === "redpacket" ? "[发红包 ¥" + m.total + "，" + m.count + "个" + (m.count > 0 ? "，人均约¥" + (m.total / m.count).toFixed(2) : "") + "]" + (m.message ? " " + m.message : "") + ((m.claims || []).length ? "（已被抢：" + m.claims.map(c => (c.name || "某人") + "¥" + c.amount).join("、") + "）" : "") : m.content)).join("\n");
+      const hist = gchat.filter(m => m.kind !== "ooc").slice(-(gs.ctxN || 30)).map(m => m.kind === "offlinelog" ? "【你们刚刚线下见了一面，经过如下（发生在上面之后、现已回到线上群聊，据此接话）】" + m.content : m.role === "narration" ? "【旁白】" + m.content : m.role === "system" ? "（" + m.content + "）" : (m.role === "user" ? profile.name || "用户" : m.senderName || "某人") + ": " + (m.kind === "poll" ? "[发起投票]" + m.title : m.kind === "redpacket" ? "[发红包 ¥" + m.total + "，" + m.count + "个" + (m.count > 0 ? "，人均约¥" + (m.total / m.count).toFixed(2) : "") + "]" + (m.message ? " " + m.message : "") + ((m.claims || []).length ? "（已被抢：" + m.claims.map(c => (c.name || "某人") + "¥" + c.amount).join("、") + "）" : "") : m.content)).join("\n");
       // 补充上文：每位成员入群前的私聊，作为「封闭空间」的 X 条前情提要——
       // 只在【未开记忆互通】时用；开了互通就实时抽单聊，这档自动让位、不叠加。
       let preJoin = "";

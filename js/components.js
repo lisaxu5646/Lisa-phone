@@ -2493,6 +2493,22 @@ function ChatThread({
         border: "1px solid " + t.line
       }
     }, h(PGlyph, { k: m.callMode === "video" ? "video" : "calls", size: 13, color: t.fog }), m.content));
+    if (m.kind === "offlinelog") return h("div", {
+      key: i,
+      onTouchStart: selMode ? undefined : () => startPress(i), onTouchEnd: endPress,
+      onMouseDown: selMode ? undefined : () => startPress(i), onMouseUp: endPress, onMouseLeave: endPress,
+      onClick: selMode ? () => toggleSel(i) : undefined,
+      className: "my-4 mx-6"
+    }, h("div", {
+      style: {
+        fontFamily: F_BODY, fontSize: 12.5, lineHeight: 1.7, color: t.sub,
+        background: t.bg2, border: "1px dashed " + t.line, borderRadius: 12,
+        padding: "10px 13px", whiteSpace: "pre-wrap",
+        outline: selMode && selIds.includes(i) ? `2px solid ${t.tint}` : "none", outlineOffset: 2
+      }
+    }, h("div", {
+      style: { fontFamily: "'Archivo',sans-serif", fontSize: 9, letterSpacing: "0.18em", color: t.fog, marginBottom: 5 }
+    }, "线下经过 · OFFLINE"), m.content));
     if (m.kind === "system") return h("div", {
       key: i,
       className: "text-center my-4 px-6"
@@ -4955,6 +4971,17 @@ function GroupThread({
         whiteSpace: "pre-wrap"
       }
     }, "OOC · " + m.content));
+    if (m.kind === "offlinelog") return h("div", {
+      key: i, className: "my-3 mx-6"
+    }, h("div", {
+      style: {
+        fontFamily: F_BODY, fontSize: 12.5, lineHeight: 1.7, color: t.sub,
+        background: t.bg2, border: "1px dashed " + t.line, borderRadius: 12,
+        padding: "10px 13px", whiteSpace: "pre-wrap"
+      }
+    }, h("div", {
+      style: { fontFamily: "'Archivo',sans-serif", fontSize: 9, letterSpacing: "0.18em", color: t.fog, marginBottom: 5 }
+    }, "线下经过 · OFFLINE"), m.content));
     if (m.role === "narration") return h("div", {
       key: i,
       className: "flex justify-center py-1"
