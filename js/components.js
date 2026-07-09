@@ -2542,7 +2542,9 @@ function ChatThread({
     if (m.kind === "geo") return h(GeoCard, {
       key: i,
       m: m,
-      isU: m.role === "user"
+      isU: m.role === "user",
+      avatar: h(Avatar, { character: character, size: 40, radius: 10 }),
+      myAvatar: dsp.myAvatar && h(Avatar, { character: meAv, size: 40, radius: 10 })
     });
     if (m.kind === "gift") return h(GiftCard, { key: i, m: m, isU: m.role === "user", now: now });
     if (m.kind === "kinship") return h(KinshipIssueCard, { key: i, m: m, character: character });
@@ -3710,12 +3712,14 @@ function UnblockReqCard({ m, character, onRespond }) {
 // 位置 Geo-Stamp 卡片
 function GeoCard({
   m,
-  isU
+  isU,
+  avatar,
+  myAvatar
 }) {
   const t = useTheme();
   return h("div", {
-    className: "py-1 flex " + (isU ? "justify-end" : "justify-start")
-  }, h("div", {
+    className: "py-1 flex items-start gap-2 " + (isU ? "justify-end" : "justify-start")
+  }, !isU && avatar, h("div", {
     style: {
       width: 250,
       background: "#fff",
@@ -3768,7 +3772,7 @@ function GeoCard({
       fontSize: 12,
       color: t.sub
     }
-  }, m.coords || ""))));
+  }, m.coords || ""))), isU && myAvatar);
 }
 // 我转给 TA 的输入卡（只有「我转给 TA」，接受由对方决定）
 function TransferComposeSheet({
@@ -5083,7 +5087,9 @@ function GroupThread({
     if (m.kind === "geo") return h(GeoCard, {
       key: i,
       m: m,
-      isU: m.role === "user"
+      isU: m.role === "user",
+      avatar: mAvatar(memberById(m.senderId) || { name: m.senderName, color: t.tint }),
+      myAvatar: gsp.showMyAvatar && h(Avatar, { character: meAv, size: 34, radius: 8 })
     });
     if (m.kind === "emote") return h("div", { key: i, className: "py-1 flex items-start gap-2 " + (m.role === "user" ? "justify-end" : "justify-start") },
       m.role !== "user" && mAvatar(memberById(m.senderId) || { name: m.senderName, color: t.tint }),
@@ -5100,9 +5106,12 @@ function GroupThread({
     if (m.kind === "forumshare") return h("div", { key: i, className: "flex flex-col py-1 " + (m.role === "user" ? "items-end" : "items-start") },
       m.role === "user" && m.senderName && h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, margin: "0 4px 2px" } }, m.senderName),
       h(ForumShareCard, { m: m, isU: m.role === "user" }));
-    if (m.kind === "ficshare") return h("div", { key: i, className: "flex flex-col py-1 " + (m.role === "user" ? "items-end" : "items-start") },
-      m.role === "user" && m.senderName && h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, margin: "0 4px 2px" } }, m.senderName),
-      h(FicShareCard, { m: m, isU: m.role === "user" }));
+    if (m.kind === "ficshare") return h("div", { key: i, className: "py-1 flex items-start gap-2 " + (m.role === "user" ? "justify-end" : "justify-start") },
+      m.role !== "user" && mAvatar(memberById(m.senderId) || { name: m.senderName, color: t.tint }),
+      h("div", { className: "flex flex-col " + (m.role === "user" ? "items-end" : "items-start") },
+        m.senderName && h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, margin: "0 4px 2px" } }, m.senderName),
+        h(FicShareCard, { m: m, isU: m.role === "user" })),
+      m.role === "user" && gsp.showMyAvatar && h(Avatar, { character: meAv, size: 34, radius: 8 }));
     if (m.kind === "voice") return h("div", { key: i, className: "py-1 flex items-start gap-2 " + (m.role === "user" ? "justify-end" : "justify-start") },
       m.role !== "user" && mAvatar(memberById(m.senderId) || { name: m.senderName, color: t.tint }),
       h("div", {

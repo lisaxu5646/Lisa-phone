@@ -172,9 +172,12 @@
     opts = opts || {};
     const perFic = opts.perFic || CFG_DEFAULT.perFic;
     const minWords = Math.max(600, Math.round(perFic * 0.55)); // 大致字数下限
+    const cotChar = (cpChars && cpChars[0] && cpChars[0].name) || "主角";
+    const cotT = (typeof cotThink === "function") ? cotThink({ char: cotChar, user: userName }) : "";
     const sys = buildGenSystem(tab, cpChars, userName, worldbook, opts) + "\n\n" +
+      (typeof cotSystemBlock === "function" ? cotSystemBlock(cotT) : "") +
       "【输出】只输出一个合法 JSON 数组，无 markdown 无多余文字。数组恰好 " + n + " 个元素（务必凑满 " + n + " 篇）：\n" +
-      "[{\"title\":\"标题\",\"author\":\"作者笔名（同人圈作者马甲/太太笔名，别用真名别带@）\",\"tags\":[\"标签\",\"标签\"],\"body\":\"正文（成篇散文，务必写足、有剧情，约 " + minWords + " 字以上，分段用\\n\\n）\",\"endHook\":\"结尾锚点：一句话描述这篇结束在什么处境/悬念，供日后续写接续\"}]\n" +
+      "[{" + (typeof cotJsonField === "function" ? cotJsonField(cotT) : "") + "\"title\":\"标题\",\"author\":\"作者笔名（同人圈作者马甲/太太笔名，别用真名别带@）\",\"tags\":[\"标签\",\"标签\"],\"body\":\"正文（成篇散文，务必写足、有剧情，约 " + minWords + " 字以上，分段用\\n\\n）\",\"endHook\":\"结尾锚点：一句话描述这篇结束在什么处境/悬念，供日后续写接续\"}]\n" +
       "每篇 title 别重复、别都一个套路；author 每篇各不同；tags 2-4 个（如『破镜重圆』『HE』『pwp』『情有独钟』等同人圈标签）。别为了凑数量把正文压短——宁可写满。" +
       FANFIC_ANTI_CLICHE_TAIL;
     const user = "写 " + n + " 篇" + (tab.mixed ? "（世界观每篇随机挑）" : "【" + tab.name + "】世界观下") + "的同人文。别都同一个梗、同一种基调，冷暖虐甜各来一点，每篇都要写出剧情别烂尾。";
@@ -196,7 +199,8 @@
         author: String(x.author || "佚名").slice(0, 20),
         tags: Array.isArray(x.tags) ? x.tags.filter(Boolean).slice(0, 6).map(String) : [],
         body: String(x.body || "").trim(),
-        endHook: String(x.endHook || "").trim()
+        endHook: String(x.endHook || "").trim(),
+        cot: (typeof pickCot === "function" ? pickCot(x) : null)
       };
     });
   }
@@ -1228,7 +1232,7 @@
         const made = arr.map(function (x, i) {
           return {
             id: uid("fic"), tabId: curTab.id, cp: cp || [], title: x.title, author: x.author, tags: x.tags,
-            chapters: [{ content: x.body, endHook: x.endHook }], source: "npc", onShelf: false, sharedTo: [],
+            chapters: [{ content: x.body, endHook: x.endHook, cot: x.cot || null }], source: "npc", onShelf: false, sharedTo: [],
             stats: ficHeat(x.title + now + i), reviews: [], createdAt: now - i, updatedAt: now - i
           };
         });
