@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v47.29";
+const APP_VERSION = "v47.30";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -1765,7 +1765,12 @@ function App() {
             pChat(charId, p => p.map(m => m.sid === sid ? { ...m, pending: false, imgKey: key } : m));
           } catch (e) {
             pChat(charId, p => p.map(m => m.sid === sid ? { ...m, pending: false, failed: true } : m));
-            toast("自拍生成失败：" + (e.message || "重试"));
+            const em = String(e.message || "");
+            // 配额/模型类报错 → 指路：多半是图像模型名不对或该模型没配额
+            const hint = /quota|available|model|not\s*found|额度|配额|无可用|不存在|无权限|permission/i.test(em)
+              ? "图像模型没配额或名字不对——去 设置·图像API 点「拉取模型」，换一个你中转站真有货的图像模型（gpt-image-1 很多便宜中转没有）。原始报错：" + em
+              : (em || "重试");
+            toast("自拍没生成：" + hint);
           }
         })();
       }
