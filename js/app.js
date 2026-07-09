@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v47.21";
+const APP_VERSION = "v47.22";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -1066,6 +1066,9 @@ function App() {
     startLane("c:" + charId);
     try {
       const oCtx = ctxFor(char);
+      // 世界书注入：用线下这段自己的文本做关键词命中（ctxFor 默认用线上聊天文本），常驻/绑定词条照常进
+      const offText = (workSess.msgs || []).slice(-8).map(m => m.content || "").join("\n");
+      oCtx.worldbook = loreText(loreRef.current, { charIds: [charId], scope: "chat", text: offText });
       oCtx.curWear = (states[charId] && states[charId].wearing) || ""; // 着装连贯：把当前穿着喂回去
       const oMemN = osFor(charId).memN;
       if (oMemN != null) oCtx.memLib = oMemN <= 0 ? [] : retrieveMemories(memLibRef.current, charId, (workSess.msgs || []).slice(-6).map(m => m.content || "").join("\n"), { limit: oMemN });
@@ -1124,6 +1127,28 @@ function App() {
       msgs = [...msgs, um];
     }
     await genOfflineFrom(charId, { ...sess, msgs });
+  };
+  // 线下 OOC：跳出角色和模型直说（问状态 / 肘击 / 立长期准则），把这段线下经过一起喂给它
+  const offlineOOC = async (charId, text) => {
+    if (laneBusy("c:" + charId) || !text || !text.trim()) return;
+    const char = characters.find(c => c.id === charId);
+    const sess = (offlinesRef.current[charId] || []).find(s => !s.endTs);
+    if (!sess) { toast("先开一场线下"); return; }
+    pushOffMsg(charId, { id: "u_" + Date.now(), role: "user", kind: "ooc", content: text.trim(), ts: Date.now() });
+    if (!active) { toast("请先到设置配置 API"); return; }
+    startLane("c:" + charId);
+    try {
+      const uName = (profile && profile.name) || "我";
+      const offText = (sess.msgs || []).filter(m => m.kind !== "ooc").slice(-10).map(m => (m.role === "char" ? char.name : m.role === "narration" ? "【场景】" : uName) + "：" + (m.content || "")).join("\n");
+      const q = text.trim() + (offText ? "\n\n【背景：我们此刻正在线下面对面相处，最近这几段经过】\n" + offText : "");
+      const res = await oocAsk(active, ctxFor(char), q);
+      if (res.directive && !res.refused) addDirective(charId, res.directive);
+      pushOffMsg(charId, { id: "o_" + Date.now(), role: "char", kind: "ooc", content: res.reply + (res.directive && !res.refused ? "\n\n〔已记为长期准则：" + res.directive + "〕" : "") + (res.refused ? "\n\n〔这条我没照做——会破坏 " + char.name + " 的人设〕" : ""), ts: Date.now() });
+    } catch (e) {
+      toast("OOC 失败：" + (e.message || "重试"));
+    } finally {
+      endLane("c:" + charId);
+    }
   };
   const offlineEditMsg = (charId, msgId, text) => pOffline(charId, list => list.map(s => !s.endTs ? { ...s, msgs: s.msgs.map(m => m.id === msgId ? { ...m, content: text } : m) } : s));
   const offlineDelMsg = (charId, msgId) => pOffline(charId, list => list.map(s => !s.endTs ? { ...s, msgs: s.msgs.filter(m => m.id !== msgId) } : s));
@@ -6341,6 +6366,7 @@ function App() {
     onStart: opts => startOffline(offlineChar.id, opts),
     onSend: txt => offlineSend(offlineChar.id, txt),
     onReply: txt => offlineReply(offlineChar.id, txt),
+    onOOC: txt => offlineOOC(offlineChar.id, txt),
     onAddNote: n => offlineAddNote(offlineChar.id, n),
     onChangeStyle: patch => offlineSetStyle(offlineChar.id, patch),
     onEditMsg: (mid, txt) => offlineEditMsg(offlineChar.id, mid, txt),

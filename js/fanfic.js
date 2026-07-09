@@ -160,7 +160,10 @@
     }
     parts.push(INTIMACY_WORLDNOTE);
     if (opts.style && opts.style.trim()) parts.push("【预设文风（作者本次的写作风格要求，优先满足）】\n" + opts.style.trim());
-    if (worldbook && worldbook.trim()) parts.push("【全局世界书（可作背景参考，与本版世界观冲突时以本版为准）】\n" + worldbook.trim());
+    if (worldbook && worldbook.trim()) {
+      if (typeof WORLDBOOK_RULE !== "undefined") parts.push(WORLDBOOK_RULE);
+      parts.push("【全局世界书（严格遵循：其中的设定/文风/禁忌一律照做，尤其是反套话/反八股类条目要压过模型的默认写法；仅当与本版世界观正面冲突时才以本版为准）】\n" + worldbook.trim());
+    }
     parts.push(cpBlock(cpChars, opts));
     if (opts.chatMaterial && opts.chatMaterial.trim()) parts.push(opts.chatMaterial.trim());
     return parts.join("\n\n");
@@ -181,10 +184,13 @@
       "每篇 title 别重复、别都一个套路；author 每篇各不同；tags 2-4 个（如『破镜重圆』『HE』『pwp』『情有独钟』等同人圈标签）。别为了凑数量把正文压短——宁可写满。" +
       FANFIC_ANTI_CLICHE_TAIL;
     const user = "写 " + n + " 篇" + (tab.mixed ? "（世界观每篇随机挑）" : "【" + tab.name + "】世界观下") + "的同人文。别都同一个梗、同一种基调，冷暖虐甜各来一点，每篇都要写出剧情别烂尾。";
+    let batchCot = null;
     async function once(extra) {
       const raw = await callAI(active, sys + (extra || ""), [{ role: "user", content: user }], { maxTokens: Math.min(20000, 1200 + n * perFic) });
-      let d = extractJSON(raw);
-      if (!d && typeof repairJSON === "function") { try { d = JSON.parse(repairJSON(raw)); } catch (e) {} }
+      const sp = (typeof splitCot === "function") ? splitCot(raw, !!cotT) : { cot: null, clean: raw };
+      if (sp.cot) batchCot = sp.cot; // 整批一次思考，挂到第一篇
+      let d = extractJSON(sp.clean);
+      if (!d && typeof repairJSON === "function") { try { d = JSON.parse(repairJSON(sp.clean)); } catch (e) {} }
       if (Array.isArray(d)) return d;
       if (d && Array.isArray(d.items)) return d.items;
       if (d && d.title) return [d]; // 模型只吐了一篇对象
@@ -193,14 +199,14 @@
     let arr = await once("");
     if (!arr || !arr.length) arr = await once("\n\n（上一次输出没能解析成合法 JSON 数组，请务必严格只输出 JSON 数组、别加任何解释文字。）");
     if (!arr || !arr.length) throw new Error("生成失败：模型没有返回可解析的篇目，可重试或换模型");
-    return arr.filter(function (x) { return x && (x.title || x.body); }).slice(0, n).map(function (x) {
+    return arr.filter(function (x) { return x && (x.title || x.body); }).slice(0, n).map(function (x, i) {
       return {
         title: String(x.title || "无题").slice(0, 60),
         author: String(x.author || "佚名").slice(0, 20),
         tags: Array.isArray(x.tags) ? x.tags.filter(Boolean).slice(0, 6).map(String) : [],
         body: String(x.body || "").trim(),
         endHook: String(x.endHook || "").trim(),
-        cot: (typeof pickCot === "function" ? pickCot(x) : null)
+        cot: i === 0 ? batchCot : null
       };
     });
   }
@@ -229,10 +235,11 @@
       "{" + (typeof cotJsonField === "function" ? cotJsonField(cotT) : "") + "\"content\":\"这一章正文（成篇散文，承接上一章锚点往下推进、有实质剧情进展，约 " + minWords + " 字以上，分段用\\n\\n）\",\"endHook\":\"本章新的结尾锚点，供再下一章接续\"}" +
       FANFIC_ANTI_CLICHE_TAIL;
     const raw = await callAI(active, sys, [{ role: "user", content: "续写《" + fic.title + "》的下一章。" }], { maxTokens: Math.min(12000, perFic + 1500) });
-    let d = extractJSON(raw);
-    if (!d && typeof repairJSON === "function") { try { d = JSON.parse(repairJSON(raw)); } catch (e) {} }
+    const sp = (typeof splitCot === "function") ? splitCot(raw, !!cotT) : { cot: null, clean: raw };
+    let d = extractJSON(sp.clean);
+    if (!d && typeof repairJSON === "function") { try { d = JSON.parse(repairJSON(sp.clean)); } catch (e) {} }
     if (!d || !d.content) throw new Error("续写失败，可重试");
-    return { content: String(d.content).trim(), endHook: String(d.endHook || "").trim(), cot: (typeof pickCot === "function" ? pickCot(d) : null) };
+    return { content: String(d.content).trim(), endHook: String(d.endHook || "").trim(), cot: sp.cot };
   }
 
   // ---- 书评：一次生成 N 条（NPC 泛读者 + 作者至少下场一次）------------

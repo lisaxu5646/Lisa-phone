@@ -90,15 +90,16 @@
       "你在为「" + session.charName + "」编织一场梦。这场梦属于 Ta、为 Ta 而做——梦境顺着 Ta 内心最深的渴望、执念与恐惧铺展。" +
       uName + " 是闯进这场梦的客人，无法自由行动，只能在你给出的选项里选择怎么回应。\n\n" +
       charBlock(session) +
-      (worldbook && worldbook.trim() ? "\n\n【世界书】\n" + worldbook.trim().slice(0, 700) : "") +
+      (worldbook && worldbook.trim() ? (typeof WORLDBOOK_RULE !== "undefined" ? "\n\n" + WORLDBOOK_RULE : "") + "\n\n【世界书】\n" + worldbook.trim() : "") +
       (kw.length ? "\n\n【" + uName + "递来的关键词，把它们自然编进这场梦】" + kw.join("、") : "") +
       "\n\n这是开场第一幕：把梦的门推开，让 " + uName + " 落进 " + session.charName + " 的梦里。" +
       sceneRules(cotT);
     const raw = await callAI(active, sys, [{ role: "user", content: "开始做梦。" }], { maxTokens: 4000 });
-    const p = extractJSON(raw) || {};
+    const sp = (typeof splitCot === "function") ? splitCot(raw, !!cotT) : { cot: null, clean: raw };
+    const p = extractJSON(sp.clean) || {};
     const opts = normOptions(p.options);
     if (!p.scene || !opts) throw new Error("梦没成形，重试");
-    return { text: String(p.scene).trim(), options: opts, chosen: null, cot: (typeof pickCot === "function" ? pickCot(p) : null) };
+    return { text: String(p.scene).trim(), options: opts, chosen: null, cot: sp.cot };
   }
 
   // ---- 模型：顺着选择往下做（续写下一幕） ----
@@ -107,15 +108,16 @@
     const sys = AC() + NAC() +
       "你在继续为「" + session.charName + "」编织同一场梦。" + uName + " 是闯梦的客人，刚在上一幕做了选择，且这个选择是这场梦所接纳的——梦没有碎，顺着做梦人的心愿往更深处走。\n\n" +
       charBlock(session) +
-      (worldbook && worldbook.trim() ? "\n\n【世界书】\n" + worldbook.trim().slice(0, 700) : "") +
+      (worldbook && worldbook.trim() ? (typeof WORLDBOOK_RULE !== "undefined" ? "\n\n" + WORLDBOOK_RULE : "") + "\n\n【世界书】\n" + worldbook.trim() : "") +
       "\n\n【梦到目前为止】\n" + transcript(session, uName) +
       "\n\n接着上一幕 " + uName + " 的选择往下写新的一幕：让梦更深、更贴近 " + session.charName + " 藏着的东西，别原地打转，别复读上一幕。" +
       sceneRules(cotT);
     const raw = await callAI(active, sys, [{ role: "user", content: "继续做梦。" }], { maxTokens: 4000 });
-    const p = extractJSON(raw) || {};
+    const sp = (typeof splitCot === "function") ? splitCot(raw, !!cotT) : { cot: null, clean: raw };
+    const p = extractJSON(sp.clean) || {};
     const opts = normOptions(p.options);
     if (!p.scene || !opts) throw new Error("梦没接上，重试");
-    return { text: String(p.scene).trim(), options: opts, chosen: null, cot: (typeof pickCot === "function" ? pickCot(p) : null) };
+    return { text: String(p.scene).trim(), options: opts, chosen: null, cot: sp.cot };
   }
 
   // ---- 模型：梦碎（选到抗拒项） ----
@@ -130,8 +132,9 @@
       (typeof cotSystemBlock === "function" ? cotSystemBlock(cotT) : "") +
       "【输出】只输出 JSON：{" + (typeof cotJsonField === "function" ? cotJsonField(cotT) : "") + "\"collapse\":\"梦碎叙事\",\"why\":\"为什么这个选择戳破了梦\"}。别加别的。";
     const raw = await callAI(active, sys, [{ role: "user", content: "梦碎。" }], { maxTokens: 3000 });
-    const p = extractJSON(raw) || {};
-    return { collapse: String(p.collapse || raw || "梦在你眼前碎成光斑，你猛地醒来。").trim(), why: String(p.why || "").trim(), cot: (typeof pickCot === "function" ? pickCot(p) : null) };
+    const sp = (typeof splitCot === "function") ? splitCot(raw, !!cotT) : { cot: null, clean: raw };
+    const p = extractJSON(sp.clean) || {};
+    return { collapse: String(p.collapse || sp.clean || "梦在你眼前碎成光斑，你猛地醒来。").trim(), why: String(p.why || "").trim(), cot: sp.cot };
   }
 
   // ============================================================
