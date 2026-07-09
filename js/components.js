@@ -542,6 +542,7 @@ function MusicWidget({ listen, player, onOpen }) {
   const nowId = (player && player.songId) || null;
   const findSong = id => {
     if (!id) return null;
+    if (id === KEEPALIVE_ID) return KEEPALIVE_SONG;
     if (data.nowSong && data.nowSong.id === id) return data.nowSong;
     let s = songs.find(x => x.id === id); if (s) return s;
     for (const pl of (data.playlists || [])) { const f = (pl.songs || []).find(x => x.id === id); if (f) return f; }

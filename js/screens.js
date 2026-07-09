@@ -2274,6 +2274,7 @@ function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onA
   // 当前歌可能在「全部」库 / 某歌单 / 临时播放的搜索结果(nowSong) 里 → 都能找到，别只在 songs 里找（否则会卡在 songs[0]）
   const resolveSong = id => {
     if (!id) return null;
+    if (id === KEEPALIVE_ID) return KEEPALIVE_SONG;
     if (data.nowSong && data.nowSong.id === id) return data.nowSong;
     let s = songs.find(x => x.id === id); if (s) return s;
     for (const pl of playlists) { const f = (pl.songs || []).find(x => x.id === id); if (f) return f; }
@@ -2438,6 +2439,18 @@ function ListenTogether({ listen, characters, onBack, onSetDisc, onSetCover, onA
         ic("search", t.fog, 15),
         h("input", { value: q, onChange: e => setQ(e.target.value), onKeyDown: e => { if (e.key === "Enter") doSearch(); }, placeholder: apiBase ? "全网 搜索歌曲 / 歌手" : "先配搜索接口↓", style: { flex: 1, background: "transparent", border: "none", outline: "none", fontFamily: F_BODY, fontSize: 13.5, color: t.ink } })),
       h("button", { onClick: () => audioFileRef.current && audioFileRef.current.click(), className: "shrink-0 active:opacity-70 flex items-center justify-center", style: { width: 40, height: 40, borderRadius: 999, background: t.bg2, border: "1px solid " + t.line } }, ic("upload", t.ink, 17))),
+    // 静音保活：像一首歌，点播放=放段无声音频占住后台，让 TA 能后台发消息来；暂停就关、想听真歌直接换
+    (() => {
+      const kaOn = !!(player && player.songId === KEEPALIVE_ID && player.playing);
+      return h("button", { onClick: () => (player && player.songId === KEEPALIVE_ID) ? onTogglePlay() : onPlaySong(KEEPALIVE_ID), className: "w-full flex items-center gap-3 active:opacity-80", style: { marginTop: 12, background: kaOn ? (t.accent || "#8a6d3b") + "14" : t.bg2, border: "1px solid " + (kaOn ? (t.accent || "#8a6d3b") + "44" : t.line), borderRadius: 14, padding: "11px 13px", textAlign: "left" } },
+        h("div", { style: { flexShrink: 0, width: 40, height: 40, borderRadius: 999, background: "radial-gradient(circle at 50% 50%, #3a3a42 0 34%, #23232a 35%)", display: "flex", alignItems: "center", justifyContent: "center", animation: kaOn ? "wk-spin 9s linear infinite" : "none" } }, h("span", { style: { fontSize: 17 } }, "🌙")),
+        h("div", { className: "flex-1 min-w-0" },
+          h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14.5, color: t.ink } }, "静音保活"),
+          h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 1, lineHeight: 1.4 } }, kaOn ? "正放着 · 手机后台醒着接消息（无声，别锁太久 iOS 仍会挂起）" : "点一下：放段无声音频撑住后台，让 TA 更容易后台发消息来")),
+        h("div", { style: { flexShrink: 0, width: 30, height: 30, borderRadius: 999, background: t.ink, display: "flex", alignItems: "center", justifyContent: "center" } },
+          kaOn ? h("div", { style: { display: "flex", gap: 2.5 } }, h("div", { style: { width: 3, height: 11, borderRadius: 2, background: t.bg2 } }), h("div", { style: { width: 3, height: 11, borderRadius: 2, background: t.bg2 } }))
+          : h("div", { style: { width: 0, height: 0, borderTop: "5px solid transparent", borderBottom: "5px solid transparent", borderLeft: "9px solid " + t.bg2, marginLeft: 2 } })));
+    })(),
     // 搜索结果
     apiBase && (searching || results != null) ? h("div", { style: { marginTop: 10 } },
       searching ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, padding: "6px 2px" } }, "搜索中…")
@@ -3043,19 +3056,6 @@ function SenseConfig({
       ...p,
       timeAware: v
     })
-  })), h("div", {
-    className: "flex items-center justify-between py-4",
-    style: { borderBottom: `1px solid ${t.line}` }
-  }, h("div", { style: { paddingRight: 12 } }, h("div", {
-    style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink }
-  }, "后台保活（实验）"), h("div", {
-    style: { fontFamily: F_BODY, fontSize: 11.5, lineHeight: 1.5, color: t.fog, marginTop: 2 }
-  }, "切后台时播放一段静音音频，尽量让\"主动发消息\"的计时器多撑一会儿。较费电，且 iOS 不保证——锁屏久了系统仍会挂起，不等于后台推送。")), h(Toggle, {
-    on: p.keepAlive === true,
-    onChange: v => {
-      save({ ...p, keepAlive: v });
-      toast && toast(v ? "已开启后台保活（较费电）" : "已关闭后台保活");
-    }
   })), h("div", {
     className: "flex items-center justify-between py-4",
     style: { borderBottom: `1px solid ${t.line}` }

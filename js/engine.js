@@ -807,6 +807,11 @@ function makeSilentWav(seconds) {
   return "data:audio/wav;base64," + btoa(bin);
 }
 const SILENT_WAV = typeof btoa !== "undefined" ? makeSilentWav(1) : "";
+// 一起听里的一首特殊「静音保活」曲目：像歌一样能点播/暂停，放的是一段较长的静音音频、循环不停，
+// 目的是占住 iOS 音频会话让 App 后台醒着（撑住「主动发消息」的计时器）；不写历史、不进队列、不喂给角色。
+const KEEPALIVE_ID = "__keepalive__";
+const KEEPALIVE_WAV = typeof btoa !== "undefined" ? makeSilentWav(30) : "";
+const KEEPALIVE_SONG = { id: KEEPALIVE_ID, source: "keepalive", title: "静音保活", artist: "让手机后台醒着 · 无声", cover: null };
 // OOC：跳出角色，直接和模型对话（调整/问状态/问剧情）
 async function oocAsk(p, ctx, question) {
   const existing = (ctx.directives || []).map(d => (typeof d === "string" ? d : d && d.text) || "").filter(s => s.trim());

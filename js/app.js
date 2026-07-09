@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v47.23";
+const APP_VERSION = "v47.24";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -279,7 +279,6 @@ function App() {
   const [offlineGroup, setOfflineGroup] = useState(null);
   const [groupOfflines, setGroupOfflines] = useState({}); // groupId -> [session,...] newest-first
   const groupOfflinesRef = useRef({});
-  const keepAliveRef = useRef(null);
   const [anon, setAnon] = useState({});
   const [anonChar, setAnonChar] = useState(null);
   const [anonBusy, setAnonBusy] = useState(false);
@@ -890,7 +889,7 @@ function App() {
       const uName = profile && profile.name ? profile.name : "对方";
       const lines = [];
       // 正和这个角色一起听 → 无论开没开自动评论，TA 都「知道」在放什么（被问起能接住）；开了自动评论才额外鼓励主动聊
-      if (L.partnerId === char.id && player.songId) {
+      if (L.partnerId === char.id && player.songId && player.songId !== KEEPALIVE_ID) {
         const cur = resolveSong(player.songId);
         if (cur) lines.push("【你正和 " + uName + " 一起听】《" + cur.title + "》" + (cur.artist ? " - " + cur.artist : "") + (player.playing ? "（正放着）" : "（暂停中）") + "。" + (L.autoComment ? "你可以自然聊聊这首歌、跟着哼、说喜不喜欢、想起什么、或想换首歌——别报歌单、别客服腔。" : "如果 " + uName + " 问起你在听什么/这首歌，你清楚就是这首，能自然接住、说说感受，别装不知道。"));
       }
@@ -935,22 +934,7 @@ function App() {
       return lines.reverse().join("\n");
     })()
   });
-  // ---- 后台保活（尽力而为：循环播放静音音频占住 iOS 音频会话）----
-  useEffect(() => {
-    const on = !!prefs.keepAlive;
-    if (on) {
-      if (!keepAliveRef.current && SILENT_WAV) {
-        const a = new Audio(SILENT_WAV);
-        a.loop = true;
-        a.volume = 0.01;
-        keepAliveRef.current = a;
-      }
-      // 尝试播放（须由用户手势触发，切换开关本身即手势）
-      keepAliveRef.current && keepAliveRef.current.play().catch(() => {});
-    } else if (keepAliveRef.current) {
-      keepAliveRef.current.pause();
-    }
-  }, [prefs.keepAlive]);
+  // 后台保活已并进「一起听」：播放里那首「静音保活」曲目即占住 iOS 音频会话（见 playSong 的 keepalive 分支）。
   // ---- 主动发消息（仅前台，app 打开该聊天且闲置到间隔后触发）----
   useEffect(() => {
     if (screen !== "thread" || !activeChar) return;
@@ -2905,6 +2889,21 @@ function App() {
   useEffect(() => {
     if (active && characters.length) schedGenAllToday();
   }, [active, characters.length]);
+  // 回到前台 / 重新聚焦：也自动补今日行程。PWA 常驻不重载页面时，光靠上面的首次加载不够——
+  // 切回来那一下补一次。schedGenAllToday 只补【缺今天】的角色、已有则空跑，安全省 api。
+  useEffect(() => {
+    if (!loaded) return;
+    const kick = () => { if (document.visibilityState !== "hidden" && active && characters.length) schedGenAllToday(); };
+    document.addEventListener("visibilitychange", kick);
+    window.addEventListener("focus", kick);
+    return () => { document.removeEventListener("visibilitychange", kick); window.removeEventListener("focus", kick); };
+  }, [loaded, active, characters.length]);
+  // 跨天（app 一直开着没关）：日期一变就补新一天的行程
+  const schedDayRef = useRef(schedDayKey(new Date()));
+  useEffect(() => {
+    const k = schedDayKey(new Date());
+    if (k !== schedDayRef.current) { schedDayRef.current = k; if (active && characters.length) schedGenAllToday(); }
+  }, [now]);
 
   // ---- 查手机：每个 app 独立生成/刷新 ----
   const relatedNames = char => {
@@ -4682,6 +4681,7 @@ function App() {
   };
   const resolvePlayUrl = async song => {
     if (!song) return null;
+    if (song.source === "keepalive") return KEEPALIVE_WAV;
     if (song.source === "local") { const blob = await idbAudioGet(song.id); return blob ? URL.createObjectURL(blob) : null; }
     if (song.source === "netease") {
       if (!neteaseApi) return null;
@@ -4694,6 +4694,7 @@ function App() {
   // 歌曲可能来自：全部库(songs) / 某个歌单(playlists[].songs，各自独立存整份) / 临时正在放的搜索结果(nowSong)。
   // 三处都不互相依赖：从「全部」删歌不影响歌单；「现在播放」搜索结果不塞进「全部」。
   const resolveSong = id => {
+    if (id === KEEPALIVE_ID) return KEEPALIVE_SONG;
     const L = listenRef.current || {};
     if (L.nowSong && L.nowSong.id === id) return L.nowSong;
     let s = (L.songs || []).find(x => x.id === id);
@@ -4705,6 +4706,15 @@ function App() {
     const L = listenRef.current || {};
     let song = (songOrId && typeof songOrId === "object") ? songOrId : resolveSong(songOrId);
     if (!song) return;
+    // 静音保活：像歌一样播，但循环放静音、不写历史、不进队列（下一首/上一首会跳去真歌）
+    if (song.source === "keepalive") {
+      if (playUrlRef.current) { URL.revokeObjectURL(playUrlRef.current); playUrlRef.current = null; }
+      setPlayer(p => ({ ...p, songId: KEEPALIVE_ID, loading: false, playing: false, err: null, t: 0, dur: 0 }));
+      saveListen(p => ({ ...p, nowId: KEEPALIVE_ID })); // 不动 nowQueue/nowSong：保活不走队列，切回真歌能续原队列
+      const elk = audioElRef.current;
+      if (elk) { elk.loop = true; elk.src = KEEPALIVE_WAV; elk.play().then(() => setPlayer(p => ({ ...p, playing: true }))).catch(() => setPlayer(p => ({ ...p, playing: false }))); }
+      return;
+    }
     if (!song.id) song = { ...song, id: "sg_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6) };
     const songId = song.id;
     const inLib = (L.songs || []).some(s => s.id === songId);
@@ -4728,7 +4738,7 @@ function App() {
     if (!url) { setPlayer(p => ({ ...p, loading: false, playing: false, err: song.source === "netease" ? "拿不到播放地址（多半 VIP/无版权）" : "音频丢了（可能清过缓存）" })); return; }
     if (song.source === "local") playUrlRef.current = url;
     const el = audioElRef.current;
-    if (el) { el.src = url; el.play().then(() => setPlayer(p => ({ ...p, playing: true, loading: false }))).catch(() => setPlayer(p => ({ ...p, loading: false }))); }
+    if (el) { el.loop = false; el.src = url; el.play().then(() => setPlayer(p => ({ ...p, playing: true, loading: false }))).catch(() => setPlayer(p => ({ ...p, loading: false }))); }
   };
   const togglePlay = () => {
     const el = audioElRef.current; if (!el) return;
@@ -4740,7 +4750,9 @@ function App() {
   // 关键：切歌时把当前队列一起传给 playSong，否则播放歌单里点下一首会把队列缩成单曲。
   const stepSong = dir => {
     const L = listenRef.current, all = L.songs || [];
-    let q = (L.nowQueue && L.nowQueue.length ? L.nowQueue : all.map(s => s.id)).filter(id => !!resolveSong(id));
+    // 正放「静音保活」时，上/下一首 = 跳进真的歌单第一首（方便从保活直接切到真歌）
+    if (player.songId === KEEPALIVE_ID) { if (all.length) playSong(all[0].id, all.map(s => s.id)); return; }
+    let q = (L.nowQueue && L.nowQueue.length ? L.nowQueue : all.map(s => s.id)).filter(id => id !== KEEPALIVE_ID && !!resolveSong(id));
     if (!q.length) return;
     if ((L.playMode || "order") === "shuffle" && q.length > 1) {
       let n; do { n = q[Math.floor(Math.random() * q.length)]; } while (n === player.songId);
@@ -4753,6 +4765,7 @@ function App() {
   // 「非用户续播」拦掉 → 卡住不换歌。所以提前把下一首地址备好，ended 时同步换 src+play() 才放得出。
   const nextUpRef = useRef({ id: null, url: null, song: null });
   const computeNextId = () => {
+    if (player.songId === KEEPALIVE_ID) return null; // 保活循环放，不预取下一首
     const L = listenRef.current || {};
     const all = L.songs || [];
     const q = (L.nowQueue && L.nowQueue.length ? L.nowQueue : all.map(s => s.id)).filter(id => !!resolveSong(id));
@@ -4801,7 +4814,7 @@ function App() {
   // 悬浮球上的叉：立刻停播 + 收起悬浮（player.songId 清空 → 悬浮不显示）。再进一起听点歌才会重新唤起。
   const stopPlayer = () => {
     const el = audioElRef.current;
-    if (el) { el.pause(); el.removeAttribute("src"); try { el.load(); } catch (e) {} }
+    if (el) { el.pause(); el.loop = false; el.removeAttribute("src"); try { el.load(); } catch (e) {} }
     if (playUrlRef.current) { URL.revokeObjectURL(playUrlRef.current); playUrlRef.current = null; }
     setPlayer(p => ({ ...p, songId: null, playing: false, t: 0, dur: 0, loading: false, err: null }));
   };
