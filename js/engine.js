@@ -588,7 +588,8 @@ function buildSelfiePrompt(char, sceneDesc, st) {
   parts.push("前置摄像头随手拍的生活质感、自然光、真实不摆拍，画面里只有 TA 一个人，不要任何文字/水印/logo/相框。");
   return parts.join("");
 }
-// 生成一张自拍，返回 { blob, dataUrl }。refPhoto 有值→images/edits 保长相；否则 images/generations
+// 生成一张自拍，返回 { blob, dataUrl } 或 { blob:null, url }。有参考照先走 images/edits(保长相)，
+// 失败(很多便宜中转不支持 /images/edits)自动退回 images/generations(丢参考照但能出图)。
 async function generateSelfieImage(prompt, refPhotoDataUrl, opts) {
   const a = loadImgApi();
   if (!imgApiReady(a)) throw new Error("没配置图像 API");
@@ -597,45 +598,45 @@ async function generateSelfieImage(prompt, refPhotoDataUrl, opts) {
   base = base.replace(/\/(v1\/)?images\/(generations|edits)\/?$/i, "").replace(/\/chat\/completions\/?$/i, "").replace(/\/+$/, "");
   const root = base.endsWith("/v1") ? base : base + "/v1";
   const size = (opts && opts.size) || a.size || "1024x1536";
-  const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), 180000);
-  let r;
-  try {
-    if (refPhotoDataUrl) {
-      const fd = new FormData();
-      fd.append("model", a.model || "gpt-image-1");
-      fd.append("prompt", prompt);
-      fd.append("size", size);
-      fd.append("n", "1");
-      fd.append("response_format", "b64_json"); // 要纯 base64，绕开「url 里塞 data: 链接、iOS 不能 fetch」的坑
-      if (a.quality) fd.append("quality", a.quality);
-      fd.append("image", b64ToBlob(refPhotoDataUrl, "image/png"), "ref.png");
-      r = await fetch(root + "/images/edits", { method: "POST", headers: { Authorization: "Bearer " + a.apiKey }, body: fd, signal: ctrl.signal });
-    } else {
-      const body = { model: a.model || "gpt-image-1", prompt, size, n: 1, response_format: "b64_json" };
-      if (a.quality) body.quality = a.quality;
-      r = await fetch(root + "/images/generations", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + a.apiKey }, body: JSON.stringify(body), signal: ctrl.signal });
+  const parseOut = async (r, rawTxt) => {
+    let d;
+    try { d = JSON.parse(rawTxt); } catch (e) { throw new Error("接口没返回 JSON：" + rawTxt.slice(0, 160)); }
+    if (d && d.error) throw new Error((d.error.message || d.error.msg || JSON.stringify(d.error)) + "");
+    const cand = (d && d.data && d.data[0]) || (d && d.images && d.images[0]) || (d && d.output && (Array.isArray(d.output) ? d.output[0] : d.output)) || d || {};
+    let b64 = cand.b64_json || cand.b64 || (typeof cand === "string" && /^data:image/i.test(cand) ? cand.replace(/^data:image\/\w+;base64,/i, "") : null);
+    let url = cand.url || (cand.image && cand.image.url) || (typeof cand === "string" && /^https?:\/\//i.test(cand) ? cand : null);
+    if (!b64 && url && /^data:image/i.test(url)) { b64 = url.replace(/^data:image\/\w+;base64,/i, ""); url = null; }
+    if (!b64 && !url) { const mk = String(rawTxt).match(/data:image\/\w+;base64,[A-Za-z0-9+/=]+/i); if (mk) b64 = mk[0].replace(/^data:image\/\w+;base64,/i, ""); }
+    if (!b64 && !url) { const mk = String(rawTxt).match(/https?:\/\/[^\s"')\]]+\.(?:png|jpe?g|webp)/i); if (mk) url = mk[0]; }
+    if (b64) return { blob: b64ToBlob(b64, "image/png"), dataUrl: "data:image/png;base64," + b64 };
+    if (url) {
+      try { const resp = await fetch(url); if (resp.ok) { const blob = await resp.blob(); if (blob && blob.size > 0) return { blob, dataUrl: null }; } } catch (e) {}
+      return { blob: null, url: url };
     }
-  } finally { clearTimeout(to); }
-  const rawTxt = await r.text();
-  let d;
-  try { d = JSON.parse(rawTxt); } catch (e) { throw new Error("接口没返回 JSON：" + rawTxt.slice(0, 140)); }
-  if (d && d.error) throw new Error((d.error.message || d.error.msg || JSON.stringify(d.error)) + "");
-  // 稳健取图：b64 可能叫 b64_json/b64；url 可能在 data[0]/images[0]/output/顶层；再兜底从整段里抠图片链接
-  const cand = (d && d.data && d.data[0]) || (d && d.images && d.images[0]) || (d && d.output && (Array.isArray(d.output) ? d.output[0] : d.output)) || d || {};
-  let b64 = cand.b64_json || cand.b64 || (typeof cand === "string" && /^data:image/i.test(cand) ? cand.replace(/^data:image\/\w+;base64,/i, "") : null);
-  let url = cand.url || (cand.image && cand.image.url) || (typeof cand === "string" && /^https?:\/\//i.test(cand) ? cand : null);
-  // foxapi 等把图当 data:image;base64 塞在 url 里 → 直接当 b64 处理，别 fetch（iOS Safari 不支持 fetch data: 链接）
-  if (!b64 && url && /^data:image/i.test(url)) { b64 = url.replace(/^data:image\/\w+;base64,/i, ""); url = null; }
-  if (!b64 && !url) { const mk = String(rawTxt).match(/data:image\/\w+;base64,[A-Za-z0-9+/=]+/i); if (mk) b64 = mk[0].replace(/^data:image\/\w+;base64,/i, ""); }
-  if (!b64 && !url) { const mk = String(rawTxt).match(/https?:\/\/[^\s"')\]]+\.(?:png|jpe?g|webp)/i); if (mk) url = mk[0]; }
-  if (b64) return { blob: b64ToBlob(b64, "image/png"), dataUrl: "data:image/png;base64," + b64 };
-  if (url) {
-    // 优先取成 blob 存本地；跨域取不到就直接把 URL 当图源(能显示，但不进 IndexedDB、URL 失效就没了)
-    try { const resp = await fetch(url); if (resp.ok) { const blob = await resp.blob(); if (blob && blob.size > 0) return { blob, dataUrl: null }; } } catch (e) {}
-    return { blob: null, url: url };
-  }
-  throw new Error("返回里没找到图。原始返回：" + rawTxt.replace(/\s+/g, " ").slice(0, 180));
+    throw new Error("返回里没找到图。原始返回：" + rawTxt.replace(/\s+/g, " ").slice(0, 200));
+  };
+  const attempt = async useRef => {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 180000);
+    let r;
+    try {
+      if (useRef && refPhotoDataUrl) {
+        const fd = new FormData();
+        fd.append("model", a.model || "gpt-image-1"); fd.append("prompt", prompt); fd.append("size", size); fd.append("n", "1"); fd.append("response_format", "b64_json");
+        if (a.quality) fd.append("quality", a.quality);
+        fd.append("image", b64ToBlob(refPhotoDataUrl, "image/png"), "ref.png");
+        r = await fetch(root + "/images/edits", { method: "POST", headers: { Authorization: "Bearer " + a.apiKey }, body: fd, signal: ctrl.signal });
+      } else {
+        const body = { model: a.model || "gpt-image-1", prompt, size, n: 1, response_format: "b64_json" };
+        if (a.quality) body.quality = a.quality;
+        r = await fetch(root + "/images/generations", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + a.apiKey }, body: JSON.stringify(body), signal: ctrl.signal });
+      }
+    } finally { clearTimeout(to); }
+    return await parseOut(r, await r.text());
+  };
+  // 有参考照：先 edits(保长相)，挂了退回 generations；没参考照直接 generations
+  if (refPhotoDataUrl) { try { return await attempt(true); } catch (e) { return await attempt(false); } }
+  return await attempt(false);
 }
 // ============================================================
 // 线下模式（offline / 赴约）—— 面对面叙事，带动作/心理/旁白 + 心声
