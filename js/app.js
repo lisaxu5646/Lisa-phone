@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v47.18";
+const APP_VERSION = "v47.19";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -1516,7 +1516,12 @@ function App() {
         : "";
       // 一起听邀请：偶尔主动约对方一起听歌
       const inviteHint = isListenPartner ? "" : "\n【邀你一起听歌】偶尔（想跟 " + uName + " 分享一首歌、此刻在听到好歌、或气氛正好时，很克制、别频繁、绝大多数回合都 null），你可以主动邀请一起听歌：listenInvite 填 {\"song\":\"想一起听的歌名（可留空）\",\"say\":\"邀请的话，一句\"}；不邀请就 null。";
-      const system = bundle + ("\n\n【任务】完全代入「" + char.name + "」用手机即时通讯和用户聊天。**把话拆成多条短气泡：word 给多个元素，每条一两句、像发微信一句一条连着发，别把一大段塞进一个气泡。**语气自然，不写旁白/动作/括号小动作；按关系网与好感度把握亲密度，不剧透未发生的剧情。开了时间/位置感知可自然回应，别生硬报数据。" + callHint + proactiveHint + gapHint + wearHint + actHint + ambientHint + listenHint + inviteHint +"\n【quote 引用】多数填 null；仅当用户连发数条、你要指明在回其中较早某句时，才把那句原文放 quote，别每条都引用。\n【transfer 转账】想给用户转钱（还钱/心意/打赏）填 {\"amount\":数字,\"note\":\"附言\"}，否则 null。【location 位置】想把自己所在地发给 Ta 填 {\"name\":\"地点名\"}，否则 null。\n【gift 送东西/外卖】只要你这轮【说了】要给用户买东西/点外卖奶茶咖啡/送吃的花礼物惊喜——**必须**填 gift:{\"name\":\"具体东西，如 一杯生椰拿铁／麻辣烫外卖／一束花\"}（只嘴上说不填就不会真送到、Ta 收不到）；没有就 null，别频繁乱送。会像外卖一样过会儿送到。" + kinHint + emoteHint + "\n【voice 语音】想发语音（懒得打字/唱一句/情绪重/想让 Ta 听见）就把话放 voice 数组，每个元素是一条语音的转文字；平时仍以文字 word 为主，voice 偶尔用，不发给 []。\n【call 通话】很想直接通话（想听声音/急事/撒娇/煲电话粥）时主动发起：call 填 \"voice\" 或 \"video\"，会给对方弹来电卡；否则 null，别频繁。" + blockHint + "\n【recall 撤回】发出后后悔/说漏嘴/不想让 Ta 看到，可撤回那句：填 recall:{\"text\":\"要撤回的原句（和 word 里某句一致或另说）\",\"reason\":\"撤回的心里原因\"}，否则 null，别频繁。\n【momentComment 朋友圈】聊到 Ta 朋友圈、或你此刻想去补条评论/点赞（尤其之前没评现在说要评），填 momentComment（会真发到 Ta 最新那条下），否则 null。\n【输出】只输出一个 JSON，不要代码块：\n{\"word\":[\"气泡1\",\"气泡2\"],\"quote\":\"你在回应的用户那句话原文或null\",\"transfer\":null,\"location\":null,\"gift\":null,\"kinshipcard\":null,\"block\":false,\"blockreason\":null,\"recall\":null,\"momentComment\":null,\"whisper\":null,\"thought\":" + JSON.stringify(thoughtSpec) + ",\"moment\":\"想发的动态或null（别和自己最近发过的朋友圈复读同一件事/同一心情，没新东西就填null）\",\"affinityDelta\":整数(-5到5通常0),\"mood\":{\"label\":\"此刻心情词\",\"baseline\":\"平复后的心情词\",\"softened\":\"半衰后的心情词\"},\"wearing\":\"此刻穿着一句\",\"action\":\"此刻正在做的动作，一句短的，【每轮都更新】反映你此刻真在做什么、别照抄上一轮（相当于简单RP动作，只写在这里别写进气泡）；情境需要时可两三句更具体\",\"emote\":\"想发的表情关键词或null\",\"voice\":[],\"call\":null,\"songSwitch\":null,\"listenInvite\":null}").replace(/用户/g, uName);
+      // 发自拍：仅当接了图像 API 且该角色填了外貌/参考照时才开放（省钱+保长相），否则不给这个字段以免白填
+      const canSelfie = (typeof imgApiReady === "function") && imgApiReady() && (char.appearance || char.refPhoto);
+      const selfieHint = canSelfie
+        ? "\n【selfie 发自拍】你可以偶尔给 " + uName + " 发一张自拍——只在 Ta 让你拍、或此刻情境特别值得拍下来分享时（很珍贵、别频繁、绝大多数回合都 null）。想发就把 selfie 填成一句【这张自拍拍到了什么】的画面描述（你在哪、在干嘛、表情、光线氛围，一句话；别描写你的长相——长相已知），否则 null。你只发自拍，不发别的图。"
+        : "";
+      const system = bundle + ("\n\n【任务】完全代入「" + char.name + "」用手机即时通讯和用户聊天。**把话拆成多条短气泡：word 给多个元素，每条一两句、像发微信一句一条连着发，别把一大段塞进一个气泡。**语气自然，不写旁白/动作/括号小动作；按关系网与好感度把握亲密度，不剧透未发生的剧情。开了时间/位置感知可自然回应，别生硬报数据。" + callHint + proactiveHint + gapHint + wearHint + actHint + ambientHint + listenHint + inviteHint + selfieHint +"\n【quote 引用】多数填 null；仅当用户连发数条、你要指明在回其中较早某句时，才把那句原文放 quote，别每条都引用。\n【transfer 转账】想给用户转钱（还钱/心意/打赏）填 {\"amount\":数字,\"note\":\"附言\"}，否则 null。【location 位置】想把自己所在地发给 Ta 填 {\"name\":\"地点名\"}，否则 null。\n【gift 送东西/外卖】只要你这轮【说了】要给用户买东西/点外卖奶茶咖啡/送吃的花礼物惊喜——**必须**填 gift:{\"name\":\"具体东西，如 一杯生椰拿铁／麻辣烫外卖／一束花\"}（只嘴上说不填就不会真送到、Ta 收不到）；没有就 null，别频繁乱送。会像外卖一样过会儿送到。" + kinHint + emoteHint + "\n【voice 语音】想发语音（懒得打字/唱一句/情绪重/想让 Ta 听见）就把话放 voice 数组，每个元素是一条语音的转文字；平时仍以文字 word 为主，voice 偶尔用，不发给 []。\n【call 通话】很想直接通话（想听声音/急事/撒娇/煲电话粥）时主动发起：call 填 \"voice\" 或 \"video\"，会给对方弹来电卡；否则 null，别频繁。" + blockHint + "\n【recall 撤回】发出后后悔/说漏嘴/不想让 Ta 看到，可撤回那句：填 recall:{\"text\":\"要撤回的原句（和 word 里某句一致或另说）\",\"reason\":\"撤回的心里原因\"}，否则 null，别频繁。\n【momentComment 朋友圈】聊到 Ta 朋友圈、或你此刻想去补条评论/点赞（尤其之前没评现在说要评），填 momentComment（会真发到 Ta 最新那条下），否则 null。\n【输出】只输出一个 JSON，不要代码块：\n{\"word\":[\"气泡1\",\"气泡2\"],\"quote\":\"你在回应的用户那句话原文或null\",\"transfer\":null,\"location\":null,\"gift\":null,\"kinshipcard\":null,\"block\":false,\"blockreason\":null,\"recall\":null,\"momentComment\":null,\"whisper\":null,\"thought\":" + JSON.stringify(thoughtSpec) + ",\"moment\":\"想发的动态或null（别和自己最近发过的朋友圈复读同一件事/同一心情，没新东西就填null）\",\"affinityDelta\":整数(-5到5通常0),\"mood\":{\"label\":\"此刻心情词\",\"baseline\":\"平复后的心情词\",\"softened\":\"半衰后的心情词\"},\"wearing\":\"此刻穿着一句\",\"action\":\"此刻正在做的动作，一句短的，【每轮都更新】反映你此刻真在做什么、别照抄上一轮（相当于简单RP动作，只写在这里别写进气泡）；情境需要时可两三句更具体\",\"emote\":\"想发的表情关键词或null\",\"voice\":[],\"call\":null,\"songSwitch\":null,\"listenInvite\":null,\"selfie\":null}").replace(/用户/g, uName);
       const g = [];
       for (const m of history) {
         if (m.kind === "offlinelog") {
@@ -1635,6 +1640,26 @@ function App() {
         await new Promise(r => setTimeout(r, 420));
         const vt = String(vArr[i]);
         pChat(charId, p => [...p, { role: "assistant", kind: "voice", content: vt, dur: Math.max(1, Math.min(60, Math.round(vt.replace(/\s/g, "").length / 3))), ts: Date.now(), turnId, read: false }]);
+      }
+      // TA 发来一张自拍（接了图像 API + 该角色填了外貌/参考照才有）：先占位「拍照中」，异步生成后替换成真图
+      const selfieDesc = parsed.selfie && String(parsed.selfie).toLowerCase() !== "null" ? String(parsed.selfie).trim() : null;
+      if (selfieDesc && typeof imgApiReady === "function" && imgApiReady() && (char.appearance || char.refPhoto)) {
+        const sid = "sf_" + Date.now();
+        await new Promise(r => setTimeout(r, 420));
+        pChat(charId, p => [...p, { role: "assistant", kind: "selfie", sid, imgKey: null, pending: true, desc: selfieDesc, ts: Date.now(), turnId, read: false }]);
+        (async () => {
+          try {
+            const st = states[charId] || {};
+            const prompt = buildSelfiePrompt(char, selfieDesc, st);
+            const out = await generateSelfieImage(prompt, char.refPhoto || null);
+            const key = "img_" + charId + "_" + sid;
+            await idbImgPut(key, out.blob);
+            pChat(charId, p => p.map(m => m.sid === sid ? { ...m, pending: false, imgKey: key } : m));
+          } catch (e) {
+            pChat(charId, p => p.map(m => m.sid === sid ? { ...m, pending: false, failed: true } : m));
+            toast("自拍生成失败：" + (e.message || "重试"));
+          }
+        })();
       }
       // TA 主动发起通话邀请（弹来电卡，用户接听/拒绝）
       const callMode = parsed.call && ["voice", "video"].includes(String(parsed.call).toLowerCase()) ? String(parsed.call).toLowerCase() : null;

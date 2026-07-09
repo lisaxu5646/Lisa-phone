@@ -531,6 +531,74 @@ function pickCot(parsed) {
   return v && String(v).toLowerCase() !== "null" && String(v).trim() ? String(v).trim() : null;
 }
 // ============================================================
+// 图像 API（角色发自拍）—— 只生成自拍，不做别的图
+// 配置存 localStorage x_imgApi（不含大图，可云同步）；生成的图存 IndexedDB(x_selfies) 不进云
+// OpenAI 兼容：有参考照走 /v1/images/edits(保长相)，否则 /v1/images/generations
+// ============================================================
+function loadImgApi() {
+  try { const c = JSON.parse(localStorage.getItem("x_imgApi") || "null"); if (c && typeof c === "object") return Object.assign({ baseUrl: "", apiKey: "", model: "gpt-image-1", size: "1024x1536", quality: "medium", enabled: false }, c); } catch (e) {}
+  return { baseUrl: "", apiKey: "", model: "gpt-image-1", size: "1024x1536", quality: "medium", enabled: false };
+}
+function saveImgApi(c) { const clean = Object.assign(loadImgApi(), c || {}); try { localStorage.setItem("x_imgApi", JSON.stringify(clean)); } catch (e) {} return clean; }
+function imgApiReady(a) { a = a || loadImgApi(); return !!(a.enabled && a.baseUrl && a.apiKey); }
+// base64(dataURL 或纯 b64) → Blob
+function b64ToBlob(b64, mime) {
+  const s = String(b64).includes(",") ? String(b64).split(",")[1] : String(b64);
+  const bin = atob(s); const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime || "image/png" });
+}
+// ---- 自拍图存 IndexedDB（base64 大图不能进 localStorage/云同步）----
+function idbImgOpen() { return new Promise((res, rej) => { const r = indexedDB.open("x_selfies", 1); r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains("img")) r.result.createObjectStore("img"); }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+async function idbImgPut(k, blob) { const db = await idbImgOpen(); return new Promise((res, rej) => { const tx = db.transaction("img", "readwrite"); tx.objectStore("img").put(blob, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
+async function idbImgGet(k) { const db = await idbImgOpen(); return new Promise((res, rej) => { const tx = db.transaction("img", "readonly"); const rq = tx.objectStore("img").get(k); rq.onsuccess = () => res(rq.result || null); rq.onerror = () => rej(rq.error); }); }
+async function idbImgDel(k) { const db = await idbImgOpen(); return new Promise(res => { const tx = db.transaction("img", "readwrite"); tx.objectStore("img").delete(k); tx.oncomplete = () => res(); tx.onerror = () => res(); }); }
+// 拼自拍的图像 prompt（外貌 + 此刻穿着/情境/神情）
+function buildSelfiePrompt(char, sceneDesc, st) {
+  const parts = ["一张真实的手机自拍照（第一人称自拍视角 selfie，手臂伸出去拍的构图）。"];
+  parts.push("照片里的人：" + (char.name || "一个人") + "。");
+  if (char.appearance && char.appearance.trim()) parts.push("外貌特征（务必贴合）：" + char.appearance.trim() + "。");
+  if (st && st.wearing) parts.push("此刻穿着：" + st.wearing + "。");
+  if (sceneDesc && String(sceneDesc).trim()) parts.push("此刻的场景/在做什么：" + String(sceneDesc).trim() + "。");
+  if (st && st.mood) parts.push("神情情绪：" + st.mood + "。");
+  parts.push("前置摄像头随手拍的生活质感、自然光、真实不摆拍，画面里只有 TA 一个人，不要任何文字/水印/logo/相框。");
+  return parts.join("");
+}
+// 生成一张自拍，返回 { blob, dataUrl }。refPhoto 有值→images/edits 保长相；否则 images/generations
+async function generateSelfieImage(prompt, refPhotoDataUrl, opts) {
+  const a = loadImgApi();
+  if (!imgApiReady(a)) throw new Error("没配置图像 API");
+  const base = (a.baseUrl || "").replace(/\/$/, "");
+  const root = base.endsWith("/v1") ? base : base + "/v1";
+  const size = (opts && opts.size) || a.size || "1024x1536";
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), 180000);
+  let r;
+  try {
+    if (refPhotoDataUrl) {
+      const fd = new FormData();
+      fd.append("model", a.model || "gpt-image-1");
+      fd.append("prompt", prompt);
+      fd.append("size", size);
+      fd.append("n", "1");
+      if (a.quality) fd.append("quality", a.quality);
+      fd.append("image", b64ToBlob(refPhotoDataUrl, "image/png"), "ref.png");
+      r = await fetch(root + "/images/edits", { method: "POST", headers: { Authorization: "Bearer " + a.apiKey }, body: fd, signal: ctrl.signal });
+    } else {
+      const body = { model: a.model || "gpt-image-1", prompt, size, n: 1 };
+      if (a.quality) body.quality = a.quality;
+      r = await fetch(root + "/images/generations", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + a.apiKey }, body: JSON.stringify(body), signal: ctrl.signal });
+    }
+  } finally { clearTimeout(to); }
+  const d = await r.json();
+  if (d.error) throw new Error(d.error.message || "图像生成失败");
+  const item = d.data && d.data[0];
+  if (!item) throw new Error("图像返回为空");
+  if (item.b64_json) return { blob: b64ToBlob(item.b64_json, "image/png"), dataUrl: "data:image/png;base64," + item.b64_json };
+  if (item.url) { const resp = await fetch(item.url); const blob = await resp.blob(); return { blob, dataUrl: null }; }
+  throw new Error("图像返回格式不认识");
+}
+// ============================================================
 // 线下模式（offline / 赴约）—— 面对面叙事，带动作/心理/旁白 + 心声
 // ============================================================
 const OFFLINE_STYLES = [

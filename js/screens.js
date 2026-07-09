@@ -67,9 +67,11 @@ function CastForm({
   const [persona, setPersona] = useState(initial && initial.persona || "");
   const [avatarImage, setAvatarImage] = useState(initial && initial.avatarImage || null);
   const [tz, setTz] = useState(initial && initial.tz != null ? String(initial.tz) : "");
+  const [appearance, setAppearance] = useState(initial && initial.appearance || "");
+  const [refPhoto, setRefPhoto] = useState(initial && initial.refPhoto || null);
   const save = () => {
     if (!name.trim()) return;
-    onSave({
+    onSave(Object.assign({}, initial || {}, {
       id: initial && initial.id || "char_" + Date.now(),
       name: name.trim(),
       tagline: tagline.trim(),
@@ -78,8 +80,10 @@ function CastForm({
       persona: persona.trim(),
       avatarImage,
       tz: tz,
+      appearance: appearance.trim(),
+      refPhoto: refPhoto,
       remark: initial && initial.remark || ""
-    });
+    }));
   };
   const TZ_OPTS = [
     ["-10", "檀香山"], ["-9", "安克雷奇"], ["-8", "洛杉矶 / 温哥华"], ["-7", "丹佛"], ["-6", "芝加哥 / 墨西哥城"],
@@ -175,7 +179,13 @@ function CastForm({
     onChange: e => setPersona(e.target.value),
     rows: 12,
     placeholder: "粘贴性格、说话风格、背景、当前关系阶段……"
-  })), initial && /*#__PURE__*/React.createElement("button", {
+  })), h(LineField, { zh: "外貌 · 发自拍用", en: "Appearance" },
+    h("div", null,
+      h("div", { className: "flex items-center gap-3 mb-2" },
+        h(AvatarPicker, { character: { name, avatarImage: refPhoto, color }, size: 56, radius: 12, onPick: setRefPhoto, onClear: () => setRefPhoto(null) }),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, lineHeight: 1.5 } }, "传张参考照(可选)固定长相；接了图像 API 后，TA 聊天里会偶尔发自拍")),
+      h(LineArea, { value: appearance, onChange: e => setAppearance(e.target.value), rows: 5, placeholder: "长相/发型/身材/气质/常穿风格……越具体，自拍越像本人。" }))),
+  initial && /*#__PURE__*/React.createElement("button", {
     onClick: () => onDelete(initial.id),
     className: "mt-8 w-full flex items-center justify-center gap-2 py-3",
     style: {
@@ -2648,6 +2658,34 @@ function CotConfig({ toast }) {
         style: { width: "100%", outline: "none", resize: "vertical", padding: "11px 13px", borderRadius: 12, fontFamily: F_BODY, fontSize: 13.5, lineHeight: 1.75, background: t.bg2, color: t.ink, border: "1px solid " + t.line } }),
       h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 6, lineHeight: 1.5 } }, "改动即时保存，全部角色通用。思考越细，正文越贴——但也会多花一点点生成。")));
 }
+// 图像 API（角色自拍）设置：开关 + 端点/密钥/模型/尺寸/质量。存 x_imgApi（图本身进 IndexedDB 不在这）。
+function ImageApiConfig({ toast }) {
+  const t = useTheme();
+  const [c, setC] = useState(() => (typeof loadImgApi === "function" ? loadImgApi() : { baseUrl: "", apiKey: "", model: "gpt-image-1", size: "1024x1536", quality: "medium", enabled: false }));
+  const set = patch => { const n = Object.assign({}, c, patch); setC(n); if (typeof saveImgApi === "function") saveImgApi(n); };
+  const inSt = { width: "100%", outline: "none", padding: "9px 12px", borderRadius: 10, fontFamily: F_BODY, fontSize: 13.5, background: t.bg2, color: t.ink, border: "1px solid " + t.line };
+  const row = (label, node) => h("div", { className: "mb-3" }, h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, marginBottom: 4 } }, label), node);
+  return h("div", { className: "pt-8 mt-6", style: { borderTop: "1px dashed " + t.line } },
+    h("div", { className: "flex items-center justify-between py-2" },
+      h("div", { style: { paddingRight: 12 } },
+        h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, "图像 API · 角色自拍"),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, lineHeight: 1.5, color: t.fog, marginTop: 2 } }, "接一个 OpenAI 兼容的图像接口（gpt-image 类）。开了之后，给角色填了『外貌/参考照』的，聊天里会偶尔发自拍。按张计费、比文字贵，别乱开；生成的图只存在本机、不进云同步。")),
+      h(Toggle, { on: c.enabled === true, onChange: v => { set({ enabled: v }); toast && toast(v ? "已开启角色自拍（按张计费）" : "已关闭"); } })),
+    c.enabled ? h("div", { className: "pt-3" },
+      row("接口地址 Base URL", h("input", { value: c.baseUrl || "", onChange: e => set({ baseUrl: e.target.value }), placeholder: "如 https://xxx.com（会自动补 /v1/images）", style: inSt })),
+      row("密钥 API Key", h("input", { value: c.apiKey || "", onChange: e => set({ apiKey: e.target.value }), placeholder: "sk-…", type: "password", style: inSt })),
+      row("模型", h("input", { value: c.model || "", onChange: e => set({ model: e.target.value }), placeholder: "gpt-image-1", style: inSt })),
+      h("div", { className: "flex gap-3" },
+        h("div", { className: "flex-1" }, row("尺寸", h("select", { value: c.size || "1024x1536", onChange: e => set({ size: e.target.value }), style: Object.assign({}, inSt, { appearance: "none", WebkitAppearance: "none" }) },
+          h("option", { value: "1024x1536" }, "竖 1024×1536（自拍推荐）"),
+          h("option", { value: "1024x1024" }, "方 1024×1024"),
+          h("option", { value: "1536x1024" }, "横 1536×1024")))),
+        h("div", { className: "flex-1" }, row("质量", h("select", { value: c.quality || "medium", onChange: e => set({ quality: e.target.value }), style: Object.assign({}, inSt, { appearance: "none", WebkitAppearance: "none" }) },
+          h("option", { value: "low" }, "low（最省）"),
+          h("option", { value: "medium" }, "medium"),
+          h("option", { value: "high" }, "high（最贵）"))))),
+      h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 4, lineHeight: 1.5 } }, "填好后，去某个角色的档案里写『外貌』或传参考照，再在聊天里让 TA『拍张自拍』试试。参考照会用 images/edits 尽量保住长相。")) : null);
+}
 function Config({
   apiProfiles,
   activeId,
@@ -2705,14 +2743,16 @@ function Config({
     }
   }), /*#__PURE__*/React.createElement("div", {
     className: "flex-1 overflow-y-auto px-6 pb-10"
-  }, tab === "api" && /*#__PURE__*/React.createElement(ApiConfig, {
+  }, tab === "api" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(ApiConfig, {
     profiles: apiProfiles,
     activeId: activeId,
     bgApiId: bgApiId,
     onSetBgApi: onSetBgApi,
     onSave: onSaveApi,
     toast: toast
-  }), tab === "sense" && /*#__PURE__*/React.createElement(SenseConfig, {
+  }), /*#__PURE__*/React.createElement(ImageApiConfig, {
+    toast: toast
+  })), tab === "sense" && /*#__PURE__*/React.createElement(SenseConfig, {
     prefs: prefs,
     onSave: onSavePrefs,
     geo: geo,
