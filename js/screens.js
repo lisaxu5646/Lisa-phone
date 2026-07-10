@@ -2772,7 +2772,8 @@ function TtsApiConfig({ toast, characters, onAssignVoice }) {
       h("div", { className: "pt-4 mt-4", style: { borderTop: "1px dashed " + t.line } },
         h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.ink, marginBottom: 4 } }, "🎤 克隆音色"),
         h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, lineHeight: 1.6, marginBottom: 10 } }, "传一段【只有一个人说话、没背景音乐】的干净人声（10 秒~5 分钟，mp3/wav/m4a），起一个专属 voice_id——克隆好后去角色档案把「音色」填成这个 id 就是 TA 的声音了。⚠️ 克隆按次收费（比合成贵），確認样本干净再点；只克隆你有权使用的声音。"),
-        h("input", { type: "file", accept: "audio/*", onChange: e => { setCloneFile(e.target.files && e.target.files[0] || null); }, style: { fontFamily: F_BODY, fontSize: 12, color: t.sub, marginBottom: 8, display: "block", width: "100%" } }),
+        // accept 不能只写 audio/*：iOS 会只给录音/媒体库入口、选不了「文件」里的 mp3——列明扩展名才会出现文件 App 选项
+        h("input", { type: "file", accept: ".mp3,.m4a,.wav,.aac,audio/mpeg,audio/mp4,audio/wav,audio/*", onChange: e => { setCloneFile(e.target.files && e.target.files[0] || null); }, style: { fontFamily: F_BODY, fontSize: 12, color: t.sub, marginBottom: 8, display: "block", width: "100%" } }),
         h("input", { value: cloneId, onChange: e => setCloneId(e.target.value), placeholder: "起个 voice_id（字母开头≥8位，如 GuChao2026）", style: Object.assign({}, inSt, { marginBottom: 8 }) }),
         h("button", { onClick: runClone, disabled: cloning || !cloneFile || !cloneId.trim(), className: "w-full active:opacity-80 disabled:opacity-40", style: { fontFamily: F_BODY, fontSize: 13, color: "#fff", background: t.ink, borderRadius: 10, padding: "10px 0" } }, cloning ? "上传克隆中…（可能要一会儿）" : "上传并克隆"),
         cloneMsg ? h("div", { style: { marginTop: 10, padding: "10px 12px", background: cloneMsg.ok ? "rgba(63,109,90,0.08)" : "rgba(194,90,74,0.08)", border: "1px solid " + (cloneMsg.ok ? "rgba(63,109,90,0.3)" : "rgba(194,90,74,0.3)"), borderRadius: 10, fontFamily: F_BODY, fontSize: 12, lineHeight: 1.6, color: cloneMsg.ok ? "#3f6d5a" : "#c25a4a", userSelect: "text", WebkitUserSelect: "text", wordBreak: "break-all" } }, cloneMsg.text) : null),
@@ -4750,6 +4751,7 @@ function importEmotesOk(text) { return /(https?:\/\/\S+)/.test(String(text || ""
 function Favorites({ favorites, characters, onBack, onDelete }) {
   const t = useTheme();
   const [sel, setSel] = useState(null);
+  const ftp = typeof useTtsPlayer === "function" ? useTtsPlayer() : null; // 收藏语音回听
   const favs = favorites || [];
   const byChar = {};
   favs.forEach(f => { (byChar[f.charId] = byChar[f.charId] || []).push(f); });
@@ -4767,6 +4769,16 @@ function Favorites({ favorites, characters, onBack, onDelete }) {
               h("button", { onClick: () => onDelete(f.id), className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 11.5, color: t.accent } }, "移除")),
             f.kind === "emote" && f.url
               ? h("img", { src: f.url, referrerPolicy: "no-referrer", loading: "lazy", style: { maxWidth: 110, maxHeight: 110, borderRadius: 10, display: "block" }, onError: e => { e.target.style.display = "none"; } })
+              : f.kind === "selfie"
+              ? h(SelfieBubble, { m: f }) // 复用聊天里的自拍气泡：从 IndexedDB 读 imgKey，点开可放大
+              : f.kind === "voice"
+              ? h("div", null,
+                  h("div", { className: "flex items-center gap-2", style: { marginBottom: 5 } },
+                    h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, "🎤 语音消息" + (f.dur ? " · " + f.dur + "″" : "")),
+                    (ftp && typeof TtsDot === "function" && f.role !== "user") ? h(TtsDot, { k: f.id, text: f.content, spk: c, tp: ftp }) : null),
+                  h("div", { style: { fontFamily: F_BODY, fontSize: 14, color: t.ink, lineHeight: 1.65, whiteSpace: "pre-wrap" } }, f.content || ""))
+              : f.kind === "photo"
+              ? h("div", { style: { fontFamily: F_BODY, fontSize: 14, color: t.ink, lineHeight: 1.65, whiteSpace: "pre-wrap" } }, "📷 " + (f.content || "（照片）"))
               : h("div", { style: { fontFamily: F_BODY, fontSize: 14.5, color: t.ink, lineHeight: 1.65, whiteSpace: "pre-wrap" } }, f.content || "（无文本内容）")))));
   }
   const chars = (characters || []).filter(c => byChar[c.id] && byChar[c.id].length);

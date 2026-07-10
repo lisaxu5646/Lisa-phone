@@ -585,6 +585,53 @@ function MemoWidget({ onOpen }) {
             h("span", { className: "flex-1 min-w-0", style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, it.title))))
       : h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 2 } }, "没有待办提醒，记一条？"));
 }
+// 电子木鱼小组件：点一下功德+1（纯本地零 API），飘 +1、右下角连击数（2 秒不敲就断）。点不进任何页面，只为敲。
+function MuyuWidget({ editMode }) {
+  const t = useTheme();
+  const [total, setTotal] = useState(() => { try { return JSON.parse(localStorage.getItem("x_muyu") || "{}").total || 0; } catch (e) { return 0; } });
+  const [combo, setCombo] = useState(0);
+  const [pops, setPops] = useState([]);
+  const [pressed, setPressed] = useState(false);
+  const comboT = useRef(null);
+  useEffect(() => {
+    if (!document.getElementById("wk-muyu-style")) {
+      const st = document.createElement("style"); st.id = "wk-muyu-style";
+      st.textContent = "@keyframes wk-pop{0%{opacity:1;transform:translate(-50%,0)}100%{opacity:0;transform:translate(-50%,-26px)}}";
+      document.head.appendChild(st);
+    }
+    return () => { if (comboT.current) clearTimeout(comboT.current); };
+  }, []);
+  const knock = () => {
+    if (editMode) return;
+    // 函数式更新：快速连敲会在同一渲染批次里触发多次，读闭包旧值会丢计数
+    setTotal(prev => { const nt = prev + 1; try { localStorage.setItem("x_muyu", JSON.stringify({ total: nt })); } catch (e) {} return nt; });
+    setCombo(c => c + 1);
+    if (comboT.current) clearTimeout(comboT.current);
+    comboT.current = setTimeout(() => setCombo(0), 2000);
+    const pid = Date.now() + Math.random();
+    setPops(p => [...p.slice(-2), pid]);
+    setTimeout(() => setPops(p => p.filter(x => x !== pid)), 700);
+    setPressed(true); setTimeout(() => setPressed(false), 90);
+    try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) {}
+  };
+  return h("div", { className: "flex flex-col items-center gap-1.5", style: { userSelect: "none", WebkitUserSelect: "none" } },
+    h("div", { onClick: knock, className: "relative flex items-center justify-center", style: {
+      width: 62, height: 62, borderRadius: 17, cursor: "pointer",
+      background: "linear-gradient(150deg, rgba(255,255,255,0.85), rgba(255,255,255,0.45))",
+      backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+      border: "1px solid rgba(255,255,255,0.7)",
+      boxShadow: "0 4px 14px rgba(30,28,24,0.1), inset 0 1px 1px rgba(255,255,255,0.9)",
+      transform: pressed ? "scale(0.86)" : "scale(1)", transition: "transform .09s ease"
+    } },
+      // 木鱼本鱼（简笔）：圆身+鱼嘴缝+敲点
+      h(Svg, { size: 30, color: "#8a6a3f", sw: 1.6 },
+        h("path", { d: "M12 4.5c-4.8 0-8.3 3-8.3 6.9 0 4.2 3.9 7.3 8.3 7.3s8.3-3.1 8.3-7.3c0-3.9-3.5-6.9-8.3-6.9z" }),
+        h("path", { d: "M7.2 13.2c1.8 1.5 7.8 1.5 9.6 0" }),
+        h("circle", { cx: 12, cy: 9, r: 0.7 })),
+      pops.map(pid => h("span", { key: pid, style: { position: "absolute", left: "50%", top: 2, fontFamily: F_BODY, fontSize: 11, fontWeight: 700, color: "#a8743f", pointerEvents: "none", animation: "wk-pop .65s ease-out forwards" } }, "+1")),
+      combo > 1 ? h("span", { style: { position: "absolute", right: 4, bottom: 3, fontFamily: "'Archivo',sans-serif", fontSize: 9, fontWeight: 700, color: "#a8743f" } }, "x" + combo) : null),
+    h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.ink, maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, total > 0 ? "功德 " + (total > 9999 ? Math.floor(total / 1000) + "k" : total) : "木鱼"));
+}
 // 情侣空间轮播组件：多位正式在一起的 TA 轮流展示（每 6s 换一位），显示在一起天数+甜蜜值；点开进情侣空间
 function UsWidget({ characters, couples, sweet, onOpen }) {
   const t = useTheme();
@@ -937,6 +984,7 @@ function Home({
     w_us: { kind: "widget", which: "us" },
     w_memo: { kind: "widget", which: "memo" },
     w_weather: { kind: "widget", which: "weather" },
+    w_muyu: { kind: "widget", which: "muyu" },
     cast: { kind: "app", zh: "名录", G: GCast },
     ties: { kind: "app", zh: "关系", G: GTies },
     lifestyle: { kind: "app", zh: "行程", G: GLife },
@@ -963,7 +1011,7 @@ function Home({
   const DEFAULT_LAYOUT = [
     ["w_card", "cast", "ties", "lifestyle", "phone", "w_music", "w_map", "w_weather"],
     ["w_cal", "shop", "carry", "cwallet", "ledger", "memo", "w_us", "w_memo"],
-    ["lore", "memlib", "diary", "study", "fanfic", "weekly", "read", "debate", "dream", "tarot", "pomodoro", "games"]
+    ["lore", "memlib", "diary", "study", "fanfic", "weekly", "read", "debate", "dream", "tarot", "pomodoro", "games", "w_muyu"]
   ];
   // 空格（sp_ 开头）：真实占一格的「洞」，自由摆放的基础——拖到空格＝挪过去，原位留洞
   const SP_RE = /^sp_/;
@@ -973,7 +1021,7 @@ function Home({
     var it = key && key.slice(0, 2) === "f_" ? { kind: "folder" } : REG[key];
     if (!it) return 0;
     if (it.kind !== "widget") return 1;
-    return it.which === "cal" ? 9 : it.which === "weather" ? 2 : 4;
+    return it.which === "cal" ? 9 : it.which === "muyu" ? 1 : it.which === "weather" ? 2 : 4;
   };
   // 存档 + 注册表 → 完整布局：套用存档顺序，未放置的新功能补到默认页，丢弃已删除的 key
   // 文件夹（f_ 开头）也是合法项；躺在文件夹里的 app 视作已放置，不再回填到页面
@@ -1246,7 +1294,7 @@ function Home({
     const isHoverTgt = hoverKey === key; // 有 app 悬停在我头上蓄力合并
     // 组件占格：日历 3 宽 3 高（右边留一列放 app），名片/音乐整行宽
     let gCol = "span 1", gRow = "auto";
-    if (it.kind === "widget") { if (it.which === "cal") { gCol = "span 3"; gRow = "span 3"; } else if (it.which === "map") { gCol = "span 2"; gRow = "span 2"; } else if (it.which === "weather") { gCol = "span 2"; } else gCol = "span 4"; }
+    if (it.kind === "widget") { if (it.which === "cal") { gCol = "span 3"; gRow = "span 3"; } else if (it.which === "map") { gCol = "span 2"; gRow = "span 2"; } else if (it.which === "weather") { gCol = "span 2"; } else if (it.which === "muyu") { gCol = "span 1"; } else gCol = "span 4"; }
     let inner;
     if (it.kind === "app") inner = h(GlassIcon, { G: it.G, label: it.zh, soon: it.soon, badge: key === "memo" ? (memoDue || 0) : 0, onClick: function () { if (editMode) return; it.soon ? (onSoon && onSoon(it.zh)) : onOpenApp(key); } });
     else if (isFolder) {
@@ -1258,6 +1306,7 @@ function Home({
     else if (it.which === "music") inner = h(MusicWidget, { listen: listen, player: player, onOpen: function () { return onOpenApp("listen"); } });
     else if (it.which === "us") inner = h(UsWidget, { characters: characters, couples: couples, sweet: coupleSweet, onOpen: function () { return onOpenApp("us"); } });
     else if (it.which === "memo") inner = h(MemoWidget, { onOpen: function () { return onOpenApp("memo"); } });
+    else if (it.which === "muyu") inner = h(MuyuWidget, { editMode: editMode });
     else if (it.which === "weather") inner = h(WeatherWidget, { userGeo: userGeo, onOpen: function () { return onOpenApp("map"); } });
     else if (it.which === "map") inner = (window.MapKit ? h(window.MapKit.MapWidget, { characters: characters, status: mapStatus, userGeo: userGeo, onOpen: function () { return onOpenApp("map"); } }) : null);
     return h("div", {
@@ -2523,6 +2572,7 @@ function ChatThread({
   const [voiceMsgOpen, setVoiceMsgOpen] = useState(false);
   const [voiceMsgText, setVoiceMsgText] = useState("");
   const [callLogOpen, setCallLogOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [modeOpen, setModeOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
@@ -2530,7 +2580,7 @@ function ChatThread({
   const inited = useRef(false); // 首次进入聊天：瞬间落底，不用 smooth（否则从顶部慢慢滚像跳到很上面）
   const pressTimer = useRef(null);
   const cName = character.remark || character.name;
-  const PANEL = [["location", "位置", "browser"], ["sticker", "表情包", "album"], ["photo", "拍摄", "album"], ["voicemsg", "发语音", "recordings"], ["voice", "语音通话", "calls"], ["video", "视频通话", "video"], ["calllog", "通话记录", "calls"], ["anon", "匿名箱", "forum"], ["moments", "朋友圈", "wechat"], ["transfer", "转账", "wallet"], ["pat", "拍一拍", "wechat"]];
+  const PANEL = [["location", "位置", "browser"], ["sticker", "表情包", "album"], ["photo", "拍摄", "album"], ["voicemsg", "发语音", "recordings"], ["voice", "语音通话", "calls"], ["video", "视频通话", "video"], ["calllog", "通话记录", "calls"], ["chatsearch", "查找记录", "browser"], ["anon", "匿名箱", "forum"], ["moments", "朋友圈", "wechat"], ["transfer", "转账", "wallet"], ["pat", "拍一拍", "wechat"]];
   const sendRich = msg => {
     onSendRich({
       ts: Date.now(),
@@ -2562,6 +2612,9 @@ function ChatThread({
     } else if (k === "calllog") {
       setPanelOpen(false);
       setCallLogOpen(true);
+    } else if (k === "chatsearch") {
+      setPanelOpen(false);
+      setSearchOpen(true);
     } else if (k === "transfer") {
       setTransferOpen(true);
       setPanelOpen(false);
@@ -2846,7 +2899,9 @@ function ChatThread({
       avatar: h(Avatar, { character: character, size: 40, radius: 10 }),
       myAvatar: dsp.myAvatar && h(Avatar, { character: meAv, size: 40, radius: 10 })
     });
-    if (m.kind === "gift") return h(GiftCard, { key: i, m: m, isU: m.role === "user", now: now });
+    if (m.kind === "gift") return h(GiftCard, { key: i, m: m, isU: m.role === "user", now: now,
+      avatar: h(Avatar, { character: character, size: 40, radius: 10 }),
+      myAvatar: dsp.myAvatar && h(Avatar, { character: meAv, size: 40, radius: 10 }) });
     if (m.kind === "kinship") return h(KinshipIssueCard, { key: i, m: m, character: character });
     if (m.kind === "paylater") return h(PayLaterCard, { key: i, m: m });
     if (m.kind === "couple_invite") return h(CoupleInviteCard, { key: i, m: m, character: character });
@@ -3293,7 +3348,7 @@ function ChatThread({
       ? h("div", { className: "text-center", style: { padding: "30px 0", fontFamily: F_BODY, fontSize: 13, color: t.fog, lineHeight: 1.9 } }, "还没有表情。\n点右上「管理表情库」批量导入。")
       : h("div", { className: "grid grid-cols-4 gap-2", style: { maxHeight: "46vh", overflowY: "auto" } }, (emotes || []).map(em => h("button", { key: em.id, onClick: () => { sendRich({ role: "user", kind: "emote", url: em.url, keyword: em.keyword, content: "[表情] " + em.keyword }); setStickerOpen(false); }, className: "active:opacity-70", style: { border: "1px solid " + t.line, borderRadius: 10, overflow: "hidden", background: t.bg2 } },
         h("div", { style: { width: "100%", aspectRatio: "1" } }, h("img", { src: em.url, referrerPolicy: "no-referrer", loading: "lazy", style: { width: "100%", height: "100%", objectFit: "cover", display: "block" }, onError: e => { e.target.style.display = "none"; } })))))
-  ), callLogOpen && h(CallLogSheet, { calls: (messages || []).filter(x => x.kind === "callend"), chars: [character], onClose: () => setCallLogOpen(false) }), voiceMsgOpen && h(Sheet, { onClose: () => setVoiceMsgOpen(false) },
+  ), callLogOpen && h(CallLogSheet, { calls: (messages || []).filter(x => x.kind === "callend"), chars: [character], onClose: () => setCallLogOpen(false) }), searchOpen && h(ChatSearchSheet, { messages, chars: [character], onClose: () => setSearchOpen(false) }), voiceMsgOpen && h(Sheet, { onClose: () => setVoiceMsgOpen(false) },
     h(Eyebrow, { style: { marginBottom: 8 } }, "发一条语音"),
     h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 10, lineHeight: 1.5 } }, "写下你要「说」的话，会发成语音气泡，下面自动显示转文字。"),
     h("textarea", { value: voiceMsgText, onChange: e => setVoiceMsgText(e.target.value), rows: 3, autoFocus: true, placeholder: "想说的话…", className: "w-full outline-none p-3 rounded-lg", style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.6, color: t.ink, background: t.bg2, border: `1px solid ${t.line}`, resize: "none" } }),
@@ -3923,6 +3978,72 @@ function CallLogSheet({ calls, chars, onClose }) {
               m.sum ? h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px dashed " + t.line, fontFamily: F_BODY, fontSize: 11.5, color: t.sub, lineHeight: 1.6 } }, "小结：" + m.sum) : null) : null);
         })));
 }
+// 查找聊天记录（微信式）：关键词 + 类型（语音/图片/转账/通话/位置/红包）+ 按日期定位。
+// 点结果/点日期 → 就地展开那天的完整记录（只读简版、命中高亮自动滚到），不用回聊天里翻楼。
+function ChatSearchSheet({ messages, chars, meName, onClose }) {
+  const t = useTheme();
+  const [q, setQ] = useState("");
+  const [typeF, setTypeF] = useState(null);
+  const [day, setDay] = useState(null);
+  const [focusTs, setFocusTs] = useState(null);
+  const hitRef = useRef(null);
+  const msgs = (messages || []).map((m, i) => ({ m, i })).filter(x => !x.m.recalled && x.m.kind !== "ooc");
+  const nameOf = m => m.role === "user" ? (meName || "我") : (m.senderName || (chars && chars[0] && (chars[0].remark || chars[0].name)) || "TA");
+  const dayOf = ts => { const d = new Date(ts || 0); return d.getFullYear() + "年" + (d.getMonth() + 1) + "月" + d.getDate() + "日"; };
+  const hm = ts => { const d = new Date(ts || 0); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); };
+  const kindTag = m => m.kind === "voice" ? "🎤语音" : m.kind === "selfie" ? "📷自拍" : m.kind === "photo" ? "📷照片" : m.kind === "transfer" ? "💸转账" : m.kind === "callend" ? "📞通话" : m.kind === "geo" ? "📍位置" : m.kind === "redpacket" ? "🧧红包" : m.kind === "gift" ? "🎁礼物" : m.kind === "emote" ? "表情" : null;
+  const textOf = m => m.kind === "transfer" ? ("转账" + (m.amount != null ? " ¥" + m.amount : "") + (m.note ? " · " + m.note : "")) : m.kind === "redpacket" ? ("红包" + (m.message ? " · " + m.message : "")) : m.kind === "geo" ? (m.name || "") : m.kind === "poll" ? (m.title || "") : (m.content || m.desc || "");
+  const matchType = m => !typeF ? true : typeF === "image" ? (m.kind === "selfie" || m.kind === "photo") : m.kind === typeF;
+  const kw = q.trim();
+  const hits = (kw || typeF) ? msgs.filter(x => matchType(x.m) && (!kw || String(textOf(x.m)).indexOf(kw) >= 0)) : [];
+  const dayGroups = [];
+  { const seen = {}; msgs.forEach(x => { if (!x.m.ts) return; const d = dayOf(x.m.ts); if (!seen[d]) { seen[d] = { day: d, n: 0 }; dayGroups.push(seen[d]); } seen[d].n++; }); dayGroups.reverse(); }
+  useEffect(() => { if (day && hitRef.current) setTimeout(() => { try { hitRef.current.scrollIntoView({ block: "center" }); } catch (e) {} }, 80); }, [day, focusTs]);
+  const openDay = (d, ts) => { setDay(d); setFocusTs(ts || null); };
+  const dayMsgs = day ? msgs.filter(x => x.m.ts && dayOf(x.m.ts) === day) : [];
+  let focused = false;
+  return h(Sheet, { onClose, tall: true },
+    day
+      ? h(Fragment, null,
+          h("div", { className: "flex items-center gap-2 shrink-0", style: { marginBottom: 10 } },
+            h("button", { onClick: () => setDay(null), className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 13, color: t.tint, background: "transparent", border: "none" } }, "‹ 返回"),
+            h("span", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, day),
+            h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, dayMsgs.length + " 条")),
+          h("div", { style: { flex: "1 1 auto", minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch" } },
+            dayMsgs.map(x => {
+              const m = x.m; const tag = kindTag(m); const txt = String(textOf(m));
+              const isHit = !focused && focusTs && m.ts === focusTs ? (focused = true) : false;
+              return h("div", { key: x.i, ref: isHit ? hitRef : null, style: { padding: "7px 10px", borderRadius: 10, marginBottom: 2, background: isHit ? "rgba(184,145,80,0.16)" : "transparent" } },
+                h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginBottom: 2 } }, hm(m.ts) + " · " + (m.role === "system" && !tag ? "系统" : nameOf(m)) + (tag ? " · " + tag : "")),
+                h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, color: t.ink, lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word" } }, txt.slice(0, 300) || "（无文字）"));
+            })))
+      : h(Fragment, null,
+          h("div", { className: "shrink-0" },
+            h("div", { style: { fontFamily: F_DISPLAY, fontSize: 18, color: t.ink, marginBottom: 10 } }, "查找聊天记录"),
+            h("input", { value: q, onChange: e => setQ(e.target.value), placeholder: "搜关键词…", style: { width: "100%", outline: "none", padding: "10px 13px", borderRadius: 12, fontFamily: F_BODY, fontSize: 14, background: t.bg, color: t.ink, border: "1px solid " + t.line, marginBottom: 10 } }),
+            h("div", { className: "flex flex-wrap", style: { gap: 6, marginBottom: 12 } },
+              [[null, "全部"], ["voice", "🎤语音"], ["image", "📷图片"], ["transfer", "💸转账"], ["callend", "📞通话"], ["geo", "📍位置"], ["redpacket", "🧧红包"]].map(p =>
+                h("button", { key: String(p[0]), onClick: () => setTypeF(p[0]), className: "active:opacity-70",
+                  style: { fontFamily: F_BODY, fontSize: 11.5, padding: "5px 11px", borderRadius: 999, background: typeF === p[0] ? t.ink : t.bg, color: typeF === p[0] ? t.bg2 : t.sub, border: "1px solid " + (typeF === p[0] ? t.ink : t.line) } }, p[1])))),
+          h("div", { style: { flex: "1 1 auto", minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch" } },
+            (kw || typeF)
+              ? (hits.length === 0
+                ? h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog, textAlign: "center", padding: "26px 0" } }, "没搜到。")
+                : hits.slice(-200).reverse().map(x => {
+                    const m = x.m; const tag = kindTag(m); const txt = String(textOf(m));
+                    const pos = kw ? txt.indexOf(kw) : -1;
+                    const snip = pos > 12 ? "…" + txt.slice(pos - 10, pos + 60) : txt.slice(0, 70);
+                    return h("button", { key: x.i, onClick: () => openDay(dayOf(m.ts), m.ts), className: "w-full active:opacity-70", style: { textAlign: "left", padding: "9px 10px", background: "transparent", border: "none", borderBottom: "1px solid " + t.line } },
+                      h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginBottom: 2 } }, dayOf(m.ts) + " " + hm(m.ts) + " · " + nameOf(m) + (tag ? " · " + tag : "")),
+                      h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.ink, lineHeight: 1.5, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" } }, snip || "（无文字）"));
+                  }))
+              : h(Fragment, null,
+                  h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginBottom: 8 } }, "或按日期定位（点一天看当天完整记录）"),
+                  dayGroups.length === 0 ? h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog, textAlign: "center", padding: "20px 0" } }, "还没聊过。") :
+                  dayGroups.map(g => h("button", { key: g.day, onClick: () => openDay(g.day, null), className: "w-full active:opacity-70 flex items-center", style: { textAlign: "left", padding: "11px 10px", background: "transparent", border: "none", borderBottom: "1px solid " + t.line } },
+                    h("span", { className: "flex-1", style: { fontFamily: F_BODY, fontSize: 14, color: t.ink } }, g.day),
+                    h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, g.n + " 条")))))));
+}
 // 来电邀请卡（角色主动打来）：接听→进通话；拒绝→系统提示
 function CallInviteCard({ m, isU, onAccept, onDecline }) {
   const t = useTheme();
@@ -3962,21 +4083,23 @@ function FicShareCard({ m, isU }) {
         f.excerpt && h("div", { className: "line-clamp-2", style: { fontFamily: F_BODY, fontSize: 12, lineHeight: 1.5, color: t.sub, marginTop: 4 } }, f.excerpt),
         h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 6 } }, "文 / " + (f.author || "佚名")))));
 }
-function GiftCard({ m, isU, now }) {
+function GiftCard({ m, isU, now, avatar, myAvatar }) {
   const t = useTheme();
   const name = (m.item && m.item.name) || m.name || "礼物";
   const toChar = m.dir === "toChar";
   let footer;
   if (toChar) footer = m.delivered ? "已送达 · TA 收到了" : (m.arriveTs ? "在路上 · 还有 " + giftFmtLeft(m.arriveTs - (now || Date.now())) : "已送出");
   else footer = "TA 给你寄的 · 在「我的」查看物流";
-  return h("div", { className: "py-1 flex " + (isU ? "justify-end" : "justify-start") },
+  return h("div", { className: "py-1 flex items-start gap-2 " + (isU ? "justify-end" : "justify-start") },
+    !isU && avatar ? avatar : null,
     h("div", { style: { width: 224, borderRadius: 16, overflow: "hidden", background: "linear-gradient(135deg,#c25a4a,#9a3f37)", color: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" } },
       h("div", { className: "px-4 pt-3.5 pb-3" },
         h("div", { style: { fontFamily: "'Archivo',sans-serif", fontSize: 9.5, letterSpacing: "0.2em", opacity: 0.85 } }, "GIFT · 礼物"),
         h("div", { className: "flex items-center gap-2.5 mt-2" },
           h(IHeart, { size: 22, color: "#fff" }),
           h("div", { style: { fontFamily: F_DISPLAY, fontSize: 18, lineHeight: 1.2 } }, name))),
-      h("div", { className: "px-4 py-1.5", style: { background: "rgba(0,0,0,0.14)", fontFamily: F_BODY, fontSize: 10.5, letterSpacing: "0.06em" } }, footer)));
+      h("div", { className: "px-4 py-1.5", style: { background: "rgba(0,0,0,0.14)", fontFamily: F_BODY, fontSize: 10.5, letterSpacing: "0.06em" } }, footer)),
+    isU && myAvatar ? myAvatar : null);
 }
 // 亲属卡发放卡
 function KinshipIssueCard({ m, character }) {
@@ -5340,6 +5463,7 @@ function GroupThread({
   const [voiceMsgOpen, setVoiceMsgOpen] = useState(false);
   const [voiceMsgText, setVoiceMsgText] = useState("");
   const [callLogOpen, setCallLogOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [xferPick, setXferPick] = useState(false); // 选转给谁
   const [xferMember, setXferMember] = useState(null); // 选定后进入金额编辑
   const ref = useRef(null);
@@ -5388,7 +5512,7 @@ function GroupThread({
     if (typeof r === "number") toast && toast("领到 ¥" + r);
   };
   // 群聊 + 面板：跟私聊对齐（匿名箱→投票、拍一拍→红包）
-  const PANEL = [["location", "位置", "browser"], ["sticker", "表情包", "album"], ["photo", "拍摄", "album"], ["voicemsg", "发语音", "recordings"], ["voice", "语音通话", "calls"], ["video", "视频通话", "video"], ["calllog", "通话记录", "calls"], ["poll", "投票", "forum"], ["transfer", "转账", "wallet"], ["rp", "红包", "redpacket"]];
+  const PANEL = [["location", "位置", "browser"], ["sticker", "表情包", "album"], ["photo", "拍摄", "album"], ["voicemsg", "发语音", "recordings"], ["voice", "语音通话", "calls"], ["video", "视频通话", "video"], ["calllog", "通话记录", "calls"], ["chatsearch", "查找记录", "browser"], ["poll", "投票", "forum"], ["transfer", "转账", "wallet"], ["rp", "红包", "redpacket"]];
   const sendRich = msg => {
     onSendRich && onSendRich({ ts: Date.now(), ...msg });
     setPanel(false);
@@ -5400,6 +5524,7 @@ function GroupThread({
     else if (k === "voicemsg") setVoiceMsgOpen(true);
     else if (k === "voice" || k === "video") { setCallSel([]); setCallPick(k); }
     else if (k === "calllog") setCallLogOpen(true);
+    else if (k === "chatsearch") setSearchOpen(true);
     else if (k === "poll") setSheet("poll");
     else if (k === "transfer") setXferPick(true);
     else if (k === "rp") setSheet("rp");
@@ -5893,7 +6018,7 @@ function GroupThread({
     placeholder: "描述这张照片的内容…",
     className: "w-full outline-none px-4 py-3 rounded-xl",
     style: { fontFamily: F_BODY, fontSize: 14, color: t.ink, background: "#fff", border: "1px solid " + t.line }
-  })), callLogOpen && h(CallLogSheet, { calls: (messages || []).filter(x => x.kind === "callend"), chars: characters, onClose: () => setCallLogOpen(false) }), voiceMsgOpen && h(Sheet, { onClose: () => setVoiceMsgOpen(false) },
+  })), callLogOpen && h(CallLogSheet, { calls: (messages || []).filter(x => x.kind === "callend"), chars: characters, onClose: () => setCallLogOpen(false) }), searchOpen && h(ChatSearchSheet, { messages, chars: characters, onClose: () => setSearchOpen(false) }), voiceMsgOpen && h(Sheet, { onClose: () => setVoiceMsgOpen(false) },
     h(Eyebrow, { style: { marginBottom: 8 } }, "发一条语音"),
     h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 10, lineHeight: 1.5 } }, "写下你要「说」的话，会发成语音气泡，下面自动显示转文字。"),
     h("textarea", { value: voiceMsgText, onChange: e => setVoiceMsgText(e.target.value), rows: 3, autoFocus: true, placeholder: "想说的话…", className: "w-full outline-none p-3 rounded-lg", style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.6, color: t.ink, background: t.bg2, border: "1px solid " + t.line, resize: "none" } }),

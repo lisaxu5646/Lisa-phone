@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v47.63";
+const APP_VERSION = "v47.64";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -1708,7 +1708,10 @@ function App() {
           const lu = g[g.length - 1];
           const qpfx = m.replyTo ? "（我在回应你说的「" + String(m.replyTo).slice(0, 40) + "」）" : "";
           // 语音消息标出来：让 TA 知道这条是对方「说」的不是打的字（能回应语气、可以说「听到你声音了」）
-          const uc = m.kind === "narration" ? "【旁白/场景设定】" + m.content : m.kind === "voice" ? qpfx + "【这条是语音消息，对方说的】" + m.content : qpfx + m.content;
+          const uc = m.kind === "narration" ? "【旁白/场景设定】" + m.content
+            : m.kind === "voice" ? qpfx + "【这条是语音消息，对方说的】" + m.content
+            : m.kind === "gift" ? "[送给你一份礼物：" + (m.name || (m.item && m.item.name) || "礼物") + (m.delivered ? "（已送到你手上）" : "（外卖/快递还在路上）") + "]"
+            : qpfx + m.content;
           // 合并连发的多条用户消息，兼容 Anthropic 等不允许连续同角色的接口
           if (lu && lu.role === "user") lu.content += "\n" + uc;else g.push({
             role: "user",
@@ -1718,7 +1721,7 @@ function App() {
         } else {
           const l = g[g.length - 1];
           // 你自己发过的语音也标一下，别把它当成打的字
-          const ac = m.kind === "voice" ? "（这条你是用语音说的）" + m.content : m.content;
+          const ac = m.kind === "voice" ? "（这条你是用语音说的）" + m.content : m.kind === "gift" ? "[你给对方寄了一份礼物：" + (m.name || (m.item && m.item.name) || "礼物") + "]" : m.content;
           if (l && l.role === "assistant" && l._t === m.turnId) l.content += "\n" + ac;else g.push({
             role: "assistant",
             content: ac,
@@ -1995,7 +1998,8 @@ function App() {
 
   // ---- long-press actions ----
   const addFavorite = (charId, m) => {
-    const entry = { id: "fav_" + Date.now() + "_" + Math.floor(Math.random() * 1000), charId, role: m.role, content: m.content || "", kind: m.kind || null, url: m.url || null, keyword: m.keyword || null, ts: m.ts || Date.now(), savedTs: Date.now() };
+    // imgKey/desc/dur 也要带走：不然收藏的自拍打开是「无文本消息」、语音丢时长
+    const entry = { id: "fav_" + Date.now() + "_" + Math.floor(Math.random() * 1000), charId, role: m.role, content: m.content || "", kind: m.kind || null, url: m.url || null, imgKey: m.imgKey || null, desc: m.desc || null, dur: m.dur || null, keyword: m.keyword || null, ts: m.ts || Date.now(), savedTs: Date.now() };
     setFavorites(p => { const n = [entry, ...p]; saveJSON("x_favorites", n); return n; });
     toast("已收藏");
   };
@@ -2101,7 +2105,7 @@ function App() {
       if (!active) throw new Error("请先配置 API");
       const gchat = groupChatsRef.current[groupId] || [];
       const _graw = gchat.filter(m => m.kind !== "ooc").slice(-(gs.ctxN || 30));
-      const fmtGLine = m => m.kind === "callend" ? "【这个位置大家通了一通" + (m.callMode === "video" ? "视频" : "语音") + "电话，时长 " + (m.dur || "不长") + (m.sum ? "。内容：" + m.sum : "") + "，别当没打过】" : m.kind === "offlinelog" ? "【你们刚刚线下见了一面，经过如下（发生在上面之后、现已回到线上群聊，据此接话）】" + m.content : m.role === "narration" ? "【旁白】" + m.content : m.role === "system" ? "（" + m.content + "）" : (m.role === "user" ? profile.name || "用户" : m.senderName || "某人") + ": " + (m.kind === "voice" ? "[语音消息，说的不是打的] " + m.content : m.kind === "poll" ? "[发起投票]" + m.title : m.kind === "redpacket" ? "[发红包 ¥" + m.total + "，" + m.count + "个" + (m.count > 0 ? "，人均约¥" + (m.total / m.count).toFixed(2) : "") + "]" + (m.message ? " " + m.message : "") + ((m.claims || []).length ? "（已被抢：" + m.claims.map(c => (c.name || "某人") + "¥" + c.amount).join("、") + "）" : "") : m.content);
+      const fmtGLine = m => m.kind === "callend" ? "【这个位置大家通了一通" + (m.callMode === "video" ? "视频" : "语音") + "电话，时长 " + (m.dur || "不长") + (m.sum ? "。内容：" + m.sum : "") + "，别当没打过】" : m.kind === "offlinelog" ? "【你们刚刚线下见了一面，经过如下（发生在上面之后、现已回到线上群聊，据此接话）】" + m.content : m.role === "narration" ? "【旁白】" + m.content : m.role === "system" ? "（" + m.content + "）" : (m.role === "user" ? profile.name || "用户" : m.senderName || "某人") + ": " + (m.kind === "forumshare" ? "[转发了一条贴吧帖]" + (m.post ? "「" + (m.post.board || "") + "」《" + (m.post.title || "") + "》｜" + String(m.post.body || "").replace(/\s+/g, " ").slice(0, 120) + "｜作者显示：" + (m.post.authorName || "") : (m.content || "")) : m.kind === "voice" ? "[语音消息，说的不是打的] " + m.content : m.kind === "poll" ? "[发起投票]" + m.title : m.kind === "redpacket" ? "[发红包 ¥" + m.total + "，" + m.count + "个" + (m.count > 0 ? "，人均约¥" + (m.total / m.count).toFixed(2) : "") + "]" + (m.message ? " " + m.message : "") + ((m.claims || []).length ? "（已被抢：" + m.claims.map(c => (c.name || "某人") + "¥" + c.amount).join("、") + "）" : "") : m.content);
       // 插时间断点：相邻消息间隔 >1.5h 就标一行「隔了约X、到了几点」——让模型知道时间过去了、别把旧事当正在发生（item 3/5）
       const _gparts = []; let _gprev = 0;
       for (const m of _graw) { const ts = m.ts || 0; if (_gprev && ts && ts - _gprev > 90 * 60000) _gparts.push("〔—— 中间隔了约 " + gapPhrase(ts - _gprev) + "，到 " + fmtStamp(ts) + " ——〕"); _gparts.push((gs.memoryInterop && ts ? "[" + fmtStamp(ts) + "] " : "") + fmtGLine(m)); if (ts) _gprev = ts; }
@@ -4213,28 +4217,17 @@ function App() {
     saveJSON("x_forumFollows", n);
     return n;
   });
-  // 转发帖子到私聊：push 一张 forumshare 卡片，并触发角色反应。
-  // 若这是【该角色本人】发在匿名吧的帖 → 让 Ta 按人设决定「承不承认是自己发的」。
-  const forwardPostToChat = async (post, toChar) => {
+  // 转发帖子到私聊：只 push 卡片，【不自动回复】——她要转完接着说自己的话，说完按「回复」TA 再一起反应。
+  // 帖子内容写进 content：回复走正常 replyNow 历史，TA 能一直记得这条帖（含自己匿名发的帖，认不认在正常回复里演）。
+  const forwardPostToChat = (post, toChar) => {
     const isOwnAnon = post.anon && post.authorType === "character" && post.authorId === toChar.id;
     pChat(toChar.id, p => [...p, {
       role: "user", kind: "forumshare",
       post: { board: post.board, title: post.title, body: post.body, authorName: post.authorName, anon: !!post.anon },
+      content: "[转发了一条贴吧帖]「" + post.board + "」《" + post.title + "》｜" + String(post.body || "").replace(/\s+/g, " ").slice(0, 160) + "｜作者显示：" + post.authorName + (isOwnAnon ? "｜（这条其实是你自己匿名发的——认不认随你人设）" : ""),
       ts: Date.now(), read: false
     }]);
     toast("已转发给 " + (toChar.remark || toChar.name));
-    if (!active) return;
-    try {
-      const react = await runProbe(active, ctxFor(toChar), {
-        instruction: isOwnAnon
-          ? "有人把贴吧「匿名吧」里的一条帖转发给你，问是不是你发的。这条帖【其实就是你自己匿名发的】：标题「" + post.title + "」，正文「" + (post.body || "") + "」。按你的人设决定要不要承认——爱面子/心虚/护着秘密的可能装傻、抵赖、转移话题；坦荡或想被戳穿的可能认。用你的口吻回应（1-3 句，可多气泡），别露出上帝视角。"
-          : "有人把贴吧「" + post.board + "」的一条帖转发给你：标题「" + post.title + "」，正文「" + (post.body || "") + "」，作者显示为「" + post.authorName + "」。你只是被分享看到，按你的人设和此刻心情随口回应（1-3 句，可多气泡，可吐槽/共鸣/不感兴趣），这不是你发的。",
-        schemaHint: "{\"say\":[\"气泡1\",\"气泡2\"]}",
-        maxTokens: 900
-      });
-      const say = react && Array.isArray(react.say) ? react.say : (react && react.say ? [react.say] : []);
-      if (say.length) pChat(toChar.id, p => [...p, ...say.map(s => ({ role: "assistant", content: String(s), ts: Date.now(), read: false }))]);
-    } catch (e) {/* 转发卡已在，反应失败静默 */}
   };
   // 转发帖子到群聊：只 push 卡片（群反应可由用户点「让他们回复」触发）
   const forwardPostToGroup = (post, groupId) => {
@@ -4257,34 +4250,8 @@ function App() {
     const isStar = cpIds.indexOf(toChar.id) >= 0;
     pChat(toChar.id, p => [...p, { role: "user", kind: "ficshare", fic: share, content: ficShareContent(share, isStar ? "这篇是写你的" : ""), ts: Date.now(), read: false }]);
     toast("已转发给 " + (toChar.remark || toChar.name));
-    if (!active) return;
-    let instruction;
-    if (isStar) {
-      const partnerTok = cpIds.find(id => id !== toChar.id);
-      let partnerDesc, partnerKnown = false;
-      if (!partnerTok) {
-        partnerDesc = "文里给你配对的另一位是个原创角色（一个你不认识的虚构人物）";
-      } else if (partnerTok === "me") {
-        partnerDesc = "文里给你配对的另一位，正是【此刻在跟你聊天的对方（" + (profile.name || "对方") + "）】——你当然认得，这篇写的就是你和 TA"; partnerKnown = true;
-      } else {
-        const pc = characters.find(c => c.id === partnerTok);
-        const r1 = rels[toChar.id + "->" + partnerTok], r2 = rels[partnerTok + "->" + toChar.id];
-        if (pc && (r1 || r2)) { partnerDesc = "文里给你配对的另一位是「" + pc.name + "」，你认识 TA（你俩的关系：" + ((r1 && r1.label) || (r2 && r2.label) || "相识") + "）"; partnerKnown = true; }
-        else if (pc) { partnerDesc = "文里给你配对的另一位是「" + pc.name + "」——但【你根本不认识这个人】，你会纳闷一个陌生人凭什么被写来跟你凑成一对"; }
-        else { partnerDesc = "文里给你配对的另一位你不认识"; }
-      }
-      instruction = "有人给你转发了一篇【以你（" + toChar.name + "）为主角写的同人文】——是读者站在旁观／上帝视角，把你当成小说人物来写的。篇名《" + share.title + "》，" + partnerDesc + "。开头节选「" + share.excerpt + "」。\n" +
-        "关键：你【读到一篇写你自己的同人文】，要有那种被人偷看、被编排、被摆布的微妙自觉——可以惊讶、好笑、脸红、别扭、不爽、防备、或好奇 TA 们怎么会这么写你。按你的人设和此刻心情真实反应（1-3 句，可多气泡）。" +
-        (partnerKnown ? "你认得文里配对的那位，可以就此调侃、否认、在意、或追问。" : "你不认识文里硬凑给你的那个人，可以吐槽『这谁啊』『凭什么跟我组CP』。") +
-        "别复述全文、别客服腔、别装作不知道这是在写你。";
-    } else {
-      instruction = "有人把一篇同人文转发给你：篇名《" + share.title + "》，CP「" + share.cpText + "」，作者「" + share.author + "」，开头节选「" + share.excerpt + "」。这篇【不是写你的】，你只是被分享看到，按你的人设和此刻心情随口回应（1-3 句，可多气泡，可好奇/吐槽/共鸣/害羞/不感兴趣/追问），别客服腔、别复述全文。";
-    }
-    try {
-      const react = await runProbe(active, ctxFor(toChar), { instruction: instruction, schemaHint: "{\"say\":[\"气泡1\",\"气泡2\"]}", maxTokens: 900 });
-      const say = react && Array.isArray(react.say) ? react.say : (react && react.say ? [react.say] : []);
-      if (say.length) pChat(toChar.id, p => [...p, ...say.map(s => ({ role: "assistant", content: String(s), ts: Date.now(), read: false }))]);
-    } catch (e) {/* 卡已在，反应失败静默 */}
+    // 【不自动回复】她要转完接着说话，说完按「回复」TA 再反应；是不是写 TA 的、配对认不认识，
+    // content 里带了「这篇是写你的」标记 + 关系网本来就在 bundle 里，正常回复时 TA 演得出来。
   };
   // 塔罗「给角色算一卦」转发给对应角色：把这一卦发进 Ta 的私聊，让 Ta 读后反应
   const forwardTarotToChat = async (session) => {
@@ -5465,7 +5432,8 @@ function App() {
         carryGiftsRef.current = n; saveJSON("x_carryGifts", n);
         return n;
       });
-      charReceiveGiftReact(g.charId, g.name);
+      // 【不自动回复】她要送完接着说自己的话——送达只翻卡片状态；礼物在 ctxFor 的 giftLog 里，
+      // 下次她按「回复」TA 自然会提收到了（charReceiveGiftReact 保留成死代码不再自动调）
     });
   };
   useEffect(() => {

@@ -719,6 +719,17 @@ function idbAudOpen() { return new Promise((res, rej) => { const r = indexedDB.o
 async function idbAudPut(k, blob) { const db = await idbAudOpen(); return new Promise((res, rej) => { const tx = db.transaction("aud", "readwrite"); tx.objectStore("aud").put(blob, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
 async function idbAudGet(k) { const db = await idbAudOpen(); return new Promise((res, rej) => { const tx = db.transaction("aud", "readonly"); const rq = tx.objectStore("aud").get(k); rq.onsuccess = () => res(rq.result || null); rq.onerror = () => rej(rq.error); }); }
 function ttsCacheKey(voiceId, text) { let hsh = 5381; const s = voiceId + "|" + text; for (let i = 0; i < s.length; i++) hsh = (hsh * 33 + s.charCodeAt(i)) >>> 0; return "tts_" + voiceId + "_" + hsh.toString(36) + "_" + s.length; }
+// 按台词内容粗判语气 → MiniMax emotion 参数（本地零成本）。治「开朗音色念正经话还是很夸张」：
+// 正经/平静的话显式传 neutral 压住克隆样本自带的亢奋，情绪句才放开。
+function ttsEmotionOf(text) {
+  const s = String(text || "");
+  if (/(哭|呜呜|难过|想你了|对不起|抱歉|委屈|舍不得|唉)/.test(s)) return "sad";
+  if (/(气死|烦死|滚|闭嘴|凭什么|够了|混蛋)/.test(s)) return "angry";
+  if (/(吓死|好怕|别吓|救命)/.test(s)) return "fearful";
+  if (/(哈哈|嘿嘿|太好了|开心|耶|好棒|！！)/.test(s)) return "happy";
+  if (/(居然|竟然|不会吧|真的假的|？！|!？)/.test(s)) return "surprised";
+  return "neutral";
+}
 // 合成一段语音：先查缓存，没有才真调 MiniMax（t2a_v2，hex 音频 → mp3 blob）
 async function ttsSpeak(text, voiceId) {
   const a = loadTtsApi();
@@ -726,7 +737,8 @@ async function ttsSpeak(text, voiceId) {
   const vid = voiceId || "female-shaonv";
   const txt = String(text || "").trim().slice(0, 800);
   if (!txt) throw new Error("这条语音没有文字内容");
-  const key = ttsCacheKey(vid, txt);
+  const emo = ttsEmotionOf(txt);
+  const key = ttsCacheKey(vid + ":" + emo, txt);
   const hit = await idbAudGet(key).catch(() => null);
   if (hit && hit.size > 0) return hit;
   const base = (a.baseUrl || "https://api.minimax.io").trim().replace(/\/+$/, "");
@@ -737,7 +749,7 @@ async function ttsSpeak(text, voiceId) {
     r = await fetch(base + "/v1/t2a_v2?GroupId=" + encodeURIComponent(a.groupId), {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + a.apiKey },
-      body: JSON.stringify({ model: a.model || "speech-02-hd", text: txt, stream: false, voice_setting: { voice_id: vid, speed: 1.0, vol: 1.0, pitch: 0 }, audio_setting: { sample_rate: 32000, bitrate: 128000, format: "mp3", channel: 1 } }),
+      body: JSON.stringify({ model: a.model || "speech-02-hd", text: txt, stream: false, voice_setting: { voice_id: vid, speed: 1.0, vol: 1.0, pitch: 0, emotion: emo }, audio_setting: { sample_rate: 32000, bitrate: 128000, format: "mp3", channel: 1 } }),
       signal: ctrl.signal
     });
   } finally { clearTimeout(to); }
