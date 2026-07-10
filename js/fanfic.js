@@ -253,13 +253,23 @@
       "{" + (typeof cotJsonField === "function" ? cotJsonField(cotT) : "") + "\"content\":\"这一章正文（成篇散文，承接上一章锚点往下推进、有实质剧情进展，约 " + minWords + " 字以上，分段用\\n\\n）\",\"endHook\":\"本章新的结尾锚点，供再下一章接续\"}" +
       FANFIC_ANTI_CLICHE_TAIL;
     const userMsg = "续写《" + fic.title + "》的下一章。\n\n〔幕后提醒：本章的开头方式、句式节奏、意象和高频小动作【不许和前几章雷同】——连载越往后越容易一套模板，这章刻意换写法；反陈词滥调清单全程生效" + (cotT ? "；cot 必填" : "") + "。〕";
-    // 思考型模型预算别抠（占 maxTokens），太紧就返回空；解析失败自动重试一次
+    // 从坏掉/被截断的 JSON 里抢救章节正文（长章节 JSON 常被截断解析失败，之前直接判「返回为空」白烧一次钱）
+    function salvageChapter(clean, cot) {
+      const s = String(clean || "");
+      const m = s.match(/"content"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"endHook"|"\s*\}\s*$|$)/);
+      if (!m || !m[1] || m[1].length < 200) return null; // 太短不算章节，宁可重试
+      const txt = m[1].replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\").trim();
+      const hk = s.match(/"endHook"\s*:\s*"([\s\S]{1,200}?)"/);
+      return { content: txt, endHook: hk ? hk[1].replace(/\\n/g, " ").trim() : "", cot: cot || null };
+    }
+    // 思考型模型预算别抠（占 maxTokens），太紧就返回空；解析失败先抢救正文、再不行才重试一次
     async function once(extra) {
       const raw = await callAI(active, sys + (extra || ""), [{ role: "user", content: userMsg }], { maxTokens: Math.min(24000, perFic + 10000) });
       const sp = (typeof splitCot === "function") ? splitCot(raw, !!cotT) : { cot: null, clean: raw };
       let d = extractJSON(sp.clean);
       if (!d && typeof repairJSON === "function") { try { d = JSON.parse(repairJSON(sp.clean)); } catch (e) {} }
-      return d && d.content ? { content: String(d.content).trim(), endHook: String(d.endHook || "").trim(), cot: sp.cot } : null;
+      if (d && d.content) return { content: String(d.content).trim(), endHook: String(d.endHook || "").trim(), cot: sp.cot };
+      return salvageChapter(sp.clean, sp.cot);
     }
     let out = await once("");
     if (!out) out = await once("\n\n（上一次输出为空或没能解析成合法 JSON，请务必严格只输出那一个 JSON 对象、正文写满，别加任何解释文字。）");
@@ -639,7 +649,7 @@
     const [newComment, setNewComment] = useState("");
     const [fwdOpen, setFwdOpen] = useState(false);
     const [chapIdx, setChapIdx] = useState(0); // 章节翻页当前页
-    const swipeRef = React.useRef(0);
+    const swipeRef = React.useRef({ x: 0, y: 0 });
     // 翻到/生成新章后跳到该章开头（别落在中间，省得往回翻）
     const chapRef = React.useRef(null);
     const firstChap = React.useRef(true);
@@ -743,8 +753,10 @@
             ref: chapRef,
             className: "mb-6",
             style: { scrollMarginTop: 8 },
-            onTouchStart: function (e) { swipeRef.current = e.touches[0].clientX; },
-            onTouchEnd: function (e) { const dx = e.changedTouches[0].clientX - swipeRef.current; if (Math.abs(dx) < 50) return; if (dx < 0) goChap(idx + 1); else goChap(idx - 1); }
+            // 翻页手势必须「横向显著大于纵向」：之前只看 dx，下滑读文时手指稍斜就被当成翻上一章，
+            // 一路卡回第一章还跳章首（她报的 bug 根因）
+            onTouchStart: function (e) { swipeRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; },
+            onTouchEnd: function (e) { const s = swipeRef.current || { x: 0, y: 0 }; const dx = e.changedTouches[0].clientX - s.x, dy = e.changedTouches[0].clientY - s.y; if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.4) return; if (dx < 0) goChap(idx + 1); else goChap(idx - 1); }
           },
             pager(true),
             h("div", { style: { fontFamily: "'Noto Serif SC',serif", fontSize: 15, lineHeight: 1.9, color: t.ink, whiteSpace: "pre-wrap" } }, ch.content || ""),
