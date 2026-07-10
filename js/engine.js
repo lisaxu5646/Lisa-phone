@@ -406,13 +406,20 @@ function scoreMemEntry(entry, qTokens, now) {
   let tagHit = 0;
   (entry.tags || []).forEach(tag => { if (qTokens.has(tag.toLowerCase())) tagHit += 2; });
   const keyword = overlap + tagHit;
-  // 时间新近度：半衰期 30 天，映射到 0~1
-  const days = Math.max(0, (now - (entry.ts || now)) / 86400000);
-  const recency = Math.pow(0.5, days / 30);
+  // ⭐艾宾浩斯（2026-07-09）：记忆有「保持率」——多久没被想起就渐渐淡；被检索到=复习，会刷新并变牢
+  // stability：复习(hits)越多越稳（遗忘半衰期变长）；情绪强度大的事本身更难忘
+  const aRaw = Math.max(0, Math.min(5, entry.a == null ? 1 : entry.a));
+  const stability = 1 + Math.min(1.6, (entry.hits || 0) * 0.3) + aRaw * 0.12;
+  // 从「上次被想起」（没有就创建时）开始遗忘，半衰期 = 21天 × stability
+  const freshTs = Math.max(entry.ts || 0, entry.lastHit || 0) || now;
+  const idleDays = Math.max(0, (now - freshTs) / 86400000);
+  const retention = Math.max(0.25, Math.pow(0.5, idleDays / (21 * stability))); // 陈年老事仍想得起，只是不再抢戏
+  // 时间新近度（也按 freshTs 算：昨天刚聊起的旧事＝很新鲜）
+  const recency = Math.pow(0.5, idleDays / 30);
   // 权重池（Ombre Brain 借鉴）：情绪强度 arousal 越高越难忘、未了结 open 的开环会一直惦记 → 更容易被想起
-  const arousalW = (Math.max(0, Math.min(5, entry.a == null ? 1 : entry.a)) / 5) * 1.1;
+  const arousalW = (aRaw / 5) * 1.1;
   const openW = entry.open ? (0.7 + arousalW * 0.4) : 0;
-  return keyword + recency * 0.8 + arousalW + openW + (entry.pinned ? 100 : 0);
+  return keyword * (0.45 + 0.55 * retention) + recency * 0.8 + arousalW + openW + (entry.pinned ? 100 : 0);
 }
 function retrieveMemories(lib, charId, queryText, opts = {}) {
   const limit = opts.limit || 6;
@@ -423,6 +430,18 @@ function retrieveMemories(lib, charId, queryText, opts = {}) {
   scored.sort((a, b) => b.s - a.s);
   // 置顶条目一定进；其余按分数，忽略几乎无关联（分数过低且非置顶）的
   const picked = scored.filter(x => x.e.pinned || x.s > 0.9).slice(0, limit).map(x => x.e);
+  // ⭐检索即复习：被想起的条目刷新 lastHit、hits+1（就地改 entry 对象——lib 就是 memLibRef.current 那份）。
+  // 节流持久化：只有当有条目超过 6 小时没被摸过时才写盘，防每轮聊天都重写整个记忆库
+  if (opts.touch !== false && picked.length) {
+    const nowTs = Date.now();
+    let dirty = false;
+    picked.forEach(e => {
+      if (!e.lastHit || nowTs - e.lastHit > 6 * 3600000) dirty = true;
+      e.lastHit = nowTs;
+      e.hits = (e.hits || 0) + 1;
+    });
+    if (dirty && Array.isArray(lib)) { try { saveJSON("x_memLib", lib); } catch (e2) {} }
+  }
   return picked;
 }
 function formatMemLib(entries) {
