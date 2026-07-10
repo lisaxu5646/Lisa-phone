@@ -2043,6 +2043,20 @@
     const raw = await callRetry(api, sys, [{ role: "user", content: "投票。" }], { maxTokens: 6500 });
     const p = extractJSON(raw); return (p && Array.isArray(p.votes)) ? p.votes : [];
   }
+  // 组队后的圆桌讨论（阿瓦隆的灵魂：投票前的嘴仗）——一次调用出全桌发言
+  async function genTableTalk(api, players, team, leaderName, reason, qn, hist, userName) {
+    const blocks = players.filter(function (p) { return !p.isUser; }).map(function (p) { return "■ " + p.name + "：" + avSecretFor(p, players) + "；水平" + (p.skill || "普通"); }).join("\n");
+    const sys = AC + SKILL_RULE + "\n\n阿瓦隆·第 " + (qn + 1) + " 个任务组队后、投票前的【圆桌讨论】。队长 " + leaderName + " 提议队伍：[" + team.join("、") + "]" + (reason ? "，公开理由：" + reason : "") + "。\n从下面的人里挑 3~5 位【此刻真有话要说的】各说一句（30字内，口语，像面对面拍桌子吵）：质疑人选、为自己辩护、点名怀疑谁、拉票、阴阳怪气都行，要针对【这支队伍和场上局面】说具体的，别空喊。\n· 好人靠有限信息真推理：谁上次任务在场、谁投票可疑，点名施压" + (userName ? "，也可以直接质问「" + userName + "」" : "") + "；\n· 坏人搅浑水带节奏：装无辜、给同伙打掩护、把水泼向好人，但别演过头；\n· 梅林知道真相但【必须包装成普通推理】，太准会被刺客盯上；\n· 谁都不许说出自己或别人的真实身份词。\n" + blocks + "\n【局面】\n" + (hist || "（刚开局）") + "\n\n只输出 JSON：{\"talks\":[{\"name\":\"\",\"say\":\"\"}]}";
+    const raw = await callRetry(api, sys, [{ role: "user", content: "讨论。" }], { maxTokens: 3200 });
+    const p = extractJSON(raw); return (p && Array.isArray(p.talks)) ? p.talks : [];
+  }
+  // 任务失败后的甩锅环节：队员自证/互咬，场下点名怀疑——一次调用
+  async function genBlame(api, players, team, qn, fails, hist) {
+    const blocks = players.filter(function (p) { return !p.isUser; }).map(function (p) { return "■ " + p.name + "：" + avSecretFor(p, players) + "（" + (team.indexOf(p.name) >= 0 ? "在这支队里" : "不在队里") + "）"; }).join("\n");
+    const sys = AC + SKILL_RULE + "\n\n阿瓦隆·第 " + (qn + 1) + " 个任务【失败了】（" + fails + " 张失败票），全桌炸锅。挑 2~4 位各说一句（30字内，口语）：队员急着自证清白、互相咬、场下的人点名分析谁最可疑。\n· 真投了失败票的坏人要嫁祸队友、演无辜；队里的好人是真冤，会急；\n· 说话要针对这支队伍 [" + team.join("、") + "] 里的具体名字；\n· 不许说出任何人的真实身份词。\n" + blocks + "\n【局面】\n" + (hist || "") + "\n\n只输出 JSON：{\"talks\":[{\"name\":\"\",\"say\":\"\"}]}";
+    const raw = await callRetry(api, sys, [{ role: "user", content: "甩锅。" }], { maxTokens: 2600 });
+    const p = extractJSON(raw); return (p && Array.isArray(p.talks)) ? p.talks : [];
+  }
   async function genQuest(api, evilOnTeam, players, qn, failsReq, score) {
     const who = evilOnTeam.map(function (p) { return "■ " + p.name + "（" + AV_ROLE_ZH[p.role] + "）水平" + (p.skill || "普通"); }).join("\n");
     const sys = AC + SKILL_RULE + "\n\n阿瓦隆·第 " + (qn + 1) + " 个任务执行。目前 好人成功 " + score.good + " 次 / 任务失败 " + score.evil + " 次。" + (failsReq === 2 ? "这个任务需【2 张】失败票才会失败。" : "这个任务【1 张】失败票就失败。") +
@@ -2072,6 +2086,7 @@
     const [team, setTeam] = useState([]);            // 当前提议队伍（名字）
     const [teamSel, setTeamSel] = useState([]);      // 你组队时的多选
     const [userVote, setUserVote] = useState(null);  // 你的赞成/反对
+    const [voteSay, setVoteSay] = useState("");       // 投票前想说的一句（进讨论记录，AI 后续会看到）
     const [userPlay, setUserPlay] = useState(null);  // 你在任务里出的成功/失败
     const [pickerOpen, setPickerOpen] = useState(true);
     const [log, setLog] = useState(sv ? (sv.log || []) : []);
@@ -2094,7 +2109,7 @@
     const pByName = function (nm) { return players.find(function (p) { return p.name === nm || (nm && String(nm).indexOf(p.name) >= 0); }); };
     const pushLog = function (items) { logDataRef.current = logDataRef.current.concat(items); setLog(function (L) { return L.concat(items); }); };
     const pushHist = function (line) { histRef.current = histRef.current.concat([line]); };
-    const histText = function () { return histRef.current.slice(-22).map(function (s) { return "· " + s; }).join("\n"); };
+    const histText = function () { return histRef.current.slice(-34).map(function (s) { return "· " + s; }).join("\n"); };
     useEffect(function () { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [log, phase, busy]);
     useEffect(function () { setPickerOpen(true); }, [phase, questNum, leaderIdx]);
     useEffect(function () { if (phase === "result") clearGameSave("avalon"); }, [phase]);
@@ -2153,10 +2168,17 @@
         commitProposal(tm, ld, qn, li, r.reason || "");
       } catch (e) { props.toast && props.toast("组队出错：" + ((e && e.message) || "重试")); setBusy(false); }
     };
-    const commitProposal = function (tm, ld, qn, li, reason) {
-      setTeam(tm); setBusy(false);
+    const commitProposal = async function (tm, ld, qn, li, reason) {
+      setTeam(tm);
       pushHist("任务" + (qn + 1) + " 队长" + ld.name + "组队[" + tm.join("、") + "]" + (reason ? "，称:" + reason : ""));
       pushLog([{ type: "propose", leader: ld.name, isUser: ld.isUser, team: tm, reason: reason }]);
+      // ⭐圆桌讨论（投票前的嘴仗）：一次调用出全桌发言，失败不挡流程
+      setBusy(true);
+      try {
+        const talks = await genTableTalk(api, players, tm, ld.name, reason, qn, histText(), me && cfg.mode !== "spectate" ? me.name : "");
+        talks.slice(0, 5).forEach(function (tk) { const p = pByName(tk.name); if (p && tk.say) { pushLog([{ type: "talk", name: p.name, say: String(tk.say).slice(0, 80) }]); pushHist(p.name + "说:" + String(tk.say).slice(0, 40)); } });
+      } catch (e) {/* 讨论生成失败就静默跳过，别挡投票 */}
+      setBusy(false);
       setPhase("vote"); setUserVote(null);
       // 观战 / 队长非你时也要收 AI 票；你在场则等你先投
       if (!(me && cfg.mode !== "spectate")) runVotes(tm, qn, li, null);
@@ -2228,7 +2250,7 @@
         resolveQuest(tm, qn, li, fails);
       } catch (e) { props.toast && props.toast("任务出错：" + ((e && e.message) || "重试")); setBusy(false); }
     };
-    const resolveQuest = function (tm, qn, li, fails) {
+    const resolveQuest = async function (tm, qn, li, fails) {
       const req = avFailsReq(players.length, qn);
       const success = fails < req;
       const newResults = results.concat([{ success: success, fails: fails }]);
@@ -2237,6 +2259,15 @@
       pushLog([{ type: "questresult", n: qn + 1, success: success, fails: fails }]);
       const good = newResults.filter(function (r) { return r.success; }).length;
       const evil = newResults.length - good;
+      // ⭐任务失败且比赛未完 → 甩锅环节：队员自证/互咬（一次调用，失败不挡流程）
+      if (!success && evil < 3 && good < 3) {
+        setBusy(true);
+        try {
+          const talks = await genBlame(api, players, tm, qn, fails, histText());
+          talks.slice(0, 4).forEach(function (tk) { const p = pByName(tk.name); if (p && tk.say) { pushLog([{ type: "talk", name: p.name, say: String(tk.say).slice(0, 80) }]); pushHist(p.name + "说:" + String(tk.say).slice(0, 40)); } });
+        } catch (e) {/* 静默跳过 */}
+        setBusy(false);
+      }
       if (good >= 3) { setTimeout(function () { enterAssassin(); }, 40); return; }
       if (evil >= 3) { finish("evil"); return; }
       const nli = (li + 1) % players.length;
@@ -2313,6 +2344,8 @@
         if (it.type === "propose") return h("div", { key: i, style: { margin: "6px 0" } },
           h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.ink } }, "👑 " + it.leader + (it.isUser ? "(你)" : "") + " 提议：" + it.team.join("、")),
           it.reason ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.sub, marginTop: 2, lineHeight: 1.5 } }, "“" + it.reason + "”") : null);
+        if (it.type === "talk") return h("div", { key: i, style: { margin: "3px 0", fontFamily: F_BODY, fontSize: 12.5, color: t.ink, lineHeight: 1.55 } },
+          h("span", { style: { fontWeight: 700, color: it.mine ? t.tint : t.sub } }, "💬 " + it.name + (it.mine ? "(你)" : "") + "："), it.say);
         if (it.type === "votes") return h("div", { key: i, style: { margin: "6px 0", background: t.bg2, borderRadius: 10, padding: "8px 11px" } },
           h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, fontWeight: 700, color: it.approved ? "#3f6d5a" : "#c0553f", marginBottom: 4 } }, (it.approved ? "✓ 通过" : "✗ 否决") + "（赞成 " + it.yes + " · 反对 " + it.no + "）"),
           it.votes.map(function (v, k) { return h("div", { key: k, style: { fontFamily: F_BODY, fontSize: 11.5, color: t.sub, lineHeight: 1.5 } }, (v.approve ? "✔ " : "✘ ") + v.name + (v.mine ? "(你)" : "") + (v.reason ? "：" + v.reason : "")); }));
@@ -2350,10 +2383,18 @@
       } else inline = h("div", { style: { textAlign: "center", fontFamily: F_BODY, fontSize: 13, color: t.fog, padding: "10px 0" } }, "队长 " + (leader ? leader.name : "") + " 在组队…");
     } else if (phase === "vote") {
       if (me && cfg.mode !== "spectate") {
+        const castVote = function (v) {
+          const sayTxt = voteSay.trim();
+          if (sayTxt) { pushLog([{ type: "talk", name: me.name, say: sayTxt, mine: true }]); pushHist(me.name + "(用户)说:" + sayTxt.slice(0, 40)); setVoteSay(""); }
+          setPickerOpen(false);
+          runVotes(team, questNum, leaderIdx, v);
+        };
         pick = { title: "对这支队伍投票", sub: "队长 " + (leader ? leader.name : "") + " 提议：" + team.join("、"),
-          body: h("div", { style: { display: "flex", gap: 12 } },
-            h("button", { onClick: function () { setPickerOpen(false); runVotes(team, questNum, leaderIdx, "approve"); }, className: "flex-1 active:opacity-80", style: { fontFamily: F_BODY, fontSize: 15, fontWeight: 700, color: "#fff", background: "#3f6d5a", borderRadius: 12, padding: "13px" } }, "✔ 赞成"),
-            h("button", { onClick: function () { setPickerOpen(false); runVotes(team, questNum, leaderIdx, "reject"); }, className: "flex-1 active:opacity-80", style: { fontFamily: F_BODY, fontSize: 15, fontWeight: 700, color: "#fff", background: "#c0553f", borderRadius: 12, padding: "13px" } }, "✘ 反对")) };
+          body: h("div", null,
+            h("input", { value: voteSay, onChange: function (e) { setVoteSay(e.target.value); }, placeholder: "投票前想说一句？（可空，大家都会听到）", className: "w-full outline-none px-3 py-2.5 rounded-xl", style: { fontFamily: F_BODY, fontSize: 13, background: t.bg2, color: t.ink, border: "1px solid " + t.line, marginBottom: 10 } }),
+            h("div", { style: { display: "flex", gap: 12 } },
+              h("button", { onClick: function () { castVote("approve"); }, className: "flex-1 active:opacity-80", style: { fontFamily: F_BODY, fontSize: 15, fontWeight: 700, color: "#fff", background: "#3f6d5a", borderRadius: 12, padding: "13px" } }, "✔ 赞成"),
+              h("button", { onClick: function () { castVote("reject"); }, className: "flex-1 active:opacity-80", style: { fontFamily: F_BODY, fontSize: 15, fontWeight: 700, color: "#fff", background: "#c0553f", borderRadius: 12, padding: "13px" } }, "✘ 反对"))) };
       } else inline = h("div", { style: { textAlign: "center", fontFamily: F_BODY, fontSize: 13, color: t.fog, padding: "10px 0" } }, "大家在投票…");
     } else if (phase === "quest") {
       const meOnTeam = me && cfg.mode !== "spectate" && team.indexOf(me.name) >= 0;
