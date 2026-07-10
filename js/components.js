@@ -2947,6 +2947,8 @@ function ChatThread({
     if (m.kind === "couple_invite") return h(CoupleInviteCard, { key: i, m: m, character: character });
     if (m.kind === "unblock_req") return h(UnblockReqCard, { key: i, m: m, character: character, onRespond: onRespondUnblock });
     if (m.kind === "recalled") return h("div", { key: i, className: "text-center my-2" }, h("button", { onClick: () => setRecallView(m), className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog } }, cName + " 撤回了一条消息 · 点看"));
+    // 沉默权：TA 看了没回——一行居中灰斜体，已读不回本身就是态度
+    if (m.kind === "silence") return h("div", { key: i, className: "text-center my-2" }, h("span", { style: { fontFamily: F_BODY, fontSize: 11, fontStyle: "italic", color: t.fog, opacity: 0.8 } }, cName + " 看了你的消息，没有回"));
     if (m.kind === "emote") return h("div", { key: i, className: "py-1 flex items-start gap-2 " + (m.role === "user" ? "justify-end" : "justify-start") },
       m.role !== "user" && h(Avatar, { character: character, size: 40, radius: 10 }),
       h("div", {

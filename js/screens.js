@@ -2988,6 +2988,36 @@ function ImageApiConfig({ toast }) {
             h("div", { style: { fontFamily: F_BODY, fontSize: 12, fontWeight: 700, color: "#c25a4a", marginBottom: 6 } }, "❌ 没出图。接口/报错原文（可长按复制、截图发我）："),
             h("div", { style: { fontFamily: "monospace", fontSize: 11, lineHeight: 1.6, color: t.ink, wordBreak: "break-all", userSelect: "text", WebkitUserSelect: "text", maxHeight: 200, overflowY: "auto" } }, testRes.err))) : null) : null);
 }
+// 上下文透视（v47.75 借汪汪机的调试页思路）：把「此刻和 TA 聊天会喂给模型的完整 system prompt」
+// 按【段落】拆开展示。角色变笨/OOC/忘事时来这里一眼定位是哪一段的问题。只读、零 API。
+function CtxDebug({ characters, getBundle }) {
+  const t = useTheme();
+  const [cid, setCid] = useState(null);
+  const [text, setText] = useState("");
+  const [open, setOpen] = useState({});
+  const load = id => { setCid(id); setText(String((getBundle && getBundle(id)) || "（空）")); setOpen({}); };
+  const secs = (() => {
+    if (!cid || !text) return [];
+    return text.split(/\n(?=【)/).map((p, i) => {
+      const m = p.match(/^【[^】]*】/);
+      return { title: m ? m[0] : (i === 0 ? "【开头】" : "【段落 " + (i + 1) + "】"), body: p };
+    });
+  })();
+  return h("div", { style: { marginTop: 28 } },
+    h(Eyebrow, { style: { marginBottom: 8 } }, "上下文透视"),
+    h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, lineHeight: 1.7, marginBottom: 10 } }, "看看此刻和 TA 聊天时，到底喂了什么给模型（人设 / 记忆 / 世界书 / 行程…按段拆开）。角色变笨、OOC、忘事时来这里排查是哪一段出了问题。"),
+    h("div", { className: "flex gap-2 flex-wrap", style: { marginBottom: 10 } }, (characters || []).map(c =>
+      h("button", { key: c.id, onClick: () => load(c.id), className: "active:opacity-70", style: { fontFamily: F_BODY, fontSize: 12.5, padding: "6px 13px", borderRadius: 999, background: cid === c.id ? t.ink : t.bg2, color: cid === c.id ? t.bg2 : t.ink, border: "1px solid " + (cid === c.id ? t.ink : t.line) } }, c.remark || c.name))),
+    cid ? h("div", null,
+      h("div", { className: "flex items-center justify-between", style: { marginBottom: 8 } },
+        h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, secs.length + " 段 · 共 " + text.length + " 字 · 点标题展开"),
+        h("button", { onClick: () => load(cid), className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 12, color: t.tint } }, "刷新")),
+      secs.map((s, i) => h("div", { key: i, style: { border: "1px solid " + t.line, borderRadius: 12, marginBottom: 8, overflow: "hidden" } },
+        h("button", { onClick: () => setOpen(o => ({ ...o, [i]: !o[i] })), className: "w-full flex items-center justify-between gap-2 active:opacity-70", style: { padding: "9px 12px", background: t.bg2, textAlign: "left" } },
+          h("span", { style: { fontFamily: F_DISPLAY, fontSize: 13, color: t.ink, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, s.title),
+          h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, flexShrink: 0 } }, s.body.length + " 字 " + (open[i] ? "▾" : "▸"))),
+        open[i] ? h("div", { style: { padding: "10px 12px", fontFamily: "monospace", fontSize: 11, lineHeight: 1.7, color: t.sub, whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 300, overflowY: "auto", background: t.bg } }, s.body) : null))) : null);
+}
 function Config({
   apiProfiles,
   activeId,
@@ -3010,6 +3040,7 @@ function Config({
   onExport,
   onImport,
   onClearAll,
+  debugBundleFor,
   toast
 }) {
   const t = useTheme();
@@ -3077,12 +3108,15 @@ function Config({
     onSave: onSaveTheme,
     wallpaper: wallpaper,
     onSaveWallpaper: onSaveWallpaper
-  }), tab === "data" && /*#__PURE__*/React.createElement(DataConfig, {
+  }), tab === "data" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DataConfig, {
     onExport: onExport,
     onImport: onImport,
     onClearAll: onClearAll,
     toast: toast
-  })));
+  }), /*#__PURE__*/React.createElement(CtxDebug, {
+    characters: characters,
+    getBundle: debugBundleFor
+  }))));
 }
 function ApiConfig({
   profiles,
