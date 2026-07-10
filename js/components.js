@@ -1867,6 +1867,7 @@ function MomentsFeed({
   const [pick, setPick] = useState(false);
   const [commenting, setCommenting] = useState(null);
   const [cText, setCText] = useState("");
+  const [cReply, setCReply] = useState(null); // 点某条评论=定向回复 TA
   const [imgView, setImgView] = useState(null);
   const [delId, setDelId] = useState(null);
   return /*#__PURE__*/React.createElement("div", {
@@ -2030,6 +2031,7 @@ function MomentsFeed({
     }, m.likeCount)), /*#__PURE__*/React.createElement("button", {
       onClick: () => {
         setCommenting(m.id);
+        setCReply(null);
         setCText("");
       },
       style: {
@@ -2059,6 +2061,8 @@ function MomentsFeed({
       }
     }, m.comments.map((cm, i) => /*#__PURE__*/React.createElement("div", {
       key: i,
+      className: "active:opacity-60",
+      onClick: () => { const me = (profile && profile.name) || "我"; if (cm.author && cm.author !== me && cm.author !== "我") { setCommenting(m.id); setCReply(cm.author); setCText(""); } },
       style: {
         fontFamily: F_BODY,
         fontSize: 12.5,
@@ -2078,7 +2082,7 @@ function MomentsFeed({
     }, /*#__PURE__*/React.createElement("input", {
       value: cText,
       onChange: e => setCText(e.target.value),
-      placeholder: "说点什么…",
+      placeholder: cReply ? "回复 " + cReply + "…" : "说点什么…",
       autoFocus: true,
       className: "flex-1 outline-none px-3 py-1.5 rounded-full",
       style: {
@@ -2091,9 +2095,11 @@ function MomentsFeed({
     }), /*#__PURE__*/React.createElement("button", {
       onClick: () => {
         if (cText.trim()) {
-          onComment(m.id, cText.trim());
+          onComment(m.id, cText.trim(), cReply || undefined);
         }
         setCommenting(null);
+        setCReply(null);
+        setCText("");
       },
       className: "px-3 rounded-full",
       style: {
@@ -2136,6 +2142,7 @@ function MomentsProfile({ isMe, character, profile, characters, moments, cover, 
   const [compose, setCompose] = useState(false);
   const [commenting, setCommenting] = useState(null);
   const [cText, setCText] = useState("");
+  const [cReply, setCReply] = useState(null); // 点某条评论=定向回复 TA
   const [imgView, setImgView] = useState(null);
   const [delId, setDelId] = useState(null);
   const coverRef = useRef(null);
@@ -2146,7 +2153,7 @@ function MomentsProfile({ isMe, character, profile, characters, moments, cover, 
   const sign = (signature != null && String(signature).trim()) ? signature : (isMe ? (profile.tagline || "") : (character.motto || character.tagline || ""));
   const list = (moments || []).filter(m => isMe ? m.mine : (m.characterId === character.id && !m.mine)).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
   const pickCover = e => { const f = e.target.files && e.target.files[0]; if (f) resizeImageFile(f, 1400, 0.82).then(d => onSetCover(d)); e.target.value = ""; };
-  const sendC = m => { if (cText.trim()) { onCommentMoment(m.id, cText.trim()); setCommenting(null); setCText(""); } };
+  const sendC = m => { if (cText.trim()) { onCommentMoment(m.id, cText.trim(), cReply || undefined); setCommenting(null); setCReply(null); setCText(""); } };
 
   const momentRow = m => h("div", { key: m.id, className: "px-5 py-4", style: { borderBottom: "1px solid " + t.line } },
     h("div", { style: { fontFamily: F_BODY, fontSize: 14.5, lineHeight: 1.6, color: t.ink, whiteSpace: "pre-wrap" } }, m.content),
@@ -2156,12 +2163,12 @@ function MomentsProfile({ isMe, character, profile, characters, moments, cover, 
     h("div", { className: "flex items-center gap-4 mt-2" },
       h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog } }, timeAgo(m.ts)),
       h("button", { onClick: () => onLikeMoment(m.id), className: "active:opacity-60 flex items-center gap-1" }, h(IHeart, { size: 13, color: m.liked ? t.accent : t.fog, filled: m.liked }), (m.likeCount || 0) > 0 && h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog } }, m.likeCount)),
-      h("button", { onClick: () => { setCommenting(m.id); setCText(""); }, style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, "评论"),
+      h("button", { onClick: () => { setCommenting(m.id); setCReply(null); setCText(""); }, style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, "评论"),
       onDelMoment && h("button", { onClick: () => setDelId(m.id), style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, "删除")),
     (m.likers && m.likers.length) ? h("div", { className: "flex items-center gap-1.5 mt-2" }, h(IHeart, { size: 12, color: t.accent, filled: true }), h("span", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.tint } }, m.likers.join("、"))) : null,
-    (m.comments && m.comments.length) ? h("div", { className: "mt-2.5 rounded-xl px-3 py-2", style: { background: t.bg } }, m.comments.map((cm, i) => h("div", { key: i, style: { fontFamily: F_BODY, fontSize: 12.5, lineHeight: 1.7 } }, h("span", { style: { color: t.tint, fontWeight: 500 } }, cm.author), h("span", { style: { color: t.ink } }, "：", cm.text)))) : null,
+    (m.comments && m.comments.length) ? h("div", { className: "mt-2.5 rounded-xl px-3 py-2", style: { background: t.bg } }, m.comments.map((cm, i) => h("div", { key: i, className: "active:opacity-60", onClick: () => { const me = (profile && profile.name) || "我"; if (cm.author && cm.author !== me && cm.author !== "我") { setCommenting(m.id); setCReply(cm.author); setCText(""); } }, style: { fontFamily: F_BODY, fontSize: 12.5, lineHeight: 1.7 } }, h("span", { style: { color: t.tint, fontWeight: 500 } }, cm.author), h("span", { style: { color: t.ink } }, "：", cm.text)))) : null,
     commenting === m.id ? h("div", { className: "flex gap-2 mt-2" },
-      h("input", { value: cText, onChange: e => setCText(e.target.value), autoFocus: true, placeholder: "评论…", onKeyDown: e => { if (e.key === "Enter") sendC(m); }, className: "flex-1 outline-none px-3 py-1.5 rounded-full", style: { fontFamily: F_BODY, fontSize: 13, background: t.bg2, color: t.ink, border: "1px solid " + t.line } }),
+      h("input", { value: cText, onChange: e => setCText(e.target.value), autoFocus: true, placeholder: cReply ? "回复 " + cReply + "…" : "评论…", onKeyDown: e => { if (e.key === "Enter") sendC(m); }, className: "flex-1 outline-none px-3 py-1.5 rounded-full", style: { fontFamily: F_BODY, fontSize: 13, background: t.bg2, color: t.ink, border: "1px solid " + t.line } }),
       h("button", { onClick: () => sendC(m), className: "px-3 rounded-full", style: { background: t.ink, color: t.bg2, fontFamily: F_BODY, fontSize: 12 } }, "发")) : null);
 
   return h("div", { className: "h-full flex flex-col" },

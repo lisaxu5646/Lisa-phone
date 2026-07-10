@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v47.38";
+const APP_VERSION = "v47.39";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -2045,11 +2045,20 @@ function App() {
       const fmtGLine = m => m.kind === "offlinelog" ? "【你们刚刚线下见了一面，经过如下（发生在上面之后、现已回到线上群聊，据此接话）】" + m.content : m.role === "narration" ? "【旁白】" + m.content : m.role === "system" ? "（" + m.content + "）" : (m.role === "user" ? profile.name || "用户" : m.senderName || "某人") + ": " + (m.kind === "poll" ? "[发起投票]" + m.title : m.kind === "redpacket" ? "[发红包 ¥" + m.total + "，" + m.count + "个" + (m.count > 0 ? "，人均约¥" + (m.total / m.count).toFixed(2) : "") + "]" + (m.message ? " " + m.message : "") + ((m.claims || []).length ? "（已被抢：" + m.claims.map(c => (c.name || "某人") + "¥" + c.amount).join("、") + "）" : "") : m.content);
       // 插时间断点：相邻消息间隔 >1.5h 就标一行「隔了约X、到了几点」——让模型知道时间过去了、别把旧事当正在发生（item 3/5）
       const _gparts = []; let _gprev = 0;
-      for (const m of _graw) { const ts = m.ts || 0; if (_gprev && ts && ts - _gprev > 90 * 60000) _gparts.push("〔—— 中间隔了约 " + gapPhrase(ts - _gprev) + "，到 " + fmtStamp(ts) + " ——〕"); _gparts.push(fmtGLine(m)); if (ts) _gprev = ts; }
+      for (const m of _graw) { const ts = m.ts || 0; if (_gprev && ts && ts - _gprev > 90 * 60000) _gparts.push("〔—— 中间隔了约 " + gapPhrase(ts - _gprev) + "，到 " + fmtStamp(ts) + " ——〕"); _gparts.push((gs.memoryInterop && ts ? "[" + fmtStamp(ts) + "] " : "") + fmtGLine(m)); if (ts) _gprev = ts; }
       const hist = _gparts.join("\n");
-      const _glast = _graw.length ? (_graw[_graw.length - 1].ts || 0) : 0;
+      // 断档要看「用户这次刚发的几条」之前的最后一条——不然刚发的消息把间隔清零，
+      // 断档提醒永远不触发，隔夜回来成员还接着昨晚的事演（比如牛腩炖了一整夜）
+      let _glast = 0;
+      for (let i = _graw.length - 1, seenOld = false; i >= 0; i--) {
+        const mm = _graw[i];
+        if (!seenOld && (mm.role === "user" || mm.role === "narration")) continue; // 跳过本轮触发的新消息
+        seenOld = true;
+        if (mm.ts) { _glast = mm.ts; break; }
+      }
       const _ggap = _glast ? Date.now() - _glast : 0;
-      const gTimeHint = "\n\n【此刻时间】现在是 " + new Date().toLocaleString("zh-CN", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" }) + (_ggap > 3 * 3600000 ? "。距群里上一条消息已过去约 " + gapPhrase(_ggap) + "——**别把上面聊到一半的事当成正在发生**：那是之前的了，这中间时间过去了、事情早该有进展或结束（比如之前说要去买菜/去办某事，现在多半已经办完或过去，别还停在原地重复推进它）。按真实时间自然接话。" : "。上面群聊记录里若有〔时间断点〕标记，按真实先后顺序理解发生了什么，别把很早以前的事当成刚刚。");
+      const _crossDay = _glast && new Date(_glast).toDateString() !== new Date().toDateString();
+      const gTimeHint = "\n\n【此刻时间】现在是 " + new Date().toLocaleString("zh-CN", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" }) + (_ggap > 3 * 3600000 ? "。距群里上一轮对话已过去约 " + gapPhrase(_ggap) + (_crossDay ? "（已经是新的一天了）" : "") + "——**上面聊的事已经翻篇：别把聊到一半的事当成正在发生**。当时说要去办的事（买菜/做饭/出门…）早就办完或不了了之了，每个人现在都在过自己此刻该过的生活；接话要从【现在这个时间点】的状态出发，绝不许把上一轮的场景直接续着演。" : "。上面群聊记录里若有〔时间断点〕标记，按真实先后顺序理解发生了什么，别把很早以前的事当成刚刚。");
       // 补充上文：每位成员入群前的私聊，作为「封闭空间」的 X 条前情提要——
       // 只在【未开记忆互通】时用；开了互通就实时抽单聊，这档自动让位、不叠加。
       let preJoin = "";
@@ -2097,7 +2106,7 @@ function App() {
       const gWorld = loreText(loreRef.current, { charIds: members.map(m => m.id), scope: "chat", text: hist });
       // 群规矩（用户 OOC 立的长期准则，复用 directives[groupId]）→ 注入，让群成员记得并遵守（item 4）
       const gDirs = (directives[groupId] || []).map(d => (typeof d === "string" ? d : d && d.text) || "").filter(s => s.trim());
-      const gDirHint = gDirs.length ? "\n\n【群里的长期准则（用户先前 OOC 立下的，全体成员都要记住并一直遵守，别装不知道、别明说答应了又照旧）】\n" + gDirs.map((s, i) => (i + 1) + ". " + s).join("\n") : "";
+      const gDirHint = gDirs.length ? "\n\n【⚠️群规矩·最高优先级，压过下面的对话惯性】这些是用户之前（场外）跟你们立好、你们已经答应了的长期约定，每一条【现在就生效、永久有效】：\n" + gDirs.map((s, i) => (i + 1) + ". " + s).join("\n") + "\n——就算上面的聊天记录里大家还在聊相关话题，也从这一轮起严格照约定来（惯性不是理由）；用户若问「是不是说好了」，大方承认记得并已经在做，绝不许一脸茫然装不知道。" : "";
       // 群聊里有旁白/围观（spectate）等长段描写时也吃八股压制器（线上短对话不需要，但群聊会写到叙事）
       const system = ANTI_CLICHE + "\n\n" + NARRATIVE_ANTI_CLICHE + (gWorld && gWorld.trim() ? "\n\n" + WORLDBOOK_RULE : "") + "\n\n" + CHARCARD_RULE + "\n\n" + dir + common + gTimeHint + gDirHint + gEmoteHint + gSelfieHint + thoughtHint + "\n\n【成员】\n" + memberDesc + "\n\n【成员间关系】\n" + relLines + (gWorld ? "\n\n【世界书】\n" + gWorld : "") + interop + preJoin + "\n\n【近期群聊】\n" + hist + "\n\n【输出】只输出 JSON 数组，按发言先后顺序。普通发言 {\"name\":\"成员名\",\"text\":\"内容\",\"quote\":\"（可选）你正在回应的那句话原文，不回应特定某句就省略此字段\",\"emote\":\"（可选）想发的表情关键词\",\"voice\":\"（可选）填 true 表示这条作为语音消息发（会显示成语音气泡+转文字，偶尔用）\",\"call\":\"（可选）填 voice 或 video，表示这个成员此刻想跟用户发起语音/视频通话邀请，别频繁\"" + thoughtField + "}；若某成员说完某句又后悔、想撤回，那条加 \"recall\":true 和 \"recallReason\":\"撤回原因\"（会先显示一秒再变成已撤回，别频繁）；发红包 {\"name\":\"成员名\",\"redpacket\":{\"total\":金额数字,\"count\":份数,\"message\":\"祝福语\"}}。name 必须是成员之一。";
       // 触发用户内容：自上一条角色发言以来我说的话/旁白
@@ -3727,23 +3736,44 @@ function App() {
   // 朋友圈封面（me 或某角色）：存 x_momentsCover
   const setMomentCover = (key, uri) => setMomentsCover(p => { const n = { ...p, [key]: uri || "" }; saveJSON("x_momentsCover", n); return n; });
   const openMomProfile = (id, isMe) => { setMomTarget({ id, isMe: !!isMe }); setScreen("momprofile"); };
-  const commentMoment = async (id, text) => {
+  const commentMoment = async (id, text, replyTo) => {
+    const meName0 = profile.name || "我";
+    // 定向回复某条评论时，评论原文带上「回复 X：」前缀（微信朋友圈样式）
+    const storedText = replyTo ? "回复 " + replyTo + "：" + text : text;
     pMom(p => p.map(m => m.id === id ? {
       ...m,
       comments: [...(m.comments || []), {
-        author: profile.name || "我",
-        text
+        author: meName0,
+        text: storedText
       }]
     } : m));
     const mom = moments.find(m => m.id === id);
-    if (!active) return;
-    const author = characters.find(c => c.id === (mom && mom.characterId));
-    if (!author) return;
-    // 候选回复者：发帖人 + 关系网里认识发帖人的其他角色（都可能插话）
-    const others = characters.filter(c => c.id !== author.id && (rels[c.id + "->" + author.id] || rels[author.id + "->" + c.id]));
-    const roster = [author, ...others.slice(0, 4)].map(c => c.remark || c.name);
-    const meName = profile.name || "我";
-    const fbAuthor = author.remark || author.name;
+    if (!active || !mom) return;
+    const author = characters.find(c => c.id === mom.characterId);
+    const isMine = !author && mom.mine;
+    if (!author && !isMine) return;
+    const byName = n => characters.find(c => c.remark === n || c.name === n || (n && String(n).includes(c.name)));
+    let roster, primary;
+    if (author) {
+      // 角色的帖子：发帖人 + 认识发帖人的其他角色（都可能插话）；定向回复的对象排最前
+      const others = characters.filter(c => c.id !== author.id && (rels[c.id + "->" + author.id] || rels[author.id + "->" + c.id]));
+      const target = replyTo ? byName(replyTo) : null;
+      primary = target || author;
+      roster = [...new Set([primary, author, ...others.slice(0, 4)])].map(c => c.remark || c.name);
+    } else {
+      // 我自己的帖子：可见好友里，定向对象 > 已在评论区里的人 > 好感最高的，凑最多5个候选
+      const canSee = mom.visibleTo && mom.visibleTo.length ? characters.filter(c => mom.visibleTo.includes(c.id)) : characters;
+      if (!canSee.length) return;
+      const target = replyTo ? byName(replyTo) : null;
+      const inThread = canSee.filter(c => (mom.comments || []).some(cm => cm.author === (c.remark || c.name) || cm.author === c.name));
+      const byAff = canSee.slice().sort((a, b) => (affinities[b.id] || 50) - (affinities[a.id] || 50));
+      const uniq = [...new Set([target, ...inThread, ...byAff].filter(Boolean))].slice(0, 5);
+      if (!uniq.length) return;
+      primary = uniq[0];
+      roster = uniq.map(c => c.remark || c.name);
+    }
+    const meName = meName0;
+    const fbAuthor = primary.remark || primary.name;
     // 兜底也别千篇一律的「看到啦」：贴着用户这条评论回一句短的
     const fallbackText = () => {
       const t = String(text || "").trim();
@@ -3754,11 +3784,17 @@ function App() {
       return pool[Math.floor(Math.random() * pool.length)];
     };
     try {
-      const bundle = buildBundle(ctxFor(author));
+      const bundle = buildBundle(ctxFor(primary));
       // 评论区已有的往来（含用户和角色的来回）→ 让角色接着对话，别每次都从头开始（支持连续你来我往）
       const thread = (mom.comments || []).map(c => (c.author || "某人") + "：" + String(c.text || "")).join("\n");
-      const system = bundle + "\n\n【场景】这是「" + author.name + "」发的朋友圈：「" + mom.content + "」。" + (thread ? "\n【评论区已有的往来（按时间先后，你都看得到、要接着聊，别重复也别跳戏）】\n" + thread + "\n" : "") + "\n用户「" + meName + "」" + (thread ? "刚又追评了" : "刚在下面评论了") + "：「" + text + "」。可能回复的人（发帖人本人，或认识发帖人的共同好友都可能插话）：" + roster.join("、") + "。请生成他们对【用户这条最新评论「" + text + "」】的回复——**必须直接回应用户说的这句话的具体内容、并接住上面评论区已经聊到的脉络（像微信朋友圈里回复评论那样，有来有往、能接着上一轮往下聊），别答非所问、别自说自话、别把前面聊过的又重说一遍。绝对不许用「看到啦」「收到」这种敷衍空话搪塞**；至少一条（保底），不一定是发帖人，谁最合适谁回，1-3 条，各自符合人设与关系，短句、有具体内容。\n只输出 JSON：{\"replies\":[{\"author\":\"回复者名\",\"text\":\"回复内容（直接回应用户那句的具体内容）\"}]}";
-      const raw = await callAI(active, system, [{ role: "user", content: "针对用户评论「" + text + "」生成回复 JSON" }], { maxTokens: 4000 });
+      const scene = author
+        ? "这是「" + author.name + "」发的朋友圈：「" + mom.content + "」。"
+        : "这是用户「" + meName + "」自己发的朋友圈：「" + mom.content + "」" + (mom.image ? "（配图：" + mom.image + "）" : "") + "。";
+      const lastLine = replyTo
+        ? "刚回复了「" + replyTo + "」的评论：「" + text + "」——**这句主要是对「" + replyTo + "」说的，TA 必须回**，别人看情况插不插话。"
+        : (thread ? "刚又追评了：「" + text + "」。" : "刚在下面评论了：「" + text + "」。");
+      const system = bundle + "\n\n【场景】" + scene + (thread ? "\n【评论区已有的往来（按时间先后，你都看得到、要接着聊，别重复也别跳戏）】\n" + thread + "\n" : "") + "\n用户「" + meName + "」" + lastLine + "可能回复的人：" + roster.join("、") + "。请生成他们对【用户这条最新评论「" + text + "」】的回复——**必须直接回应用户说的这句话的具体内容、并接住上面评论区已经聊到的脉络（像微信朋友圈里回复评论那样，有来有往、能接着上一轮往下聊），别答非所问、别自说自话、别把前面聊过的又重说一遍。绝对不许用「看到啦」「收到」这种敷衍空话搪塞**；至少一条（保底），谁最合适谁回，1-3 条，各自符合人设与关系，短句、有具体内容。\n只输出 JSON：{\"replies\":[{\"author\":\"回复者名\",\"text\":\"回复内容（直接回应用户那句的具体内容）\"}]}";
+      const raw = await callAI(active, system, [{ role: "user", content: "针对用户评论「" + text + "」生成回复 JSON" }], { maxTokens: 10000 });
       const d = extractJSON(raw) || {};
       // 容错解析：{replies:[...]} / 裸数组 / {reply} / {text}
       let reps = [];
@@ -3817,8 +3853,8 @@ function App() {
         role: "user",
         content: "开始"
       }], {
-        // 900 太小：多个好友各评论+互相回复时 JSON 会被截断，导致最后的评论/回复缺半截。放宽 + 坏 JSON 修复兜底
-        maxTokens: 3000
+        // 思考型模型「思考」也吃这个额度，3000 还是会截半：按次计费输出免费，直接放到 8000
+        maxTokens: 8000
       });
       let d = extractJSON(raw);
       if (!d && typeof repairJSON === "function") { try { d = JSON.parse(repairJSON(raw)); } catch (e) {} }
