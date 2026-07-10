@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v47.60";
+const APP_VERSION = "v47.61";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -1707,7 +1707,8 @@ function App() {
         if (m.role === "user") {
           const lu = g[g.length - 1];
           const qpfx = m.replyTo ? "（我在回应你说的「" + String(m.replyTo).slice(0, 40) + "」）" : "";
-          const uc = m.kind === "narration" ? "【旁白/场景设定】" + m.content : qpfx + m.content;
+          // 语音消息标出来：让 TA 知道这条是对方「说」的不是打的字（能回应语气、可以说「听到你声音了」）
+          const uc = m.kind === "narration" ? "【旁白/场景设定】" + m.content : m.kind === "voice" ? qpfx + "【这条是语音消息，对方说的】" + m.content : qpfx + m.content;
           // 合并连发的多条用户消息，兼容 Anthropic 等不允许连续同角色的接口
           if (lu && lu.role === "user") lu.content += "\n" + uc;else g.push({
             role: "user",
@@ -1716,9 +1717,11 @@ function App() {
           });
         } else {
           const l = g[g.length - 1];
-          if (l && l.role === "assistant" && l._t === m.turnId) l.content += "\n" + m.content;else g.push({
+          // 你自己发过的语音也标一下，别把它当成打的字
+          const ac = m.kind === "voice" ? "（这条你是用语音说的）" + m.content : m.content;
+          if (l && l.role === "assistant" && l._t === m.turnId) l.content += "\n" + ac;else g.push({
             role: "assistant",
-            content: m.content,
+            content: ac,
             _t: m.turnId
           });
         }
@@ -2098,7 +2101,7 @@ function App() {
       if (!active) throw new Error("请先配置 API");
       const gchat = groupChatsRef.current[groupId] || [];
       const _graw = gchat.filter(m => m.kind !== "ooc").slice(-(gs.ctxN || 30));
-      const fmtGLine = m => m.kind === "callend" ? "【这个位置大家通了一通" + (m.callMode === "video" ? "视频" : "语音") + "电话，时长 " + (m.dur || "不长") + (m.sum ? "。内容：" + m.sum : "") + "，别当没打过】" : m.kind === "offlinelog" ? "【你们刚刚线下见了一面，经过如下（发生在上面之后、现已回到线上群聊，据此接话）】" + m.content : m.role === "narration" ? "【旁白】" + m.content : m.role === "system" ? "（" + m.content + "）" : (m.role === "user" ? profile.name || "用户" : m.senderName || "某人") + ": " + (m.kind === "poll" ? "[发起投票]" + m.title : m.kind === "redpacket" ? "[发红包 ¥" + m.total + "，" + m.count + "个" + (m.count > 0 ? "，人均约¥" + (m.total / m.count).toFixed(2) : "") + "]" + (m.message ? " " + m.message : "") + ((m.claims || []).length ? "（已被抢：" + m.claims.map(c => (c.name || "某人") + "¥" + c.amount).join("、") + "）" : "") : m.content);
+      const fmtGLine = m => m.kind === "callend" ? "【这个位置大家通了一通" + (m.callMode === "video" ? "视频" : "语音") + "电话，时长 " + (m.dur || "不长") + (m.sum ? "。内容：" + m.sum : "") + "，别当没打过】" : m.kind === "offlinelog" ? "【你们刚刚线下见了一面，经过如下（发生在上面之后、现已回到线上群聊，据此接话）】" + m.content : m.role === "narration" ? "【旁白】" + m.content : m.role === "system" ? "（" + m.content + "）" : (m.role === "user" ? profile.name || "用户" : m.senderName || "某人") + ": " + (m.kind === "voice" ? "[语音消息，说的不是打的] " + m.content : m.kind === "poll" ? "[发起投票]" + m.title : m.kind === "redpacket" ? "[发红包 ¥" + m.total + "，" + m.count + "个" + (m.count > 0 ? "，人均约¥" + (m.total / m.count).toFixed(2) : "") + "]" + (m.message ? " " + m.message : "") + ((m.claims || []).length ? "（已被抢：" + m.claims.map(c => (c.name || "某人") + "¥" + c.amount).join("、") + "）" : "") : m.content);
       // 插时间断点：相邻消息间隔 >1.5h 就标一行「隔了约X、到了几点」——让模型知道时间过去了、别把旧事当正在发生（item 3/5）
       const _gparts = []; let _gprev = 0;
       for (const m of _graw) { const ts = m.ts || 0; if (_gprev && ts && ts - _gprev > 90 * 60000) _gparts.push("〔—— 中间隔了约 " + gapPhrase(ts - _gprev) + "，到 " + fmtStamp(ts) + " ——〕"); _gparts.push((gs.memoryInterop && ts ? "[" + fmtStamp(ts) + "] " : "") + fmtGLine(m)); if (ts) _gprev = ts; }
@@ -3558,7 +3561,7 @@ function App() {
     const cur = callRef.current;
     if (!cur || !text || !text.trim()) return;
     if (laneBusy("call")) return;
-    const um = { role: "user", content: text.trim() };
+    const um = { role: "user", content: text.trim(), ts: Date.now() };
     const withUser = [...cur.msgs, um];
     setCall(c => c ? { ...c, msgs: withUser } : c);
     callRef.current = { ...cur, msgs: withUser };
@@ -3581,7 +3584,7 @@ function App() {
         if (!arr.length) { const t = stripName(txt.replace(/```(?:json)?/gi, "").replace(/["{}\[\]]/g, "").replace(/\bsay\b\s*:?/gi, "").replace(/\baction\b\s*:?/gi, "").trim()); if (t) arr = [t]; }
         return arr;
       };
-      const pushMsg = line => setCall(c => c ? { ...c, msgs: [...c.msgs, line] } : c);
+      const pushMsg = line => setCall(c => c ? { ...c, msgs: [...c.msgs, { ts: Date.now(), ...line }] } : c);
       const uName = profile.name || "用户";
       const callerIsChar = cur.caller && cur.caller !== "me"; // 角色主动打来、用户接的
       const callerName = callerIsChar ? ((people.find(p => p.id === cur.caller) || {}).name || "") : "";
@@ -3637,7 +3640,7 @@ function App() {
       const label = (cur.mode === "video" ? "视频通话" : "语音通话") + " 已结束 · 时长 " + dur;
       const callId = "call_" + Date.now();
       // 整通转录存进气泡（点开可回看）；act=视频里的动作行
-      const log = (cur.msgs || []).map(m => ({ role: m.role, senderId: m.senderId || null, senderName: m.senderName || null, act: !!m.act, content: m.content }));
+      const log = (cur.msgs || []).map(m => ({ role: m.role, senderId: m.senderId || null, senderName: m.senderName || null, act: !!m.act, content: m.content, ts: m.ts || null }));
       const bubble = { role: "system", kind: "callend", callMode: cur.mode, dur: dur, content: label, ts: Date.now(), id: callId, log };
       if (cur.groupId) pGChat(cur.groupId, p => [...p, bubble]);
       else if (cur.participants[0]) pChat(cur.participants[0].id, p => [...p, bubble]);
