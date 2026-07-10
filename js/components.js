@@ -5773,19 +5773,31 @@ function GroupThread({
     }));
     if (m.kind === "selfie") return h("div", { key: i, className: "py-1 flex items-start gap-2 justify-start" },
       mAvatar(memberById(m.senderId) || { name: m.senderName, color: t.tint }),
-      h("div", { className: "flex flex-col items-start", style: { maxWidth: "72%" } },
+      h("div", {
+        className: "flex flex-col items-start",
+        // 群聊自拍也要能长按（收藏/多选/撤回）——之前只有 1:1 接了 startPress，群里图长按没反应
+        onTouchStart: selMode ? undefined : () => startPress(i), onTouchEnd: endPress,
+        onMouseDown: selMode ? undefined : () => startPress(i), onMouseUp: endPress, onMouseLeave: endPress,
+        onClick: selMode ? () => toggleSel(i) : undefined,
+        style: { maxWidth: "72%", outline: selMode && selIds.includes(i) ? "2px solid " + t.tint : "none", outlineOffset: 2, borderRadius: 14 }
+      },
         m.senderName && h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, margin: "0 4px 2px" } }, m.senderName),
         h(SelfieBubble, { m: m })));
     if (m.kind === "photo") return h("div", {
       key: i,
       className: "flex justify-end py-1"
     }, h("div", {
+      onTouchStart: selMode ? undefined : () => startPress(i), onTouchEnd: endPress,
+      onMouseDown: selMode ? undefined : () => startPress(i), onMouseUp: endPress, onMouseLeave: endPress,
+      onClick: selMode ? () => toggleSel(i) : undefined,
       style: {
         padding: "8px 10px",
         background: "#95d16f",
         borderRadius: 14,
         maxWidth: "72%",
-        boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
+        boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+        outline: selMode && selIds.includes(i) ? "2px solid " + t.tint : "none",
+        outlineOffset: 2
       }
     }, h("div", {
       className: "flex items-center gap-2"

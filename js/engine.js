@@ -603,10 +603,11 @@ async function idbImgDel(k) { const db = await idbImgOpen(); return new Promise(
 // 拼自拍的图像 prompt（外貌 + 此刻穿着/情境/神情）
 function buildSelfiePrompt(char, sceneDesc, st) {
   const parts = ["一张真实的手机自拍照（第一人称自拍视角 selfie，手臂伸出去拍的构图）。"];
+  // 身材硬约束放最前（v47.74 提权）：edits 模式参考照主导身材，文字要顶在最前才有一点话语权；
+  // 参考照本身如果就是极瘦风，靠 prompt 很难扳——根治要换参考照或裁成只含脸部
+  parts.push("【身材硬性要求，凌驾于参考图的身体】healthy body weight, realistic anatomy, not underweight, not emaciated, natural muscle definition——健康体重、真实自然的人体：头身比正常、肩颈躯干四肢比例正确，有自然的肌肉与皮下脂肪，绝不许瘦脱相（不许肋骨锁骨根根凸出、不许胳膊细如柴、不许病态苍白消瘦），也不许肢体拉长扭曲。若参考图中的身体过瘦，按健康匀称的体型重画身体、只保留脸部长相。");
   parts.push("照片里的人：" + (char.name || "一个人") + "。");
   if (char.appearance && char.appearance.trim()) parts.push("外貌特征（务必贴合）：" + char.appearance.trim() + "。");
-  // 身材比例硬约束：有参考照时脸靠图锁、身体全靠文字——不写这条容易出瘦脱相/比例失调的怪身材
-  parts.push("身材体型要贴合上面的外貌描述（没写身材就按健康自然、匀称的真人比例）：头身比正常、肩颈躯干四肢比例正确、解剖结构自然，不要过瘦、不要肢体拉长或扭曲变形。");
   if (st && st.wearing) parts.push("此刻穿着：" + st.wearing + "。");
   if (sceneDesc && String(sceneDesc).trim()) parts.push("此刻的场景/在做什么：" + String(sceneDesc).trim() + "。");
   if (st && st.mood) parts.push("神情情绪：" + st.mood + "。");

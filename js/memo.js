@@ -180,12 +180,15 @@
     const avail = (props.characters || []).filter(c => !(props.existing || []).includes(c.id));
     const allSel = avail.length > 0 && sel.length === avail.length;
     const toggle = id => setSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-    return h("div", { className: "fixed inset-0 z-[90] flex items-end", style: { background: "rgba(20,19,15,0.4)" }, onClick: props.onClose },
-      h("div", { onClick: e => e.stopPropagation(), style: { width: "100%", background: t.bg2, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: "18px 18px 22px", maxHeight: "82vh", display: "flex", flexDirection: "column", animation: "fadeUp .2s ease both" } },
-        h("div", { className: "flex items-center justify-between", style: { marginBottom: 4 } },
+    // ⚠必须 portal 挂 body：这层从「详情 Sheet」里打开，Sheet 的 fadeUp 动画(fill:both)保留了 transform，
+    // fixed 会被劫持成相对 Sheet 定位+被其 overflow 裁头——就是她两次报「标题被顶没了」的根因
+    // 结构铁律：头/尾 shrink-0、只有中间列表滚；容器 overflow hidden 兜底
+    return ReactDOM.createPortal(h("div", { className: "fixed inset-0 z-[90] flex items-end", style: { background: "rgba(20,19,15,0.4)" }, onClick: props.onClose },
+      h("div", { onClick: e => e.stopPropagation(), style: { width: "100%", background: t.bg2, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: "18px 18px 22px", maxHeight: "78vh", display: "flex", flexDirection: "column", overflow: "hidden", animation: "fadeUp .2s ease both" } },
+        h("div", { className: "flex items-center justify-between shrink-0", style: { marginBottom: 4 } },
           h("div", { style: { fontFamily: F_DISPLAY, fontSize: 17, color: t.ink } }, "让谁来批注"),
           avail.length > 1 && h("button", { onClick: () => setSel(allSel ? [] : avail.map(c => c.id)), className: "active:opacity-70", style: { fontFamily: F_BODY, fontSize: 12.5, color: ACCENT } }, allSel ? "全不选" : "全选")),
-        h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 12 } }, "选中的角色会各说一句（一次生成，走便宜后台池）"),
+        h("div", { className: "shrink-0", style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 12 } }, "选中的角色会各说一句（一次生成，走便宜后台池）"),
         avail.length === 0 ? h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.fog, padding: "10px 0" } }, "没有可批注的角色了。")
           : h("div", { style: { display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", WebkitOverflowScrolling: "touch", flex: "1 1 auto", minHeight: 0, margin: "0 -4px", padding: "0 4px" } }, avail.map(c => h("button", { key: c.id, onClick: () => toggle(c.id), className: "w-full flex items-center gap-3 active:opacity-70 shrink-0", style: { padding: "7px 4px", textAlign: "left" } },
             h(Avatar, { character: c, size: 34, radius: 999 }),
@@ -193,7 +196,7 @@
             h("span", { style: { width: 22, height: 22, borderRadius: 999, border: "2px solid " + (sel.includes(c.id) ? ACCENT : t.line), background: sel.includes(c.id) ? ACCENT : "transparent", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 13, flexShrink: 0 } }, sel.includes(c.id) ? "✓" : "")))),
         h("div", { className: "flex gap-2 shrink-0", style: { marginTop: 14 } },
           h("button", { onClick: props.onClose, className: "flex-1 active:opacity-70", style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.sub, background: t.bg, border: "1px solid " + t.line, borderRadius: 14, padding: "11px 0" } }, "取消"),
-          h("button", { onClick: () => sel.length && props.onPick(sel), disabled: !sel.length || props.busy, className: "flex-1 active:opacity-80 disabled:opacity-40", style: { fontFamily: F_DISPLAY, fontSize: 14, color: "#fff", background: ACCENT, borderRadius: 14, padding: "11px 0" } }, props.busy ? "生成中…" : "让 TA 们说 (" + sel.length + ")"))));
+          h("button", { onClick: () => sel.length && props.onPick(sel), disabled: !sel.length || props.busy, className: "flex-1 active:opacity-80 disabled:opacity-40", style: { fontFamily: F_DISPLAY, fontSize: 14, color: "#fff", background: ACCENT, borderRadius: 14, padding: "11px 0" } }, props.busy ? "生成中…" : "让 TA 们说 (" + sel.length + ")")))), document.body);
   }
 
   // ---- 谁可以看到（可见角色）----
@@ -201,16 +204,17 @@
     const t = useTheme();
     const [sel, setSel] = useState((props.value || []).slice());
     const toggle = id => setSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-    return h("div", { className: "fixed inset-0 z-[90] flex items-end", style: { background: "rgba(20,19,15,0.4)" }, onClick: props.onClose },
-      h("div", { onClick: e => e.stopPropagation(), style: { width: "100%", background: t.bg2, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: "18px 18px 22px", maxHeight: "82vh", display: "flex", flexDirection: "column", animation: "fadeUp .2s ease both" } },
-        h("div", { style: { fontFamily: F_DISPLAY, fontSize: 17, color: t.ink, marginBottom: 4 } }, "谁能看到 / 提醒你"),
-        h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 12 } }, "选中的角色：临近时会在聊天里自然提起；到期当天可能主动发消息提醒你。"),
+    // portal 挂 body：同 CommentPicker，躲开详情 Sheet 的 transform 劫持 fixed
+    return ReactDOM.createPortal(h("div", { className: "fixed inset-0 z-[90] flex items-end", style: { background: "rgba(20,19,15,0.4)" }, onClick: props.onClose },
+      h("div", { onClick: e => e.stopPropagation(), style: { width: "100%", background: t.bg2, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: "18px 18px 22px", maxHeight: "78vh", display: "flex", flexDirection: "column", overflow: "hidden", animation: "fadeUp .2s ease both" } },
+        h("div", { className: "shrink-0", style: { fontFamily: F_DISPLAY, fontSize: 17, color: t.ink, marginBottom: 4 } }, "谁能看到 / 提醒你"),
+        h("div", { className: "shrink-0", style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 12 } }, "选中的角色：临近时会在聊天里自然提起；到期当天可能主动发消息提醒你。"),
         (props.characters || []).length === 0 ? h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.fog } }, "还没有角色。")
           : h("div", { style: { display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", WebkitOverflowScrolling: "touch", flex: "1 1 auto", minHeight: 0, margin: "0 -4px", padding: "0 4px" } }, (props.characters || []).map(c => h("button", { key: c.id, onClick: () => toggle(c.id), className: "w-full flex items-center gap-3 active:opacity-70 shrink-0", style: { padding: "7px 4px", textAlign: "left" } },
             h(Avatar, { character: c, size: 34, radius: 999 }),
             h("span", { style: { flex: 1, fontFamily: F_DISPLAY, fontSize: 15, color: t.ink } }, c.remark || c.name),
             h("span", { style: { fontFamily: F_BODY, fontSize: 12, color: sel.includes(c.id) ? ACCENT : t.fog } }, sel.includes(c.id) ? "✓ 可见" : "不可见")))),
-        h("button", { onClick: () => props.onSave(sel), className: "w-full active:opacity-80 shrink-0", style: { marginTop: 14, fontFamily: F_DISPLAY, fontSize: 14.5, color: "#fff", background: t.ink, borderRadius: 14, padding: "12px 0" } }, "保存")));
+        h("button", { onClick: () => props.onSave(sel), className: "w-full active:opacity-80 shrink-0", style: { marginTop: 14, fontFamily: F_DISPLAY, fontSize: 14.5, color: "#fff", background: t.ink, borderRadius: 14, padding: "12px 0" } }, "保存"))), document.body);
   }
 
   // ---- 批注区块（备忘/提醒详情共用）----

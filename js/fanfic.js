@@ -24,6 +24,16 @@
   const FANFIC_ANTI_CLICHE_TAIL =
     "\n\n【落笔前再自检一遍】通篇不许出现：埋进颈窝、小兽/幼兽/大型犬、低吼一声/喉间溢出、勾唇/挑眉、圈进怀里/扣住后颈、耳尖泛红，以及白玉凝脂、如瀑长发、藤蔓般缠绕、星辰大海、灵魂深处这类烂词。发现自己要写这些，就换成此情此景独有的具体细节。";
 
+  // 正面示例（v47.74）：纯禁词清单压不住（否定指令模型不敏感，「埋进颈窝」照样出现）——
+  // 上「烂模板 → 正确方向」对照，教思路不给可抄的句子；示例场景是现代的，古风等板块自行翻成对应时代的同款思路
+  const FANFIC_GOOD_EXAMPLES =
+    "【正面示例（学右边的写法思路，严禁照抄字句和场景）】每组左边是禁用的烂模板，右边是正确方向：\n" +
+    "· ✗ 他把脸埋进你的颈窝 → ✓ 他靠过来时没接你的话，下巴抵在你肩上那截旧毛衣的线头上，半晌说了句「这件该扔了」。——亲近写成【有来由的动作＋一句说歪的话】，不用贴脸通用动作。\n" +
+    "· ✗ 他低吼一声把你圈进怀里 → ✓ 他抬手把你往回带了半步，正好避开泼出来的水，手指在你袖口停了一下才松开。——碰触要有具体事件承载，不凭空发生。\n" +
+    "· ✗ 空气仿佛凝固了／耳尖泛红 → ✓ 他伸手去够杯子，够了两次都没拿稳。——心绪外化成一件做砸的小事，全程不点破。\n" +
+    "· ✗ 事后他满足地叹了口气，把人搂得更紧 → ✓ 他背过身去摸烟，摸到一半想起对方讨厌烟味，手又缩回来，假装只是在找打火机。——收尾落在只属于这个人的别扭细节上。\n" +
+    "核心：情绪全部藏进「有来由的动作＋具体物件＋说歪的话」里，一整段可以不出现任何情绪词；每一处亲密都要能回答「为什么是这个动作、为什么是此刻」。";
+
   // world book 亲密场景「设定层」补充（拼进当前 tab 世界观之后）——中文比喻词表走「可用」方向，
   // 上面 FANFIC_ANTI_CLICHE 走「禁用」方向，两头夹。
   const INTIMACY_WORLDNOTE =
@@ -35,14 +45,14 @@
   // mixed:true 的「推荐」= 从其它版块类别随机抽来写（每篇随机挑一个世界观）
   const SEED_TABS = [
     { id: "tab_reco", name: "推荐", desc: "综合推荐——从所有世界观类别里随机抽取来写，冷暖甜虐各种题材混着来。", seed: true, mixed: true },
-    { id: "tab_urban", name: "都市", desc: "现代都市背景。写字楼、地铁、深夜便利店、微信消息。写实、生活质感，情感张力藏在日常缝隙里。", seed: true },
-    { id: "tab_campus", name: "校园", desc: "校园背景。教室、操场、晚自习、社团。青涩、克制、有少年感，别写得像成年人办公室恋爱。", seed: true },
-    { id: "tab_apoc", name: "末世", desc: "末世/废土背景。资源匮乏、丧尸或灾变、幸存者据点。危险与依赖并存，感情在生死边缘发生，冷硬底色。", seed: true },
-    { id: "tab_abo", name: "ABO", desc: "ABO 世界观。Alpha/Beta/Omega 三分性别、信息素、易感期/发情期、标记。设定内自洽，信息素与本能是核心张力。", seed: true },
-    { id: "tab_endless", name: "无限流", desc: "无限流。主角被卷入一个个副本/试炼世界，规则残酷、通关或死。悬疑惊悚打底，感情在极限处境里淬出来。", seed: true },
+    { id: "tab_urban", name: "都市", desc: "现代都市背景。写字楼、地铁、深夜便利店、微信消息。\n【文风】写实、生活颗粒感，情感张力全藏在日常缝隙里：\n· 场景要具体到店名式的细节（不是「一家便利店」而是「收银台边加热柜里最后一个包子」）；时间用通勤/加班/末班车这类都市节律来标。\n· 对话像真人发微信、真人下班后说话：短、有错字式的随意、有已读不回；忌散文腔告白。\n· 情绪靠物件与动作递：外卖备注、共享歌单、帮忙拧瓶盖；忌直接写「心动/心跳加速」。\n· 忌偶像剧套路（壁咚/摔进怀里/雨中告白），冲突从房租、加班、家人这些真实压力里长出来。", seed: true },
+    { id: "tab_campus", name: "校园", desc: "校园背景。教室、操场、晚自习、社团。\n【文风】青涩、克制、有少年感，绝不许写成成年人办公室恋爱：\n· 亲密的上限是借橡皮时碰到手、递水时的迟疑——张力来自「不敢」而不是「忍着」。\n· 用课程表、月考排名、广播操、值日表这些校园肌理标时间；对白带少年人的逞强和词不达意。\n· 心事写成小动作：草稿纸角落的名字划掉又写、绕远路经过对方班级门口。\n· 忌早恋剧模板（天台告白/自行车后座光环化），忌让高中生说出三十岁的情话。", seed: true },
+    { id: "tab_apoc", name: "末世", desc: "末世/废土背景。资源匮乏、丧尸或灾变、幸存者据点。\n【文风】冷硬底色，感情在生死边缘发生：\n· 物资是叙事的骨头：半瓶水怎么分、子弹省着打、抗生素给谁用——温柔全部藏在分配里，不许直说。\n· 危险要真实有代价（受伤会感染、睡觉要轮岗），忌主角光环；死亡与失去写得克制、不煽情。\n· 对白短、省字，像真的不敢浪费体力；亲密是背靠背值夜、把外套让出去，不是废土里谈都市恋爱。\n· 忌「乱世佳人」滤镜与升华式旁白，末世的浪漫是「今天也活下来了」。", seed: true },
+    { id: "tab_abo", name: "ABO", desc: "ABO 世界观。Alpha/Beta/Omega 三分性别、信息素、易感期/发情期、标记。\n【文风】设定内自洽，信息素与本能是核心张力：\n· 信息素写成具体的、只属于这个人的气味与生理反应，忌万能的「奶香/松木香突然爆发」流水线描写。\n· 张力核心是「本能推着走 vs 人想自己选」：克制、抵抗、社会规训下的身不由己要写足，别一闻就倒。\n· 涉及标记/发情期要有前因后果与事后代价（药剂、请假、旁人眼光），设定要落进生活肌理，不只是床戏开关。\n· 忌把 Omega 写成无脑娇弱花瓶、把 Alpha 写成发情机器——性别设定之下先是活人。", seed: true },
+    { id: "tab_endless", name: "无限流", desc: "无限流。主角被卷入一个个副本/试炼世界，规则残酷、通关或死。\n【文风】悬疑惊悚打底，感情在极限处境里淬出来：\n· 副本规则要具体、可推理、有漏洞可钻（把规则条文写出来），恐怖来自规则本身的恶意而非 jump scare 堆砌。\n· 智斗要真的智：线索前置、解法讲得通，忌主角突然「灵光一闪」空降答案。\n· 队友会死、信任稀缺，感情线是「在不敢信人的地方偏偏信了你」，进展小步、代价真实。\n· 忌数值化打怪升级腔（面板/技能点），保持文学叙事的质地。", seed: true },
     { id: "tab_ancient", name: "古风", desc: "古风架空。朝堂、江湖、深宅、边关。\n【文风必须真的古】要有半文半白的古白话语感（近《红楼》《金瓶》话本、明清世情小说的腔调），不是套了古装的现代小说：\n· 叙述与对白都用文白相间的句子，多用四字短语、对仗与留白；句子偏短，忌长句欧化从句。\n· 称谓、器物、时辰、礼数都用古时说法（妾身/在下/郎君/娘子、更漏/时辰、案几/罗帐/袖中、拱手/敛衽），第一/第二人称少用「你我」多用身份称谓。\n· 严禁现代词与翻译腔：像「感觉/情绪/状态/氛围/空气/时间仿佛静止/心脏/大脑/紧张/放松/关系/沟通/瞬间/画面」这类词一律换成古意表达或删去。\n· 情感靠动作、景物、器物与欲言又止来递，隐忍克制，别直白宣泄、别现代心理描写。", seed: true },
-    { id: "tab_era", name: "年代", desc: "年代文。上世纪某个年代（六七十年代/九十年代）背景，粮票、大院、国营厂、书信。质朴、有时代颗粒感。", seed: true },
-    { id: "tab_hk", name: "港片", desc: "港片质感。八九十年代香港，警匪、江湖义气、霓虹与雨夜、茶餐厅。粤味台词、宿命感、江湖儿女的克制深情。", seed: true }
+    { id: "tab_era", name: "年代", desc: "年代文。上世纪某个年代（六七十年代/九十年代）背景，粮票、大院、国营厂、书信。\n【文风】质朴、有时代颗粒感：\n· 器物与制度要对得上年代：工分、供销社、的确良、传呼机、下岗潮——细节错年代是硬伤。\n· 语言带那个年代的说法（处对象/相看/介绍人），忌现代网络词和翻译腔；书信、电报、托人捎话是重要的情感载体。\n· 情感表达符合年代的含蓄：一辆自行车、一张电影票、多打的一份饭；忌现代恋爱观直接穿越回去。\n· 时代是命运的推手（招工、返城、分房），人物被时代裹着走，写出身不由己里的相守。", seed: true },
+    { id: "tab_hk", name: "港片", desc: "港片质感。八九十年代香港，警匪、江湖义气、霓虹与雨夜、茶餐厅。\n【文风】粤味、宿命感、江湖儿女的克制深情：\n· 台词要有港片味：短、狠、带粤语语感（食咗饭未/唔该/差人），点到即止，忌普通话式长篇抒情。\n· 场景写足港味肌理：霓虹招牌倒映的湿马路、大排档塑料凳、庙街、天台水塔——雨夜和烟火气是底色。\n· 义气与情分大过告白：递烟、挡枪、留一碗云吞面，深情全在做不在说。\n· 宿命感靠留白与命运的反讽（约好的人没来、电话亭响了没人接），忌把结局说破、忌旁白升华。", seed: true }
   ];
 
   // ---- 存储 ----------------------------------------------------------
@@ -148,6 +158,7 @@
     parts.push(CHARCARD_RULE);
     parts.push(INTIMATE_ANTI_CLICHE);
     parts.push(FANFIC_ANTI_CLICHE);
+    parts.push(FANFIC_GOOD_EXAMPLES);
     parts.push(
       "【任务】你是一位很会写的同人文作者。写【纯线下叙事体】短篇同人文（第三人称或第二人称皆可，不是聊天、不是剧本，是成篇的散文小说）。" +
       "每篇自成一体、有起承转合、有真正推进的剧情和场景，落在具体细节与真实情绪上，别开头没铺垫就草草收尾。");
@@ -186,7 +197,7 @@
     const user = "写 " + n + " 篇" + (tab.mixed ? "（世界观每篇随机挑）" : "【" + tab.name + "】世界观下") + "的同人文。别都同一个梗、同一种基调，冷暖虐甜各来一点，每篇都要写出剧情别烂尾。";
     let batchCot = null;
     async function once(extra) {
-      const raw = await callAI(active, sys + (extra || ""), [{ role: "user", content: user }], { maxTokens: Math.min(20000, 1200 + n * perFic) });
+      const raw = await callAI(active, sys + (extra || ""), [{ role: "user", content: user }], { maxTokens: Math.min(30000, 6000 + n * perFic) }); // 思考型模型的思考也从这里扣，紧了整批返回空
       const sp = (typeof splitCot === "function") ? splitCot(raw, !!cotT) : { cot: null, clean: raw };
       if (sp.cot) batchCot = sp.cot; // 整批一次思考，挂到第一篇
       let d = extractJSON(sp.clean);
@@ -225,21 +236,35 @@
     }).join("\n");
     const cotChar = (cpChars && cpChars[0] && cpChars[0].name) || (fic.title || "主角");
     const cotT = (typeof cotThink === "function") ? cotThink({ char: cotChar, user: userName }) : "";
+    // 上一章结尾原文（最后一段现场）：只给锚点一句话时模型爱跳时间线（上一章还暧昧、下一章直接事后）
+    const lastTail = String(last.content || fic.body || "").trim().slice(-600);
     const sys = buildGenSystem(tab, cpChars, userName, worldbook, opts) + "\n\n" +
       "【当前任务：给一篇已在连载的同人文续写下一章】\n" +
       "篇名《" + fic.title + "》，标签：" + (fic.tags || []).join("、") + "。\n" +
       "【前情摘要（历章锚点，不含全文，你据此自然接续、保持人物与线索一致）】\n" + (priorHooks || "（这是第一章）") + "\n" +
-      "【上一章的结尾锚点（从这里直接往下写）】\n" + (last.endHook || "（无，请自然开新章）") + "\n\n" +
+      (lastTail ? "【上一章结尾原文（新章从这个现场往下写）】\n……" + lastTail + "\n" : "") +
+      "【上一章的结尾锚点】\n" + (last.endHook || "（无，请自然开新章）") + "\n" +
+      "【衔接与进度铁律（比字数更重要）】\n" +
+      "· 新章开头必须与上面结尾原文【无缝衔接】：同一时间线自然往下走；确需转场，先用一两句交代过渡（过了几日／次日清晨），不许没头没尾直接跳到全新处境。\n" +
+      "· 两人的感情与亲密进度只能【小步推进】：先判断上一章结束时处在什么阶段（暧昧、试探、刚点破、热恋…），这一章至多往前走一小步——绝不允许上一章还在暧昧、这一章开场就已发生关系或直接写事后；要到那一步，必须在章内写足完整的过程与铺垫。\n" +
+      "· 中间若有时间跳跃，跳过的事只能是无关紧要的日常，关键情节（表白、第一次亲密、重大冲突）必须写出来，不许发生在幕后。\n\n" +
       (typeof cotSystemBlock === "function" ? cotSystemBlock(cotT) : "") +
       "【输出】只输出一个合法 JSON 对象，无 markdown：\n" +
       "{" + (typeof cotJsonField === "function" ? cotJsonField(cotT) : "") + "\"content\":\"这一章正文（成篇散文，承接上一章锚点往下推进、有实质剧情进展，约 " + minWords + " 字以上，分段用\\n\\n）\",\"endHook\":\"本章新的结尾锚点，供再下一章接续\"}" +
       FANFIC_ANTI_CLICHE_TAIL;
-    const raw = await callAI(active, sys, [{ role: "user", content: "续写《" + fic.title + "》的下一章。\n\n〔幕后提醒：本章的开头方式、句式节奏、意象和高频小动作【不许和前几章雷同】——连载越往后越容易一套模板，这章刻意换写法；反陈词滥调清单全程生效" + (cotT ? "；cot 必填" : "") + "。〕" }], { maxTokens: Math.min(12000, perFic + 1500) });
-    const sp = (typeof splitCot === "function") ? splitCot(raw, !!cotT) : { cot: null, clean: raw };
-    let d = extractJSON(sp.clean);
-    if (!d && typeof repairJSON === "function") { try { d = JSON.parse(repairJSON(sp.clean)); } catch (e) {} }
-    if (!d || !d.content) throw new Error("续写失败，可重试");
-    return { content: String(d.content).trim(), endHook: String(d.endHook || "").trim(), cot: sp.cot };
+    const userMsg = "续写《" + fic.title + "》的下一章。\n\n〔幕后提醒：本章的开头方式、句式节奏、意象和高频小动作【不许和前几章雷同】——连载越往后越容易一套模板，这章刻意换写法；反陈词滥调清单全程生效" + (cotT ? "；cot 必填" : "") + "。〕";
+    // 思考型模型预算别抠（占 maxTokens），太紧就返回空；解析失败自动重试一次
+    async function once(extra) {
+      const raw = await callAI(active, sys + (extra || ""), [{ role: "user", content: userMsg }], { maxTokens: Math.min(24000, perFic + 10000) });
+      const sp = (typeof splitCot === "function") ? splitCot(raw, !!cotT) : { cot: null, clean: raw };
+      let d = extractJSON(sp.clean);
+      if (!d && typeof repairJSON === "function") { try { d = JSON.parse(repairJSON(sp.clean)); } catch (e) {} }
+      return d && d.content ? { content: String(d.content).trim(), endHook: String(d.endHook || "").trim(), cot: sp.cot } : null;
+    }
+    let out = await once("");
+    if (!out) out = await once("\n\n（上一次输出为空或没能解析成合法 JSON，请务必严格只输出那一个 JSON 对象、正文写满，别加任何解释文字。）");
+    if (!out) throw new Error("续写失败：模型返回为空，可再点一次重试");
+    return out;
   }
 
   // ---- 书评：一次生成 N 条（NPC 泛读者 + 作者至少下场一次）------------
@@ -1327,7 +1352,9 @@
           tabs: tabs, activeId: activeTab, onPick: setActiveTab,
           onAdd: function () { setTabSheet({}); }, onEdit: function (tb) { setTabSheet(tb); }
         }) : null,
-        view === "feed" && curTab && curTab.desc ? h("div", { className: "px-5 pb-2", style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, lineHeight: 1.5 } }, curTab.desc) : null,
+        // 板块简介收进固定高度的滚动框（简介写长后曾占掉三分之一屏挡文）：默认露两三行，框内下滑看全部
+        view === "feed" && curTab && curTab.desc ? h("div", { className: "px-5 pb-2" },
+          h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, lineHeight: 1.55, whiteSpace: "pre-line", maxHeight: 62, overflowY: "auto", WebkitOverflowScrolling: "touch", background: t.bg2, border: "1px solid " + t.line, borderRadius: 10, padding: "7px 10px" } }, curTab.desc)) : null,
         h("div", { className: "flex-1 min-h-0 overflow-y-auto px-5 pb-6" },
           busy ? h(Spinner, { label: "生成中…" }) : null,
           list.length ? list.map(function (f) {
