@@ -878,6 +878,8 @@ function Home({
   const foldersRef = useRef(folders); foldersRef.current = folders;
   const [hoverKey, setHoverKey] = useState(null); // 拖拽悬停的合并目标（放大提示）
   const hoverRef = useRef({ key: null, timer: null });
+  const [dropKey, setDropKey] = useState(null); // 松手将落到的目标（空格/交换对象，虚线高亮）
+  const dropRef = useRef(null);
   const ghostRef = useRef(null); // 跟手浮影（直接改 DOM 位置，不走 setState 防卡）
   const lpRef = useRef(null);       // 长按计时器
   const dragKeyRef = useRef(null);  // 当前拖起的 key（事件闭包里读，避免过期）
@@ -925,71 +927,122 @@ function Home({
     ["w_cal", "shop", "carry", "cwallet", "ledger", "memo", "w_us"],
     ["lore", "memlib", "diary", "study", "fanfic", "weekly", "read", "debate", "dream", "tarot", "pomodoro", "games"]
   ];
+  // 空格（sp_ 开头）：真实占一格的「洞」，自由摆放的基础——拖到空格＝挪过去，原位留洞
+  const SP_RE = /^sp_/;
+  // 每项占的格子数（4 列制）：app/文件夹/空格=1，日历 3x3=9，地图 2x2=4，整行组件=4
+  const wOf = function (key) {
+    if (SP_RE.test(key)) return 1;
+    var it = key && key.slice(0, 2) === "f_" ? { kind: "folder" } : REG[key];
+    if (!it) return 0;
+    if (it.kind !== "widget") return 1;
+    return it.which === "cal" ? 9 : 4;
+  };
   // 存档 + 注册表 → 完整布局：套用存档顺序，未放置的新功能补到默认页，丢弃已删除的 key
   // 文件夹（f_ 开头）也是合法项；躺在文件夹里的 app 视作已放置，不再回填到页面
+  // 最后做「槽位规整」：去尾部空格 → 补空格到整行；恰好铺满且没超载时多送一空行（留挪动余地）
   function buildLayout(saved) {
     saved = saved || {};
     var F = foldersRef.current || {};
     var seen = {};
     Object.keys(F).forEach(function (fid) { (F[fid].keys || []).forEach(function (k) { seen[k] = true; }); });
-    var valid = function (key) { return key && key.slice(0, 2) === "f_" ? !!(F[key] && (F[key].keys || []).length) : !!REG[key]; };
-    if (!Object.keys(saved).length) return DEFAULT_LAYOUT.map(function (p) { return p.filter(function (k) { return !seen[k]; }); });
-    var maxPage = DEFAULT_LAYOUT.length - 1;
-    Object.keys(saved).forEach(function (k) { var n = parseInt(k, 10); if (!isNaN(n)) maxPage = Math.max(maxPage, n); });
-    var out = [];
-    for (var i = 0; i <= maxPage; i++) {
-      out[i] = (saved[i] || []).filter(function (key) { if (valid(key) && !seen[key]) { seen[key] = true; return true; } return false; });
+    var valid = function (key) {
+      if (!key) return false;
+      if (SP_RE.test(key)) return true;
+      if (key.slice(0, 2) === "f_") return !!(F[key] && (F[key].keys || []).length);
+      return !!REG[key];
+    };
+    var out;
+    if (!Object.keys(saved).length) out = DEFAULT_LAYOUT.map(function (p) { return p.filter(function (k) { return !seen[k]; }); });
+    else {
+      var maxPage = DEFAULT_LAYOUT.length - 1;
+      Object.keys(saved).forEach(function (k) { var n = parseInt(k, 10); if (!isNaN(n)) maxPage = Math.max(maxPage, n); });
+      out = [];
+      for (var i = 0; i <= maxPage; i++) {
+        out[i] = (saved[i] || []).filter(function (key) { if (valid(key) && !seen[key]) { seen[key] = true; return true; } return false; });
+      }
+      DEFAULT_LAYOUT.forEach(function (p, dp) {
+        p.forEach(function (key) { if (!seen[key]) { if (!out[dp]) out[dp] = []; out[dp].push(key); seen[key] = true; } });
+      });
     }
-    DEFAULT_LAYOUT.forEach(function (p, dp) {
-      p.forEach(function (key) { if (!seen[key]) { if (!out[dp]) out[dp] = []; out[dp].push(key); seen[key] = true; } });
+    return out.map(function (arr, pi) {
+      arr = (arr || []).slice();
+      while (arr.length && SP_RE.test(arr[arr.length - 1])) arr.pop();
+      var wsum = 0;
+      arr.forEach(function (k) { wsum += wOf(k); });
+      var target = Math.ceil(wsum / 4) * 4;
+      if (target === wsum && wsum > 0 && wsum <= 20) target += 4;
+      var n = 0;
+      var have = {};
+      arr.forEach(function (k) { have[k] = 1; });
+      while (wsum < target) { var sid = "sp_" + pi + "_" + n++; if (!have[sid]) { arr.push(sid); have[sid] = 1; wsum += 1; } }
+      return arr;
     });
-    return out;
   }
   function persistLayout(L) { var o = {}; L.forEach(function (arr, i) { o[i] = arr; }); saveJSON("x_homeLayout", o); return o; }
   function persistFolders(nf) { foldersRef.current = nf; saveJSON("x_homeFolders", nf); setFolders(nf); }
   const kindOf = function (key) { if (key && key.slice(0, 2) === "f_") return "folder"; var it = REG[key]; return it ? it.kind : null; };
-  // 拖 A 叠到 B 上（B 是 app）→ 新建文件夹装下两个；B 的位置换成文件夹，A 从页面消失
-  function makeFolder(targetKey, draggedKey) {
-    var fid = "f_" + Date.now();
-    var nf = Object.assign({}, foldersRef.current);
-    nf[fid] = { name: "文件夹", keys: [targetKey, draggedKey] };
-    persistFolders(nf);
+  // 在整个布局里找 key 的位置 {p,i}
+  function findSlot(L, key) {
+    for (var p = 0; p < L.length; p++) { var i = (L[p] || []).indexOf(key); if (i >= 0) return { p: p, i: i }; }
+    return null;
+  }
+  // 放下：from 和 to 交换位置（to 是空格＝挪过去原位留洞；to 是别的项＝互换；跨页同理）
+  function placeDrop(fromKey, toKey) {
     setLayout(function (prev) {
-      var L = buildLayout(prev); // folders 已更新：两个 app 都被 seen 滤掉了，先把 fid 放回目标位
-      var arr = (L[page] || []).slice();
-      var raw = (prev && prev[page]) || DEFAULT_LAYOUT[page] || [];
-      var ti = raw.indexOf(targetKey);
-      arr.splice(ti >= 0 ? Math.min(ti, arr.length) : arr.length, 0, fid);
-      L[page] = arr;
+      var L = buildLayout(prev).map(function (a) { return a.slice(); });
+      var f = findSlot(L, fromKey), t2 = findSlot(L, toKey);
+      if (!f || !t2) return prev;
+      L[f.p][f.i] = toKey;
+      L[t2.p][t2.i] = fromKey;
+      return persistLayout(L);
+    });
+  }
+  // 拖 A 叠到 B 上（B 是 app）→ 新建文件夹装下两个；B 的位置换成文件夹，A 的原位留洞
+  function makeFolder(targetKey, draggedKey) {
+    setLayout(function (prev) {
+      var L = buildLayout(prev).map(function (a) { return a.slice(); }); // folders 还没动，两个 key 都还在布局里
+      var tPos = findSlot(L, targetKey), dPos = findSlot(L, draggedKey);
+      if (!tPos || !dPos) return prev;
+      var fid = "f_" + Date.now();
+      var nf = Object.assign({}, foldersRef.current);
+      nf[fid] = { name: "文件夹", keys: [targetKey, draggedKey] };
+      persistFolders(nf);
+      L[tPos.p][tPos.i] = fid;
+      L[dPos.p][dPos.i] = "sp_m" + Date.now().toString(36);
       return persistLayout(L);
     });
   }
   function addToFolder(fid, key) {
-    var nf = Object.assign({}, foldersRef.current);
-    var f = nf[fid];
-    if (!f || (f.keys || []).indexOf(key) >= 0) return;
-    nf[fid] = { name: f.name, keys: (f.keys || []).concat([key]) };
-    persistFolders(nf);
-    setLayout(function (prev) { return persistLayout(buildLayout(prev)); }); // key 被 seen 滤掉即从页面消失
+    setLayout(function (prev) {
+      var L = buildLayout(prev).map(function (a) { return a.slice(); });
+      var pos = findSlot(L, key);
+      var nf = Object.assign({}, foldersRef.current);
+      var f = nf[fid];
+      if (!f || (f.keys || []).indexOf(key) >= 0) return prev;
+      nf[fid] = { name: f.name, keys: (f.keys || []).concat([key]) };
+      persistFolders(nf);
+      if (pos) L[pos.p][pos.i] = "sp_a" + Date.now().toString(36); // 原位留洞
+      return persistLayout(L);
+    });
   }
-  // 从文件夹取出：app 回到文件夹所在页；文件夹空了自动解散（位置还给最后取出的 app）
+  // 从文件夹取出：优先放进文件夹所在页的空格（文件夹后面最近的），没有就追加；空了自动解散（位置原地还给）
   function removeFromFolder(fid, key) {
     setLayout(function (prev) {
-      var L = buildLayout(prev);
-      var pi = -1;
-      for (var i = 0; i < L.length; i++) { if ((L[i] || []).indexOf(fid) >= 0) { pi = i; break; } }
-      if (pi < 0) pi = page;
+      var L = buildLayout(prev).map(function (a) { return a.slice(); });
+      var fPos = findSlot(L, fid);
+      var pi = fPos ? fPos.p : page;
       var nf = Object.assign({}, foldersRef.current);
       var f = nf[fid];
       if (!f) return prev;
       var nk = (f.keys || []).filter(function (k) { return k !== key; });
       if (nk.length) nf[fid] = { name: f.name, keys: nk }; else delete nf[fid];
       persistFolders(nf);
-      var arr = (L[pi] || []).slice();
-      var fi = arr.indexOf(fid);
-      if (!nf[fid]) { if (fi >= 0) arr[fi] = key; else arr.push(key); }
-      else arr.splice(fi >= 0 ? fi + 1 : arr.length, 0, key);
-      L[pi] = arr;
+      var arr = L[pi];
+      if (!nf[fid] && fPos) { arr[fPos.i] = key; return persistLayout(L); }
+      var si = -1;
+      var after = fPos ? fPos.i : -1;
+      for (var j = 0; j < arr.length; j++) { if (SP_RE.test(arr[j])) { if (si < 0) si = j; if (j > after) { si = j; break; } } }
+      if (si >= 0) arr[si] = key; else arr.push(key);
       return persistLayout(L);
     });
   }
@@ -1001,27 +1054,7 @@ function Home({
   }
   const clearHover = function () { if (hoverRef.current.timer) clearTimeout(hoverRef.current.timer); hoverRef.current = { key: null, timer: null }; setHoverKey(null); };
   const moveGhost = function (x, y) { var g = ghostRef.current; if (g) { g.style.left = x - 34 + "px"; g.style.top = y - 74 + "px"; } };
-  // 同页内把 fromKey 挪到 toKey 位置
-  function reorderInPage(pi, fromKey, toKey) {
-    setLayout(function (prev) {
-      var L = buildLayout(prev); var arr = (L[pi] || []).slice();
-      var fi = arr.indexOf(fromKey), ti = arr.indexOf(toKey);
-      if (fi < 0 || ti < 0 || fi === ti) return prev;
-      arr.splice(ti, 0, arr.splice(fi, 1)[0]); L[pi] = arr;
-      return persistLayout(L);
-    });
-  }
-  // 把 key 从一页挪到另一页（跨页拖到边缘时）
-  function moveKeyToPage(fromPi, toPi, key) {
-    setLayout(function (prev) {
-      var L = buildLayout(prev);
-      if (fromPi === toPi || !L[toPi]) return prev;
-      L[fromPi] = (L[fromPi] || []).filter(function (k) { return k !== key; });
-      if (L[toPi].indexOf(key) < 0) L[toPi].push(key);
-      return persistLayout(L);
-    });
-  }
-  function exitEdit() { setEditMode(false); setDragKey(null); dragKeyRef.current = null; }
+  function exitEdit() { setEditMode(false); setDragKey(null); dragKeyRef.current = null; dropRef.current = null; setDropKey(null); }
   const curLayout = buildLayout(layout);
   // 页数变化后夹住越界的历史页码
   useEffect(function () { if (page > curLayout.length - 1) goPage(curLayout.length - 1); }, []);
@@ -1056,6 +1089,7 @@ function Home({
     const iconEl = startEl && startEl.closest && startEl.closest("[data-appkey]");
     if (iconEl) {
       const key = iconEl.getAttribute("data-appkey");
+      if (SP_RE.test(key)) return; // 空格不能被拿起
       const pickUp = function () {
         setEditMode(true); setDragKey(key); dragKeyRef.current = key;
         dragRef.current = null; // 取消翻页手势
@@ -1068,30 +1102,32 @@ function Home({
   };
   const onTM = e => {
     const tch = e.touches[0];
-    // 正在拖：浮影跟手；边缘翻页；中心悬停≥600ms 合并成文件夹；否则页内实时重排
+    // 正在拖：浮影跟手；边缘翻页（东西还拿在手里，落点在松手时才定）；
+    // app 中心悬停≥600ms 合并成文件夹；其余情况只标记落点（空格/交换对象），松手才生效
     if (dragKeyRef.current) {
       if (e.cancelable) e.preventDefault();
       moveGhost(tch.clientX, tch.clientY);
       const cw = (dragRef.current && dragRef.current.w) || e.currentTarget.offsetWidth || 375;
       const x = tch.clientX, nowT = Date.now();
       if (x < 34 && page > 0 && nowT - flipRef.current > 650) {
-        clearHover(); flipRef.current = nowT; moveKeyToPage(page, page - 1, dragKeyRef.current); goPage(page - 1); return;
+        clearHover(); dropRef.current = null; setDropKey(null); flipRef.current = nowT; goPage(page - 1); return;
       }
       if (x > cw - 34 && page < curLayout.length - 1 && nowT - flipRef.current > 650) {
-        clearHover(); flipRef.current = nowT; moveKeyToPage(page, page + 1, dragKeyRef.current); goPage(page + 1); return;
+        clearHover(); dropRef.current = null; setDropKey(null); flipRef.current = nowT; goPage(page + 1); return;
       }
       const el = document.elementFromPoint(x, tch.clientY);
       const overEl = el && el.closest && el.closest("[data-appkey]");
       const overKey = overEl ? overEl.getAttribute("data-appkey") : null;
       const dragged = dragKeyRef.current;
       if (overKey && overKey !== dragged) {
-        // 拖 app 悬停在另一个 app/文件夹的中间区域 → 蓄力合并；边缘区域/组件 → 直接重排
+        // 拖 app 悬停在另一个 app/文件夹的中间区域 → 蓄力合并
         const rect = overEl.getBoundingClientRect();
         const rx = (x - rect.left) / Math.max(1, rect.width);
         const canMerge = kindOf(dragged) === "app" && (kindOf(overKey) === "app" || kindOf(overKey) === "folder");
         if (canMerge && rx > 0.25 && rx < 0.75) {
           if (hoverRef.current.key !== overKey) {
             clearHover();
+            dropRef.current = null; setDropKey(null);
             hoverRef.current.key = overKey; setHoverKey(overKey);
             hoverRef.current.timer = setTimeout(function () {
               const tgt = hoverRef.current.key;
@@ -1103,11 +1139,11 @@ function Home({
               setDragKey(null); dragKeyRef.current = null; // 合并即放手
             }, 600);
           }
-          return; // 蓄力期间不重排
+          return; // 蓄力期间不标落点
         }
         clearHover();
-        reorderInPage(page, dragged, overKey);
-      } else if (!overKey) clearHover();
+        if (dropRef.current !== overKey) { dropRef.current = overKey; setDropKey(overKey); }
+      } else if (!overKey) { clearHover(); if (dropRef.current) { dropRef.current = null; setDropKey(null); } }
       return;
     }
     const r = dragRef.current;
@@ -1127,7 +1163,14 @@ function Home({
   const onTE = () => {
     clearLP();
     clearHover();
-    if (dragKeyRef.current) { setDragKey(null); dragKeyRef.current = null; setDrag(0); return; } // 放下
+    if (dragKeyRef.current) {
+      // 放下：有落点就落到那里（空格=挪过去原位留洞；别的项=互换位置）
+      const dragged = dragKeyRef.current, dst = dropRef.current;
+      dropRef.current = null; setDropKey(null);
+      setDragKey(null); dragKeyRef.current = null; setDrag(0);
+      if (dst && dst !== dragged) placeDrop(dragged, dst);
+      return;
+    }
     const r = dragRef.current;
     if (!r) { setDrag(0); return; }
     const w = r.w || 360, d = r.d || 0;
@@ -1138,8 +1181,22 @@ function Home({
     goPage(np);
     setDrag(0);
   };
-  // 渲染单个可摆放项（app / 用户文件夹 / 组件），带 data-appkey + 抖动/拖起/合并目标样式；编辑态下禁点
+  // 渲染单个可摆放项（app / 用户文件夹 / 组件 / 空格），带 data-appkey + 抖动/拖起/合并目标样式；编辑态下禁点
   function renderItem(key) {
+    // 空格：平时隐形占位（就是「洞」），编辑态显示虚线框，拖拽落点高亮
+    if (SP_RE.test(key)) {
+      const isDrop = dropKey === key;
+      return h("div", {
+        key: key, "data-appkey": key,
+        style: {
+          gridColumn: "span 1", minHeight: 78, borderRadius: 17,
+          border: editMode ? "1.5px dashed " + (isDrop ? t.accent : "rgba(30,28,24,0.16)") : "none",
+          background: isDrop ? "rgba(194,90,74,0.10)" : "transparent",
+          transform: isDrop ? "scale(1.06)" : "none",
+          transition: "all .15s ease"
+        }
+      });
+    }
     const isFolder = key && key.slice(0, 2) === "f_";
     const it = isFolder ? { kind: "folder" } : REG[key];
     if (!it) return null;
@@ -1169,6 +1226,9 @@ function Home({
         opacity: isDrag ? 0.28 : 1,
         pointerEvents: isDrag ? "none" : "auto",
         zIndex: isDrag ? 5 : "auto",
+        outline: dropKey === key && dragKey && dragKey !== key ? "2px dashed " + t.accent : "none",
+        outlineOffset: 3,
+        borderRadius: 17,
         transition: "transform .15s ease"
       }
     }, h("div", { style: { pointerEvents: editMode ? "none" : "auto", height: "100%" } }, inner));
@@ -1254,7 +1314,7 @@ function Home({
     }
   }, "完成"), editMode && h("div", {
     style: { position: "absolute", left: 0, right: 0, bottom: "calc(env(safe-area-inset-bottom) + 150px)", textAlign: "center", zIndex: 40, fontFamily: F_BODY, fontSize: 11.5, color: t.fog, pointerEvents: "none" }
-  }, "拖动排序 · 叠到另一个图标上停一下＝合成文件夹 · 拖到屏幕边缘换页"), dragKey && h("div", {
+  }, "拖到虚线空格＝放到那里 · 拖到别的图标＝互换位置 · 叠在图标上停一下＝合成文件夹 · 拖到屏幕边缘换页"), dragKey && h("div", {
     ref: ghostRef,
     style: { position: "fixed", left: -120, top: -120, zIndex: 60, width: 68, height: 68, borderRadius: 19, pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.78)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", border: "1px solid rgba(255,255,255,0.85)", boxShadow: "0 14px 34px rgba(30,28,24,0.32)", transform: "scale(1.1)" }
   }, (function () {
