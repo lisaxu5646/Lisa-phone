@@ -234,7 +234,7 @@
       "【输出】只输出一个合法 JSON 对象，无 markdown：\n" +
       "{" + (typeof cotJsonField === "function" ? cotJsonField(cotT) : "") + "\"content\":\"这一章正文（成篇散文，承接上一章锚点往下推进、有实质剧情进展，约 " + minWords + " 字以上，分段用\\n\\n）\",\"endHook\":\"本章新的结尾锚点，供再下一章接续\"}" +
       FANFIC_ANTI_CLICHE_TAIL;
-    const raw = await callAI(active, sys, [{ role: "user", content: "续写《" + fic.title + "》的下一章。" }], { maxTokens: Math.min(12000, perFic + 1500) });
+    const raw = await callAI(active, sys, [{ role: "user", content: "续写《" + fic.title + "》的下一章。\n\n〔幕后提醒：本章的开头方式、句式节奏、意象和高频小动作【不许和前几章雷同】——连载越往后越容易一套模板，这章刻意换写法；反陈词滥调清单全程生效" + (cotT ? "；cot 必填" : "") + "。〕" }], { maxTokens: Math.min(12000, perFic + 1500) });
     const sp = (typeof splitCot === "function") ? splitCot(raw, !!cotT) : { cot: null, clean: raw };
     let d = extractJSON(sp.clean);
     if (!d && typeof repairJSON === "function") { try { d = JSON.parse(repairJSON(sp.clean)); } catch (e) {} }

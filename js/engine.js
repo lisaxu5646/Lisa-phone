@@ -793,6 +793,11 @@ async function generateOffline(p, ctx, session) {
     (ctx.curWear ? "\n【着装连贯】你现在穿着：" + ctx.curWear + "。除非场景变了、过了很久、或你明确换/脱了衣服，否则 wearing 保持这套；一旦场景真的换了（如从外面进了家、下了雨淋湿、换了衣服）就据实更新。" : "") +
     "\n【输出】只输出一个 JSON，不要代码块：\n{" + cotJsonField(cotT) + "\"scene\":\"这一刻的叙事正文（含动作/心理/旁白/对话）\",\"thought\":\"角色此刻没说出口的真实心声（一句；情绪复杂时可稍长）\",\"mood\":{\"label\":\"此刻心情词\"},\"wearing\":\"你此刻的穿着一句（随场景/剧情如实变化，别每段乱换）\",\"action\":\"你此刻正在做的动作一句（贴合这一段场景、【每段都据实更新】、别照抄上一段）\",\"affinityDelta\":整数(-5到5，这次面对面相处让你对对方的好感如何变化：亲近/被打动/被冒犯/失望，通常小幅，没什么波动就0)}";
   const hist = offlineHistory(session.msgs, userName, char.name);
+  // ⭐尾部重申（治「越写越八股」）：长对话里开头的规矩会被稀释，模型还会模仿自己前文的油腻输出——
+  // 把关键约束追加到上下文最尾（模型对结尾最敏感），每轮都在
+  const tailNudge = "\n\n〔幕后提醒，绝不出现在正文里：①反陈词滥调清单全程生效——尤其禁通用小动作（挑眉/勾唇/垂眸/轻笑/喉结滚动）和空转大词；②这一段的【句式、开头方式、意象、节奏】不许和你上一段雷同——上一段用过的比喻和小动作这段一律换新的，长短句结构也换着来；③宁可短而准，别长而油；" + (cotT ? "④cot 字段必填，先想后写。" : "") + "〕";
+  if (hist.length && hist[hist.length - 1].role === "user") hist[hist.length - 1] = { role: "user", content: hist[hist.length - 1].content + tailNudge };
+  else hist.push({ role: "user", content: "（继续）" + tailNudge });
   const raw = await callAI(p, system, hist, { maxTokens: session.maxTokens || 1400 });
   const sp = splitCot(raw, !!cotT);
   const parsed = extractJSON(sp.clean) || { scene: sp.clean };
@@ -880,6 +885,10 @@ async function generateOfflineGroup(p, ctx, session) {
     cotSystemBlock(cotT) +
     "\n【输出】只输出一个 JSON，不要代码块：\n{" + cotJsonField(cotT) + "\"beats\":[{\"name\":\"这一段里行动或说话的角色名；纯环境旁白填『旁白』\",\"scene\":\"这一段叙事正文（第三人称，含动作/神态/对话）\",\"thought\":\"（仅角色 beat，可选）该角色此刻没说出口的真实心声\",\"mood\":{\"label\":\"此刻心情词\"},\"affinityDelta\":\"（仅角色 beat）整数-5到5，这段相处让该角色对用户的好感如何变化，通常小幅、没波动就0\"}]}\n一次产出 2~5 个 beat，让在场角色轮流有戏、互相有来有往；name 必须是在场角色之一或『旁白』。";
   const hist = offlineGroupHistory(session.msgs, userName);
+  // 尾部重申（同单人线下）：治长对话后段八股回潮 + cot 丢失
+  const gTail = "\n\n〔幕后提醒，绝不出现在正文里：①反陈词滥调清单全程生效——禁通用小动作（挑眉/勾唇/垂眸/轻笑/喉结滚动）和空转大词；②各角色声纹别互相同化，这一轮的句式/意象/开头不许和上一轮雷同；③宁可短而准，别长而油；" + (cotT ? "④cot 字段必填，先想后写。" : "") + "〕";
+  if (hist.length && hist[hist.length - 1].role === "user") hist[hist.length - 1] = { role: "user", content: hist[hist.length - 1].content + gTail };
+  else hist.push({ role: "user", content: "（继续）" + gTail });
   const raw = await callAI(p, system, hist, { maxTokens: session.maxTokens || 1900 });
   const sp = splitCot(raw, !!cotT);
   const parsed = extractJSON(sp.clean);
