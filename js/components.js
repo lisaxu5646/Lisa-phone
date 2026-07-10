@@ -1252,7 +1252,7 @@ function Home({
       const fApps = (folders[key].keys || []).map(function (k) { return Object.assign({ key: k }, REG[k] || {}); }).filter(function (a) { return a.zh; });
       inner = h(FolderIcon, { apps: fApps, label: folders[key].name || "文件夹", onOpen: function () { if (!editMode) setOpenFolder(key); } });
     }
-    else if (it.which === "card") inner = h(HomeCard, { card: homeCard, profile: profile, onEditCard: onEditCard, onEditProfile: onEditProfile });
+    else if (it.which === "card") inner = h(HomeCard, { card: homeCard, profile: profile, onEditCard: onEditCard, onEditProfile: onEditProfile, onOpenCodex: function () { if (!editMode) onOpenApp("codex"); } });
     else if (it.which === "cal") inner = h(CalWidget, { now: now, calendar: calendar, period: period, onOpen: function () { return onOpenApp("calendar"); } });
     else if (it.which === "music") inner = h(MusicWidget, { listen: listen, player: player, onOpen: function () { return onOpenApp("listen"); } });
     else if (it.which === "us") inner = h(UsWidget, { characters: characters, couples: couples, sweet: coupleSweet, onOpen: function () { return onOpenApp("us"); } });
@@ -1375,7 +1375,7 @@ function Home({
   }));
 }
 // 主页名片（与聊天「我」人设解耦）：昵称 + 签名 + #标签；铅笔改名片，点头像改聊天人设/头像
-function HomeCard({ card, profile, onEditCard, onEditProfile }) {
+function HomeCard({ card, profile, onEditCard, onEditProfile, onOpenCodex }) {
   const t = useTheme();
   const c = card || {};
   const name = c.name || profile.name || "点此设置昵称";
@@ -1388,7 +1388,9 @@ function HomeCard({ card, profile, onEditCard, onEditProfile }) {
         h("div", { style: { fontFamily: F_DISPLAY, fontSize: 22, color: t.ink, lineHeight: 1.2 } }, name),
         h("div", { style: { fontFamily: F_DISPLAY, fontSize: 13.5, fontStyle: "italic", color: t.fog, marginTop: 3 } }, sign ? "“" + sign + "”" : "点铅笔写一句签名"),
         tags.length ? h("div", { className: "flex flex-wrap gap-2", style: { marginTop: 9 } }, tags.map((tg, i) => h("span", { key: i, style: { fontFamily: F_BODY, fontSize: 11.5, color: t.sub, background: "rgba(255,255,255,0.5)", border: "1px solid " + t.line, borderRadius: 999, padding: "3px 11px" } }, "#" + tg))) : null),
-      h("button", { onClick: onEditCard, className: "active:opacity-60 flex items-center justify-center", style: { flexShrink: 0, width: 30, height: 30, borderRadius: 999, background: "rgba(255,255,255,0.5)", border: "1px solid " + t.line } }, h(IPencil, { size: 14, color: t.fog }))));
+      h("div", { className: "flex flex-col gap-1.5", style: { flexShrink: 0 } },
+        h("button", { onClick: onEditCard, className: "active:opacity-60 flex items-center justify-center", style: { width: 30, height: 30, borderRadius: 999, background: "rgba(255,255,255,0.5)", border: "1px solid " + t.line } }, h(IPencil, { size: 14, color: t.fog })),
+        onOpenCodex ? h("button", { onClick: onOpenCodex, className: "active:opacity-60 flex items-center justify-center", title: "使用手册", style: { width: 30, height: 30, borderRadius: 999, background: "rgba(255,255,255,0.5)", border: "1px solid " + t.line, fontFamily: F_DISPLAY, fontSize: 14, color: t.fog } }, "?") : null)));
 }
 // 编辑名片：昵称 / 签名 / 标签(逗号隔开)
 function HomeCardSheet({ card, onSave, onClose }) {
