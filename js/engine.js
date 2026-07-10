@@ -700,6 +700,9 @@ function loadTtsApi() {
   return a;
 }
 function saveTtsApi(c) { const clean = Object.assign(loadTtsApi(), c || {}); try { localStorage.setItem("x_ttsApi", JSON.stringify(clean)); } catch (e) {} return clean; }
+// 克隆音色库：克过的 voice_id 登记在本机（只是清单方便管理/指派，删掉不影响 MiniMax 账号里的音色）
+function loadVoiceLib() { try { const v = JSON.parse(localStorage.getItem("x_voiceLib") || "[]"); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+function saveVoiceLib(list) { try { localStorage.setItem("x_voiceLib", JSON.stringify(list || [])); } catch (e) {} }
 function ttsReady(a) { a = a || loadTtsApi(); return !!(a.enabled && a.groupId && a.apiKey); }
 // MiniMax 系统预置音色（先用预置，克隆音色以后再接——克隆出的 voice_id 也能直接填）
 const TTS_VOICES = [

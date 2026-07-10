@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v47.62";
+const APP_VERSION = "v47.63";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -3650,14 +3650,23 @@ function App() {
         try {
           const uN = profile.name || "用户";
           const text = log.map(m => m.role === "user" ? uN + "：" + m.content : (m.senderName || "") + (m.act ? "（" + m.content + "）" : "：" + m.content)).join("\n");
-          const sys = "把这通『" + uN + "』和" + cur.participants.map(c => c.name).join("、") + "的" + (cur.mode === "video" ? "视频" : "语音") + "通话浓缩成1~2句第三人称记忆：聊了什么关键内容、情绪转折或达成的约定。具体、可复用。只输出正文，不要多余解释。";
-          const sum = (await callAI(bgActiveRef.current, sys, [{ role: "user", content: "【通话内容】\n" + text }], { maxTokens: 2000 })).trim();
+          const sys = "把这通『" + uN + "』和" + cur.participants.map(c => c.name).join("、") + "的" + (cur.mode === "video" ? "视频" : "语音") + "通话做记忆归档。只输出 JSON：\n" +
+            "{\"summary\":\"1~2句第三人称总结：聊了什么关键内容、情绪转折。具体、可复用\"," +
+            "\"open\":[\"这通电话里【新约好、还没兑现】的事（去哪/答应对方什么），每条一句；没有就 []\"]}";
+          const raw = await callAI(bgActiveRef.current, sys, [{ role: "user", content: "【通话内容】\n" + text }], { maxTokens: 2400 });
+          const d = extractJSON(raw);
+          const sum = d && d.summary ? String(d.summary).trim() : String(raw || "").trim();
+          const opens = d && Array.isArray(d.open) ? d.open.map(x => String(x).trim()).filter(Boolean).slice(0, 3) : [];
           if (!sum) return;
           const patch = list => list.map(x => x.id === callId ? { ...x, sum } : x);
           if (cur.groupId) pGChat(cur.groupId, patch);
           else if (cur.participants[0]) pChat(cur.participants[0].id, patch);
           // 记忆分区：群里打的通话，只有互通群才写进全局记忆库（同群线下的规矩）
-          if (!cur.groupId || gsFor(cur.groupId).memoryInterop) addMemEntry({ text: sum, tags: ["通话"], charIds: cur.participants.map(c => c.id), source: "auto" });
+          if (!cur.groupId || gsFor(cur.groupId).memoryInterop) {
+            addMemEntry({ text: sum, tags: ["通话"], charIds: cur.participants.map(c => c.id), source: "auto" });
+            // 电话里约的事也标未了结进开环（和线下同款）：兑现后 extractMemories 的 resolveOpen 会自动勾掉
+            opens.forEach(op => addMemEntry({ text: op, tags: ["通话", "约定"], charIds: cur.participants.map(c => c.id), source: "auto", open: true }));
+          }
         } catch (e) {/* 静默：摘要失败不影响通话记录本身 */}
       })();
     }
@@ -6547,6 +6556,10 @@ function App() {
     characters: characters,
     coupleQACustom: coupleQACustom,
     onSaveCustomQA: saveCoupleQACustom,
+    onAssignVoice: (charId, voiceId) => {
+      pC(p => p.map(c => c.id === charId ? { ...c, voiceId } : c));
+      toast("音色已指派");
+    },
     onSaveApi: (list, id) => {
       setApiProfiles(list);
       setActiveId(id);

@@ -312,6 +312,7 @@
     const [phaseMsg, setPhaseMsg] = useState("");
     const [draft, setDraft] = useState("");
     const feedRef = useRef(null);
+    const dtp = typeof useTtsPlayer === "function" ? useTtsPlayer() : null; // 发言朗读（懒合成）
     const curRound = () => (s.rounds[s.rounds.length - 1] || { turns: [], audience: [] });
 
     useEffect(() => { const el = feedRef.current; if (el) el.scrollTop = el.scrollHeight; }, [s.rounds, busy, phaseMsg]);
@@ -419,7 +420,8 @@
           tn.who === "char" ? h(Avatar, { character: props.characters.find(c => c.id === tn.id) || { name: tn.name }, size: 18, radius: 999 })
             : h(Avatar, { character: meAv, size: 18, radius: 999 }),
           h("span", { style: { fontFamily: F_BODY, fontSize: 12.5, fontWeight: 700, color: tn.color } }, tn.name),
-          tn.at ? h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.fog } }, "→ " + tn.at) : null),
+          tn.at ? h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.fog } }, "→ " + tn.at) : null,
+          (tn.who === "char" && dtp && typeof TtsDot === "function") ? h(TtsDot, { k: "dbt" + k, text: tn.text, spk: props.characters.find(c => c.id === tn.id), tp: dtp }) : null),
         h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, lineHeight: 1.6, color: t.ink, whiteSpace: "pre-wrap", maxHeight: 300, overflowY: "auto", WebkitOverflowScrolling: "touch" } }, tn.text));
 
     // 观众席块

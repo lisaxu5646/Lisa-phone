@@ -2696,7 +2696,7 @@ function CotConfig({ toast }) {
 }
 // 图像 API（角色自拍）设置：开关 + 端点/密钥/模型/尺寸/质量。存 x_imgApi（图本身进 IndexedDB 不在这）。
 // MiniMax 语音 TTS 配置：懒生成（点开语音那条才合成收费），成品缓存在本机重播免费
-function TtsApiConfig({ toast }) {
+function TtsApiConfig({ toast, characters, onAssignVoice }) {
   const t = useTheme();
   const [c, setC] = useState(loadTtsApi());
   const set = patch => setC(saveTtsApi(patch));
@@ -2708,12 +2708,24 @@ function TtsApiConfig({ toast }) {
   const [cloneId, setCloneId] = useState("");
   const [cloning, setCloning] = useState(false);
   const [cloneMsg, setCloneMsg] = useState(null);
+  // 音色库：克过的 voice_id 登记清单（试听/备注/指派给角色）
+  const [vlib, setVlib] = useState(loadVoiceLib());
+  const [assignFor, setAssignFor] = useState(null); // 展开指派角色列表的 voice_id
+  const [manualId, setManualId] = useState("");
+  const vtp = useTtsPlayer();
+  const saveVlib = next => { setVlib(next); saveVoiceLib(next); };
+  const addVoice = vid => {
+    vid = String(vid || "").trim();
+    if (!vid) return;
+    saveVlib([{ id: vid, note: "", ts: Date.now() }, ...vlib.filter(v => v.id !== vid)]);
+  };
   const runClone = async () => {
     if (!cloneFile || !cloneId.trim() || cloning) return;
     setCloning(true); setCloneMsg(null);
     try {
       const vid = await ttsCloneVoice(cloneFile, cloneId);
-      setCloneMsg({ ok: true, text: "✅ 克隆成功！voice_id = " + vid + "\n现在去【名录 → 角色档案 → 音色】，把这个 id 粘进输入框保存，TA 的语音就是这个声音了。可以回来点「试听」前先在档案里给某个角色配上、发条语音听听效果。" });
+      addVoice(vid); // 克隆成功自动进音色库
+      setCloneMsg({ ok: true, text: "✅ 克隆成功！voice_id = " + vid + "\n已存进下面的「我的音色库」——点「指派」直接给某个角色，或去角色档案手动填。" });
     } catch (e) { setCloneMsg({ ok: false, text: "❌ " + String((e && e.message) || e) }); }
     finally { setCloning(false); }
   };
@@ -2764,6 +2776,30 @@ function TtsApiConfig({ toast }) {
         h("input", { value: cloneId, onChange: e => setCloneId(e.target.value), placeholder: "起个 voice_id（字母开头≥8位，如 GuChao2026）", style: Object.assign({}, inSt, { marginBottom: 8 }) }),
         h("button", { onClick: runClone, disabled: cloning || !cloneFile || !cloneId.trim(), className: "w-full active:opacity-80 disabled:opacity-40", style: { fontFamily: F_BODY, fontSize: 13, color: "#fff", background: t.ink, borderRadius: 10, padding: "10px 0" } }, cloning ? "上传克隆中…（可能要一会儿）" : "上传并克隆"),
         cloneMsg ? h("div", { style: { marginTop: 10, padding: "10px 12px", background: cloneMsg.ok ? "rgba(63,109,90,0.08)" : "rgba(194,90,74,0.08)", border: "1px solid " + (cloneMsg.ok ? "rgba(63,109,90,0.3)" : "rgba(194,90,74,0.3)"), borderRadius: 10, fontFamily: F_BODY, fontSize: 12, lineHeight: 1.6, color: cloneMsg.ok ? "#3f6d5a" : "#c25a4a", userSelect: "text", WebkitUserSelect: "text", wordBreak: "break-all" } }, cloneMsg.text) : null),
+      // ---- 我的音色库：克过的 voice_id 清单（试听/备注/指派给角色/补录）----
+      h("div", { className: "pt-4 mt-4", style: { borderTop: "1px dashed " + t.line } },
+        h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.ink, marginBottom: 4 } }, "🗂 我的音色库" + (vlib.length ? " · " + vlib.length : "")),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, lineHeight: 1.6, marginBottom: 10 } }, "克隆成功的音色自动记在这，可试听、写备注、一键指派给角色。以前克过没登记的，补录 voice_id 即可。「移除」只是清单删掉，不影响 MiniMax 账号里的音色。"),
+        h("div", { className: "flex gap-2", style: { marginBottom: 10 } },
+          h("input", { value: manualId, onChange: e => setManualId(e.target.value), placeholder: "补录已有的 voice_id", style: Object.assign({}, inSt, { flex: 1, width: "auto" }) }),
+          h("button", { onClick: () => { addVoice(manualId); setManualId(""); }, disabled: !manualId.trim(), className: "active:opacity-70 disabled:opacity-40", style: { fontFamily: F_BODY, fontSize: 12.5, color: "#fff", background: t.ink, border: "none", borderRadius: 10, padding: "0 16px", flexShrink: 0 } }, "补录")),
+        vlib.length === 0 ? null : h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } }, vlib.map(v => {
+          const users = (characters || []).filter(ch => ch.voiceId === v.id);
+          const meP = vtp.play && vtp.play.k === v.id;
+          return h("div", { key: v.id, style: { border: "1px solid " + t.line, borderRadius: 12, padding: "10px 12px", background: t.bg2 } },
+            h("div", { className: "flex items-center gap-2" },
+              h("div", { className: "flex-1 min-w-0" },
+                h("div", { style: { fontFamily: "'Archivo',ui-monospace,monospace", fontSize: 12.5, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, v.id),
+                users.length ? h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.tint, marginTop: 2 } }, "→ " + users.map(u => u.remark || u.name).join("、") + " 在用") : null),
+              h("button", { onClick: () => vtp.toggle(v.id, "你好呀，我是这个音色，听听合不合适？", v.id), className: "active:opacity-60 shrink-0", style: { fontFamily: F_BODY, fontSize: 11.5, color: t.ink, border: "1px solid " + t.line, borderRadius: 999, padding: "5px 12px", background: "transparent" } }, meP ? (vtp.play.st === "gen" ? "…" : "⏸") : "试听"),
+              h("button", { onClick: () => setAssignFor(assignFor === v.id ? null : v.id), className: "active:opacity-60 shrink-0", style: { fontFamily: F_BODY, fontSize: 11.5, color: "#fff", background: t.tint, border: "none", borderRadius: 999, padding: "6px 12px" } }, "指派"),
+              h("button", { onClick: () => { if (window.confirm("从清单移除这个音色？（不影响 MiniMax 账号）")) saveVlib(vlib.filter(x => x.id !== v.id)); }, className: "active:opacity-60 shrink-0", style: { fontFamily: F_BODY, fontSize: 13, color: t.fog, border: "none", background: "transparent", padding: "2px 4px" } }, "✕")),
+            h("input", { value: v.note || "", onChange: e => saveVlib(vlib.map(x => x.id === v.id ? { ...x, note: e.target.value } : x)), placeholder: "备注（谁的声音 / 什么感觉）", style: { width: "100%", outline: "none", marginTop: 8, padding: "7px 10px", borderRadius: 8, fontFamily: F_BODY, fontSize: 12, background: t.bg, color: t.sub, border: "1px solid " + t.line } }),
+            assignFor === v.id ? h("div", { className: "flex flex-wrap gap-2", style: { marginTop: 8 } },
+              (characters || []).length === 0 ? h("span", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog } }, "还没有角色，先去名录建一个。") :
+              (characters || []).map(ch => h("button", { key: ch.id, onClick: () => { onAssignVoice && onAssignVoice(ch.id, v.id); setAssignFor(null); }, className: "active:opacity-70",
+                style: { fontFamily: F_BODY, fontSize: 12, padding: "6px 13px", borderRadius: 999, background: ch.voiceId === v.id ? t.tint : "transparent", color: ch.voiceId === v.id ? "#fff" : t.ink, border: "1px solid " + (ch.voiceId === v.id ? t.tint : t.line) } }, ch.remark || ch.name))) : null);
+        }))),
       testErr ? h("div", { style: { marginTop: 12, padding: "12px 13px", background: "rgba(194,90,74,0.08)", border: "1px solid rgba(194,90,74,0.3)", borderRadius: 10 } },
         h("div", { style: { fontFamily: F_BODY, fontSize: 12, fontWeight: 700, color: "#c25a4a", marginBottom: 6 } }, "❌ 没出声。报错原文（可截图发我）："),
         h("div", { style: { fontFamily: "monospace", fontSize: 11, lineHeight: 1.6, color: t.ink, wordBreak: "break-all", userSelect: "text", WebkitUserSelect: "text", maxHeight: 160, overflowY: "auto" } }, testErr)) : null) : null);
@@ -2838,6 +2874,7 @@ function Config({
   onSetBgApi,
   onSaveApi,
   characters,
+  onAssignVoice,
   coupleQACustom,
   onSaveCustomQA,
   theme,
@@ -2898,7 +2935,9 @@ function Config({
   }), /*#__PURE__*/React.createElement(ImageApiConfig, {
     toast: toast
   }), /*#__PURE__*/React.createElement(TtsApiConfig, {
-    toast: toast
+    toast: toast,
+    characters: characters,
+    onAssignVoice: onAssignVoice
   })), tab === "sense" && /*#__PURE__*/React.createElement(SenseConfig, {
     prefs: prefs,
     onSave: onSavePrefs,

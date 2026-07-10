@@ -48,6 +48,7 @@
     d.settings.cats = d.settings.cats || {};
     d.settings.cats.expense = Array.isArray(d.settings.cats.expense) && d.settings.cats.expense.length ? d.settings.cats.expense : def.settings.cats.expense;
     d.settings.cats.income = Array.isArray(d.settings.cats.income) && d.settings.cats.income.length ? d.settings.cats.income : def.settings.cats.income;
+    d.monthly = d.monthly || {}; // 月度盘点：{ "YYYY-MM": { genAt, comments:[{charId,charName,text,ts}] } }
     return d;
   }
   function saveData(d) { saveJSON("x_ledger", d); }
@@ -260,6 +261,54 @@
       } catch (e) {/* 静默：主动反应失败不打扰记账本身 */}
     };
 
+    // 月度盘点：新月份第一次打开记账，给上月账本生成一次角色盘点（一次 API 出所有可见角色的话；失败不落库、下次打开再试）
+    const genMonthly = async (mk, vis) => {
+      try {
+        const d0 = loadData();
+        const curs0 = d0.settings.currencies || DEFAULT_CURS;
+        const prevMk = shiftMonth(mk, -1);
+        const statLines = [];
+        curs0.forEach(cur => {
+          const s = summarize(d0.txns, cur.code, mk);
+          if (!s.exp && !s.inc) return;
+          const p = summarize(d0.txns, cur.code, prevMk);
+          let l = "· " + cur.label + "（" + cur.code + "）：支出 " + fmtAmt(s.exp, cur) + "、收入 " + fmtAmt(s.inc, cur) + "、结余 " + fmtAmt(s.net, cur) + "（" + s.count + " 笔）";
+          if (s.catList.length) l += "，花最多的是 " + s.catList.slice(0, 3).map(c => c.name + " " + fmtAmt(c.amount, cur)).join("、");
+          if (p.exp > 0) l += "；比上个月支出" + (s.exp >= p.exp ? "多" : "少") + Math.abs(Math.round((s.exp - p.exp) / p.exp * 100)) + "%";
+          statLines.push(l);
+        });
+        if (!statLines.length) return;
+        const aff = props.affinities || {};
+        const list = vis.map(id => { const c = props.characters.find(x => x.id === id); const mo = props.moods && props.moods[id]; return { id, name: c.name, persona: c.persona || "", mood: mo && mo.label ? String(mo.label) : "", aff: aff[id] }; });
+        const block = list.map((it, i) => (i + 1) + "、「" + it.name + "」\n  人设：" + (it.persona || "（暂无设定）").replace(/\s+/g, " ").slice(0, 300) + (it.mood ? "\n  此刻心情：" + it.mood : "") + (it.aff != null ? "\n  对 " + uName + " 的好感度：" + Math.round(it.aff) + "/100（据此把握语气亲疏）" : "")).join("\n\n");
+        const sys = AC() + NAC() +
+          uName + " 上个月（" + fmtMonth(mk) + "）的账本盘点如下。请【分别以每位角色本人的口吻】对这份月账单说一段话（1~3 句）。\n" +
+          "【硬性要求】\n" +
+          "· 这是【月度盘点】不是单笔吐槽：看整月的花钱习惯和趋势——心疼、表扬、揶揄手松、替 Ta 操心结余、注意到某类花得突然多，都按各自人设来，几个人腔调各不相同。\n" +
+          "· 人称从人设判断性别，男「他」女「她」，判断不出就叫名字；绝不许写『Ta』。严禁『看了一眼没说什么』这类空话。\n\n" +
+          "【上月账单】\n" + statLines.join("\n") + "\n\n【要盘点的角色】\n" + block +
+          "\n\n【输出】只输出 JSON，comments 与角色顺序一一对应、数量一致：{\"comments\":[{\"name\":\"角色名\",\"text\":\"这位角色的月度盘点\"}]}。别加解释、别加代码块。";
+        const raw = await callAI(props.active, sys, [{ role: "user", content: "开始盘点。" }], { maxTokens: 6000 });
+        const pd = extractJSON(raw) || {};
+        const arr = Array.isArray(pd.comments) ? pd.comments : [];
+        const cmts = list.map((it, i) => { const byName = arr.find(r => r && String(r.name || "").trim() === it.name); const r = byName || arr[i]; const txt = r && (r.text || r.comment) ? String(r.text || r.comment).trim() : ""; return { charId: it.id, charName: it.name, text: txt, ts: Date.now() }; }).filter(x => x.text);
+        if (!cmts.length) return;
+        const d1 = loadData();
+        d1.monthly = d1.monthly || {};
+        d1.monthly[mk] = { genAt: Date.now(), comments: cmts };
+        persist(d1);
+      } catch (e) {/* 静默：下次打开再试 */}
+    };
+    useEffect(() => {
+      const lastMk = shiftMonth(thisMonthKey(), -1);
+      const d = loadData();
+      if ((d.monthly || {})[lastMk]) return;                                   // 这个月已经盘过
+      if (!d.txns.some(x => monthKey(x.date) === lastMk)) return;              // 上月没账
+      const vis = (d.settings.visibleTo || []).filter(id => (props.characters || []).some(c => c.id === id));
+      if (!vis.length || !props.active) return;
+      genMonthly(lastMk, vis);
+    }, []);
+
     // ---- 视图主体 ----
     let body;
     if (view.indexOf("cur:") === 0) {
@@ -281,7 +330,7 @@
       // 钱包式落地页
       body = h("div", { className: "h-full flex flex-col" },
         h(Head, { zh: "记账", en: "Ledger", onBack: props.onBack, right: h("button", { onClick: () => setShowSet(true), className: "active:opacity-50" }, h(GConfig, { size: 19, color: t.ink })) }),
-        h(WalletHome, { data, curs, onOpenCur: code => setView("cur:" + code), visibleCount: (data.settings.visibleTo || []).length, onManageVisible: () => setShowSet(true) }),
+        h(WalletHome, { data, curs, characters: props.characters, onOpenCur: code => setView("cur:" + code), visibleCount: (data.settings.visibleTo || []).length, onManageVisible: () => setShowSet(true) }),
         h("div", { style: { position: "absolute", left: 0, right: 0, bottom: 0, padding: "12px 20px calc(env(safe-area-inset-bottom, 0px) + 16px)", background: "linear-gradient(to top, " + t.bg + " 60%, transparent)" } },
           h("button", { onClick: () => setAddState({}), className: "w-full active:opacity-85",
             style: { background: ACCENT, color: "#fff", border: "none", borderRadius: 999, padding: "15px 0", fontFamily: F_BODY, fontSize: 15, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 } },
@@ -315,6 +364,7 @@
     const t = useTheme();
     const { data, curs } = props;
     const [open, setOpen] = useState(null); // 当前抽出的币种 code（一次一张）
+    const [mOpen, setMOpen] = useState(false); // 上月账单卡展开
     const mk = thisMonthKey(), lmk = shiftMonth(mk, -1);
 
     // 本月有账的排前面
@@ -328,9 +378,37 @@
       return "较上月" + (d > 0 ? "多" : "少") + "花 " + fmtAmt(Math.abs(d), cur) + " · " + (d > 0 ? "↑" : "↓") + pct + "%";
     };
 
+    // 上月账单卡：上月有账才显示；统计全本地算，角色盘点批注由 Ledger 组件按月生成一次存 data.monthly
+    const mrec = (data.monthly || {})[lmk];
+    const mstats = curs.map(cur => ({ cur, s: summarize(data.txns, cur.code, lmk), p: summarize(data.txns, cur.code, shiftMonth(lmk, -1)) })).filter(x => x.s.exp || x.s.inc);
+    const charOf = id => (props.characters || []).find(c => c.id === id);
     return h("div", { className: "flex-1 overflow-y-auto px-5 pb-28" },
       h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 16, lineHeight: 1.5 } },
         fmtMonth(mk) + " · 各币种各记各的、不换算 · 点卡片看明细"),
+      mstats.length ? h("div", { style: { border: "1px solid " + t.line, borderRadius: 16, background: t.bg2, marginBottom: 14, overflow: "hidden" } },
+        h("button", { onClick: () => setMOpen(o => !o), className: "w-full active:opacity-70 flex items-center gap-2", style: { padding: "12px 15px", textAlign: "left", background: "transparent", border: "none" } },
+          h("span", { style: { fontSize: 15 } }, "📒"),
+          h("div", { className: "flex-1 min-w-0" },
+            h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.ink } }, "上月账单 · " + fmtMonth(lmk)),
+            h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
+              mstats.map(x => x.cur.code + " 支出 " + fmtAmt(x.s.exp, x.cur)).join(" · ") + (mrec && (mrec.comments || []).length ? " · 💬" + mrec.comments.length : ""))),
+          h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, flexShrink: 0 } }, mOpen ? "收起 ▲" : "展开 ▼")),
+        mOpen ? h("div", { style: { borderTop: "1px dashed " + t.line, padding: "12px 15px" } },
+          mstats.map(({ cur, s, p }) => h("div", { key: cur.code, style: { marginBottom: 10 } },
+            h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink, fontWeight: 600 } }, cur.label + "（" + cur.code + "）"),
+            h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.sub, marginTop: 2, lineHeight: 1.6 } },
+              "支出 " + fmtAmt(s.exp, cur) + " · 收入 " + fmtAmt(s.inc, cur) + " · 结余 " + fmtAmt(s.net, cur) + "（" + s.count + " 笔）" +
+              (s.catList.length ? "，花最多：" + s.catList.slice(0, 3).map(c => (c.emoji || "") + c.name + " " + fmtAmt(c.amount, cur)).join("、") : "") +
+              (p.exp > 0 ? "；比再上月支出" + (s.exp >= p.exp ? "多 " : "少 ") + Math.abs(Math.round((s.exp - p.exp) / p.exp * 100)) + "%" : "")))),
+          (mrec && (mrec.comments || []).length) ? h("div", { style: { borderTop: "1px dashed " + t.line, paddingTop: 10, marginTop: 2, display: "flex", flexDirection: "column", gap: 10 } },
+            mrec.comments.map((cm, i) => {
+              const ch = charOf(cm.charId);
+              return h("div", { key: i, style: { display: "flex", gap: 9 } },
+                ch ? h(Avatar, { character: ch, size: 30, radius: 9 }) : h("div", { style: { width: 30, height: 30, borderRadius: 9, background: "#c2bdb1", flexShrink: 0 } }),
+                h("div", { style: { flex: 1, minWidth: 0 } },
+                  h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.sub, marginBottom: 2 } }, cm.charName + " 的月度盘点"),
+                  h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink, lineHeight: 1.55 } }, cm.text)));
+            })) : h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, paddingTop: 4 } }, (props.visibleCount || 0) > 0 ? "角色盘点生成中…（没配后台 API 或失败会下次打开再试）" : "设了「谁能看到我的账」后，TA 们会对整月账本盘点几句。")) : null) : null,
       h("div", { style: { display: "flex", flexDirection: "column", gap: 13 } },
         cards.map(({ cur, s, last, color }) => {
           const isOpen = open === cur.code;

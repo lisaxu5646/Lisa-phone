@@ -4983,6 +4983,7 @@ function SelfieBubble({ m }) {
 function OffCard({ m, t, char, meProfile, members, onEdit, onReroll, onDelete, editable, sending }) {
   const [editing, setEditing] = useState(false);
   const [txt, setTxt] = useState(m.content || "");
+  const tp = useTtsPlayer(); // 整段 beat 朗读（懒合成，最多 800 字）
   useEffect(() => { setTxt(m.content || ""); }, [m.content]);
   if (m.kind === "ooc") {
     const isU = m.role === "user";
@@ -5014,6 +5015,7 @@ function OffCard({ m, t, char, meProfile, members, onEdit, onReroll, onDelete, e
       h("div", { className: "flex items-center gap-2.5 mb-2.5" },
         isUser ? h(Avatar, { character: meChar, size: 28, radius: 14 }) : (spk ? h(Avatar, { character: spk, size: 28, radius: 14 }) : null),
         h("span", { className: "flex-1", style: { fontFamily: F_DISPLAY, fontSize: 13.5, color: isUser ? t.accent : t.sub } }, isUser ? meChar.name : (m.senderName || (spk && spk.name) || "")),
+        (!isUser && spk) ? h(TtsDot, { k: "off" + (m.id || ""), text: m.content, spk, tp }) : null,
         timeEl,
         actions),
       editing ? editBox : h("div", { style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.9, color: t.ink, whiteSpace: "pre-wrap" } }, m.content),

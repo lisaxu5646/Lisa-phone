@@ -345,6 +345,7 @@
     const [busy, setBusy] = useState(false);
     const [phaseMsg, setPhaseMsg] = useState("");
     const feedRef = useRef(null);
+    const dtp = typeof useTtsPlayer === "function" ? useTtsPlayer() : null; // 幕文朗读（懒合成）
     const kicked = useRef(false); // 防重复触发首幕生成
 
     const scenes = s.scenes || [];
@@ -467,7 +468,9 @@
         scenes.map((sc, i) => {
           const decided = sc.chosen != null && sc.options && sc.options[sc.chosen];
           return h("div", { key: i, style: { marginBottom: 22 } },
-            h("div", { style: { fontFamily: F_BODY, fontSize: 10, fontWeight: 700, letterSpacing: 1, color: t.fog, marginBottom: 8 } }, "第 " + (i + 1) + " 幕"),
+            h("div", { style: { display: "flex", alignItems: "center", marginBottom: 8 } },
+              h("span", { style: { fontFamily: F_BODY, fontSize: 10, fontWeight: 700, letterSpacing: 1, color: t.fog } }, "第 " + (i + 1) + " 幕"),
+              (dtp && typeof TtsDot === "function") ? h(TtsDot, { k: "dr" + i, text: sc.text, spk: props.characters.find(c => c.id === s.charId), tp: dtp }) : null),
             h("div", { style: { fontFamily: F_BODY, fontSize: 14.5, lineHeight: 1.85, color: t.ink, whiteSpace: "pre-wrap" } }, sc.text),
             (sc.cot && typeof CotReveal === "function") ? h(CotReveal, { cot: sc.cot }) : null,
             // 已做出的选择回显 + 回档
