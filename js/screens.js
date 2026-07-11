@@ -2981,7 +2981,7 @@ function TtsApiConfig({ toast, characters, onAssignVoice }) {
                     h("span", { style: { fontFamily: F_BODY, fontSize: 12, color: t.ink } }, "语速 · 压亢奋"),
                     h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.fog, marginLeft: 6 } }, "音色太亢奋就往左拖，越左越稳")),
                   h("span", { style: { fontFamily: F_DISPLAY, fontSize: 12.5, color: sp < 0.99 ? t.tint : t.fog } }, lbl + " " + sp.toFixed(2))),
-                h(Slider, { value: sp, min: 0.6, max: 1.0, step: 0.02, onChange: setSp }),
+                h(Slider, { value: sp, min: 0.6, max: 1.0, step: 0.01, onChange: setSp }),
                 h("div", { className: "flex items-center gap-2", style: { marginTop: 6 } },
                   h("button", { onClick: () => vtp.toggle(v.id + "_prev", "嗯，就这样吧。今天先到这里，你早点休息。", v.id), className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 11, color: t.tint, border: "1px solid " + t.line, borderRadius: 999, padding: "4px 12px" } }, vtp.play && vtp.play.k === (v.id + "_prev") ? (vtp.play.st === "gen" ? "合成中…" : "⏸ 停") : "▶ 试平静句"),
                   h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.fog } }, "拖动后重听这句对比")));
