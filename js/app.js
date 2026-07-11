@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v47.80";
+const APP_VERSION = "v47.81";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -1026,7 +1026,7 @@ function App() {
       const msgs = (groupChatsRef.current[g.id] || []).filter(m => m && m.kind !== "ooc" && m.role !== "system" && String(m.content || "").trim());
       if (!msgs.length) return "";
       const others = (g.memberIds || []).filter(id => id !== char.id).map(id => { const c = characters.find(x => x.id === id); return c ? c.name : null; }).filter(Boolean);
-      const lines = msgs.slice(-14).map(m => "[" + fmtStamp(m.ts) + "] " + (m.role === "narration" ? "【旁白】" : (m.role === "user" ? (profile.name || "用户") : (m.senderName || "某人")) + "：") + String(m.content).replace(/\s+/g, " ").slice(0, 60)).join("\n");
+      const lines = msgs.slice(-14).map(m => "[" + fmtStampAI(m.ts) + "] " + (m.role === "narration" ? "【旁白】" : (m.role === "user" ? (profile.name || "用户") : (m.senderName || "某人")) + "：") + String(m.content).replace(/\s+/g, " ").slice(0, 60)).join("\n");
       return "『群「" + g.name + "」" + (others.length ? "（群里还有 " + others.join("、") + "）" : "") + " 最近聊的（带时间，和你俩私聊按真实先后顺序理解）』\n" + lines;
     }).filter(Boolean).slice(0, 2).join("\n\n"),
     // 短期原文窗 = 最近 ctxN 条 ∪ 最近 recentDays 天（消死区：只要是这几天说的一定带上）
@@ -1702,16 +1702,18 @@ function App() {
       const gapMs = lastAsstTs ? Date.now() - lastAsstTs : 0;
       const gapHrs = Math.round(gapMs / 3600000);
       const gapReopen = gapMs > 3 * 3600000; // 隔 3 小时+ 再开口 ≈ 重开一段话，强制刷新一次心声/心情（反映时间+行程变化）
-      // 心声每 3 轮写一次（恒定）——其余轮次填 null，别费笔墨稀释回复；隔久重开时额外强制刷一次
+      // 心声改成群聊那套（v47.81 她点名）：每轮都判断——这轮真有情绪波动/新念头就写（必须和上一条不同），
+      // 真没有才 null；第 1 轮和隔久重开仍然强制写（否则新角色开头心声全空像坏了）
       const tctr = (thoughtCtrRef.current[charId] || 0) + 1;
       thoughtCtrRef.current[charId] = tctr;
       try { saveJSON("x_thoughtCtr", thoughtCtrRef.current); } catch (e) {}
-      // 第 1 轮也写一次（否则新角色前两轮心声/历史全空，看着像坏了），之后每 3 轮一次；隔几小时重开也刷
-      const wantThought = tctr === 1 || tctr % 3 === 0 || gapReopen;
+      const mustThought = tctr === 1 || gapReopen;
       const lastThought = (states[charId] && states[charId].thought) || "";
-      const thoughtSpec = wantThought
-        ? "此刻没说出口的真实心声——【这一轮必须写，不许填 null、不许留空】写一句此刻脑子里真实的、往前走了的新念头（对刚聊的/对 TA/对当下处境的想法、情绪、吐槽、小心思都行），贴合当下、随对话推进而变。【这是私密的内心独白：你以为只有自己知道、并不知道 TA 能看到——所以要坦诚、要真，哪怕是不体面/自私/矛盾的念头也照写，别表演给谁看、别为了被看见而刻意升华或表达】" + (lastThought ? "上一条心声是「" + String(lastThought).replace(/\s+/g, " ").slice(0, 50) + "」——这次【不许重复它、也不许原地打转说同一件事】，要反映最新的进展或转念。" : "") + "情绪复杂或有心事时可更长更细腻" + (gapReopen ? "。（你俩隔了一阵没聊、这次算重新开个话题：这条心声顺带反映这段时间过去、结合你今天的行程/作息，此刻你的状态和心情有什么变化）" : "")
-        : "这一轮不写心声，直接填 null（把精力放在把话聊好上）";
+      const thoughtNoRepeat = lastThought ? "上一条心声是「" + String(lastThought).replace(/\s+/g, " ").slice(0, 50) + "」——这次【不许重复它、也不许原地打转说同一件事】，要反映最新的进展或转念。" : "";
+      const thoughtSpec = (mustThought
+        ? "此刻没说出口的真实心声——【这一轮必须写，不许填 null、不许留空】写一句此刻脑子里真实的、往前走了的新念头（对刚聊的/对 TA/对当下处境的想法、情绪、吐槽、小心思都行）。"
+        : "此刻没说出口的真实心声——【每轮都要判断】：只要这一轮你有情绪波动、对话推进带来了新念头、或有话没说出口，就写一句【和上一条不一样的新心声】；真的毫无内心活动才填 null。别懒——大多数有来有回的对话轮次，人心里都是有活动的。")
+        + "【这是私密的内心独白：你以为只有自己知道、并不知道 TA 能看到——所以要坦诚、要真，哪怕是不体面/自私/矛盾的念头也照写，别表演给谁看、别为了被看见而刻意升华或表达】" + thoughtNoRepeat + "情绪复杂或有心事时可更长更细腻" + (gapReopen ? "。（你俩隔了一阵没聊、这次算重新开个话题：这条心声顺带反映这段时间过去、结合你今天的行程/作息，此刻你的状态和心情有什么变化）" : "");
       // #2 时间流逝：隔了几个小时/几天再让 TA 回复，要意识到时间过去了，别当刚聊过（gapMs 已按角色上次开口算好）
       const gapHint = gapMs > 2 * 3600000
         ? "\n\n【时间过去了】距你俩上一条消息已过去约 " + (gapHrs < 24 ? gapHrs + " 小时" : Math.round(gapHrs / 24) + " 天") + "（现在是 " + new Date().toLocaleString("zh-CN", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" }) + "）。别当作刚刚才聊过——自然体现这段时间流逝：接上之前没做完/说要去做的事（如说了熬夜跑代码，第二天就『我真去跑了，不然真要睡实验室』）、问对方这段时间干嘛了、或顺势换个话题，贴合此刻时间点（深夜/清晨/工作时间/饭点）和你的人设。**Ta 同时要顾着生活和别的人、不是随时都能回你，这很正常：重逢就自然温温地接上，别质问『怎么才回我』『是不是把我忘了』、别甩脸子摆委屈闹脾气搞愧疚绑架（除非你人设本就是会撒娇/傲娇的那种，也点到为止、软下来快）。**"
@@ -2172,7 +2174,7 @@ function App() {
       const fmtGLine = m => m.kind === "callend" ? "【这个位置大家通了一通" + (m.callMode === "video" ? "视频" : "语音") + "电话，时长 " + (m.dur || "不长") + (m.sum ? "。内容：" + m.sum : "") + "，别当没打过】" : m.kind === "offlinelog" ? "【你们刚刚线下见了一面，经过如下（发生在上面之后、现已回到线上群聊，据此接话）】" + m.content : m.role === "narration" ? "【旁白】" + m.content : m.role === "system" ? "（" + m.content + "）" : (m.role === "user" ? profile.name || "用户" : m.senderName || "某人") + ": " + (m.kind === "forumshare" ? "[转发了一条贴吧帖]" + (m.post ? "「" + (m.post.board || "") + "」《" + (m.post.title || "") + "》｜" + String(m.post.body || "").replace(/\s+/g, " ").slice(0, 120) + "｜作者显示：" + (m.post.authorName || "") : (m.content || "")) : m.kind === "voice" ? "[语音消息，说的不是打的] " + m.content : m.kind === "poll" ? "[发起投票]" + m.title : m.kind === "redpacket" ? "[发红包 ¥" + m.total + "，" + m.count + "个" + (m.count > 0 ? "，人均约¥" + (m.total / m.count).toFixed(2) : "") + "]" + (m.message ? " " + m.message : "") + ((m.claims || []).length ? "（已被抢：" + m.claims.map(c => (c.name || "某人") + "¥" + c.amount).join("、") + "）" : "") : m.content);
       // 插时间断点：相邻消息间隔 >1.5h 就标一行「隔了约X、到了几点」——让模型知道时间过去了、别把旧事当正在发生（item 3/5）
       const _gparts = []; let _gprev = 0;
-      for (const m of _graw) { const ts = m.ts || 0; if (_gprev && ts && ts - _gprev > 90 * 60000) _gparts.push("〔—— 中间隔了约 " + gapPhrase(ts - _gprev) + "，到 " + fmtStamp(ts) + " ——〕"); _gparts.push((gs.memoryInterop && ts ? "[" + fmtStamp(ts) + "] " : "") + fmtGLine(m)); if (ts) _gprev = ts; }
+      for (const m of _graw) { const ts = m.ts || 0; if (_gprev && ts && ts - _gprev > 90 * 60000) _gparts.push("〔—— 中间隔了约 " + gapPhrase(ts - _gprev) + "，到 " + fmtStampAI(ts) + " ——〕"); _gparts.push((gs.memoryInterop && ts ? "[" + fmtStampAI(ts) + "] " : "") + fmtGLine(m)); if (ts) _gprev = ts; }
       const hist = _gparts.join("\n");
       // 断档要看「用户这次刚发的几条」之前的最后一条——不然刚发的消息把间隔清零，
       // 断档提醒永远不触发，隔夜回来成员还接着昨晚的事演（比如牛腩炖了一整夜）
@@ -2205,7 +2207,7 @@ function App() {
       if (gs.memoryInterop) {
         const memLines = members.map(c => {
           const mem = memories[c.id];
-          const priv = gs.privateCtxN > 0 ? (chatsRef.current[c.id] || []).filter(m => !m.recalled).slice(-gs.privateCtxN).map(m => "[" + fmtStamp(m.ts) + "] " + (m.role === "user" ? profile.name || "用户" : c.name) + ": " + m.content).join("\n") : "";
+          const priv = gs.privateCtxN > 0 ? (chatsRef.current[c.id] || []).filter(m => !m.recalled).slice(-gs.privateCtxN).map(m => "[" + fmtStampAI(m.ts) + "] " + (m.role === "user" ? profile.name || "用户" : c.name) + ": " + m.content).join("\n") : "";
           const seg = [mem && "长期记忆：" + mem, priv && "最近私聊（带时间，请和群聊记录一起按真实时间先后理解发生顺序）：\n" + priv].filter(Boolean).join("\n");
           return seg ? "『" + c.name + "』\n" + seg : "";
         }).filter(Boolean).join("\n\n");

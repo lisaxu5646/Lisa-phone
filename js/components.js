@@ -601,71 +601,111 @@ function MemoWidget({ onOpen }) {
             h("span", { className: "flex-1 min-w-0", style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, it.title))))
       : h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 2 } }, "没有待办提醒，记一条？"));
 }
-// 命运转盘小组件（2x2）：选择困难交给命运——点转盘开转，落定后随机一位在聊角色来一句起哄/拍板
-// （走便宜后台池、90 秒节流，纯本地转不花钱）。右上 ✎ 编辑选项（portal 挂 body 防 transform 劫持）
-function WheelWidget({ editMode, onReact }) {
+// 命运转盘（v47.81 全屏化）：主屏 2x2 小组件只是入口（静态小盘预览+上次结果），点开进全屏大转盘——
+// 点大盘开转，落定后随机一位在聊角色起哄（气泡完整显示不截断，带头像）。✎ 编辑主题/选项
+const WHEEL_COLORS = ["#f2cfd2", "#bcd3f0", "#c3e0b0", "#f2c88f", "#d9c7ee", "#f0dc8f", "#bfe3c6", "#eea3a3"];
+function wheelSlicePath(i, n) {
+  const a0 = (i * 360 / n - 90) * Math.PI / 180, a1 = ((i + 1) * 360 / n - 90) * Math.PI / 180;
+  const R = 46;
+  return "M50,50 L" + (50 + R * Math.cos(a0)).toFixed(2) + "," + (50 + R * Math.sin(a0)).toFixed(2) + " A" + R + "," + R + " 0 " + (360 / n > 180 ? 1 : 0) + " 1 " + (50 + R * Math.cos(a1)).toFixed(2) + "," + (50 + R * Math.sin(a1)).toFixed(2) + " Z";
+}
+function wheelLabelPos(i, n, r) { const a = ((i + 0.5) * 360 / n - 90) * Math.PI / 180; return { x: 50 + r * Math.cos(a), y: 50 + r * Math.sin(a) }; }
+// 转盘 SVG（小组件和全屏共用）：size=像素宽高，labels=要不要画选项字
+function WheelDisc({ items, angle, spinning, size, labels, dur }) {
+  return h("svg", { viewBox: "0 0 100 100", width: size, height: size, style: { transform: "rotate(" + angle + "deg)", transition: spinning ? "transform " + (dur || 3.2) + "s cubic-bezier(0.12,0.6,0.08,1)" : "none", display: "block" } },
+    items.length >= 2 ? items.map((it, i) => h("g", { key: i },
+      h("path", { d: wheelSlicePath(i, items.length), fill: WHEEL_COLORS[i % WHEEL_COLORS.length], stroke: "rgba(255,255,255,0.85)", strokeWidth: 1 }),
+      labels ? h("text", { x: wheelLabelPos(i, items.length, 29).x, y: wheelLabelPos(i, items.length, 29).y, textAnchor: "middle", dominantBaseline: "middle", style: { fontSize: items.length > 5 ? 6.5 : 8, fontFamily: "'Noto Sans SC',sans-serif", fill: "rgba(60,50,40,0.88)" } }, it.slice(0, 5)) : null))
+      : h("circle", { cx: 50, cy: 50, r: 46, fill: "#eee" }),
+    h("circle", { cx: 50, cy: 50, r: 6.5, fill: "#fff", stroke: "rgba(0,0,0,0.12)" }));
+}
+// 全屏大转盘（portal 挂 body）：氛围感主场——大盘+大结果+角色起哄完整气泡
+function WheelFull({ data, items, onSave, onReact, onClose }) {
   const t = useTheme();
-  const [data, setData] = useState(() => loadJSON("x_wheel", { title: "今天吃什么", items: ["火锅", "日料", "麻辣烫", "随便"] }));
   const [angle, setAngle] = useState(0);
   const [spinning, setSpinning] = useState(false);
   const [result, setResult] = useState(null);
-  const [quip, setQuip] = useState(null);      // {name,text} 角色的一句起哄
+  const [quip, setQuip] = useState(null);        // {name,text,char}
+  const [quipBusy, setQuipBusy] = useState(false);
   const [edit, setEdit] = useState(false);
   const [eTitle, setETitle] = useState("");
   const [eItems, setEItems] = useState("");
   const lastReact = useRef(0);
-  const items = (data.items || []).map(s => String(s).trim()).filter(Boolean);
-  const COLORS = ["#f2cfd2", "#bcd3f0", "#c3e0b0", "#f2c88f", "#d9c7ee", "#f0dc8f", "#bfe3c6", "#eea3a3"];
-  const cx = 50, cy = 50, R = 46;
-  const slice = (i, n) => {
-    const a0 = (i * 360 / n - 90) * Math.PI / 180, a1 = ((i + 1) * 360 / n - 90) * Math.PI / 180;
-    return "M" + cx + "," + cy + " L" + (cx + R * Math.cos(a0)).toFixed(2) + "," + (cy + R * Math.sin(a0)).toFixed(2) + " A" + R + "," + R + " 0 " + (360 / n > 180 ? 1 : 0) + " 1 " + (cx + R * Math.cos(a1)).toFixed(2) + "," + (cy + R * Math.sin(a1)).toFixed(2) + " Z";
-  };
-  const labelPos = (i, n) => { const a = ((i + 0.5) * 360 / n - 90) * Math.PI / 180; return { x: cx + 28 * Math.cos(a), y: cy + 28 * Math.sin(a) }; };
   const spin = () => {
-    if (editMode || spinning || items.length < 2) return;
+    if (spinning || items.length < 2) return;
     const idx = Math.floor(Math.random() * items.length);
     const seg = 360 / items.length;
-    const target = 360 * (4 + Math.floor(Math.random() * 3)) + (360 - (idx * seg + seg / 2)); // 让选中段的中心停在顶部指针下
+    const target = 360 * (5 + Math.floor(Math.random() * 3)) + (360 - (idx * seg + seg / 2));
     setSpinning(true); setResult(null); setQuip(null);
     setAngle(a => a - (a % 360) + target);
     setTimeout(() => {
       setSpinning(false); setResult(items[idx]);
+      try { saveJSON("x_wheel", Object.assign({}, data, { last: { item: items[idx], ts: Date.now() } })); } catch (e) {}
       if (onReact && Date.now() - lastReact.current > 90000) {   // 连转别连环轰 API
         lastReact.current = Date.now();
-        Promise.resolve(onReact(data.title || "", items, items[idx])).then(q => { if (q && q.text) setQuip(q); }).catch(() => {});
+        setQuipBusy(true);
+        Promise.resolve(onReact(data.title || "", items, items[idx])).then(q => { if (q && q.text) setQuip(q); }).catch(() => {}).finally(() => setQuipBusy(false));
       }
-    }, 3300);
+    }, 4200);
   };
-  const openEdit = e => { e.stopPropagation(); setETitle(data.title || ""); setEItems(items.join("\n")); setEdit(true); };
+  const openEdit = () => { setETitle(data.title || ""); setEItems(items.join("\n")); setEdit(true); };
   const saveEdit = () => {
     const its = eItems.split(/\n+/).map(s => s.trim()).filter(Boolean).slice(0, 8);
     if (its.length < 2) return;
-    const n = { title: eTitle.trim(), items: its };
-    setData(n); saveJSON("x_wheel", n); setResult(null); setQuip(null); setEdit(false);
+    onSave({ title: eTitle.trim(), items: its });
+    setResult(null); setQuip(null); setEdit(false);
   };
-  return h(GlassCard, { onClick: spin, style: { padding: "8px 10px", cursor: "pointer", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" } },
-    h("button", { onClick: openEdit, className: "active:opacity-60", style: { position: "absolute", top: 5, right: 8, fontFamily: F_BODY, fontSize: 11, color: t.fog, zIndex: 2, padding: 3 } }, "✎"),
-    data.title ? h("div", { style: { fontFamily: F_BODY, fontSize: 9.5, color: t.fog, marginBottom: 2, maxWidth: "90%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, data.title) : null,
-    h("div", { style: { position: "relative", width: 88, height: 88, flexShrink: 0 } },
-      h("svg", { viewBox: "0 0 100 100", width: 88, height: 88, style: { transform: "rotate(" + angle + "deg)", transition: spinning ? "transform 3.2s cubic-bezier(0.12,0.6,0.08,1)" : "none" } },
-        items.length >= 2 ? items.map((it, i) => h("g", { key: i },
-          h("path", { d: slice(i, items.length), fill: COLORS[i % COLORS.length], stroke: "rgba(255,255,255,0.8)", strokeWidth: 1 }),
-          h("text", { x: labelPos(i, items.length).x, y: labelPos(i, items.length).y, textAnchor: "middle", dominantBaseline: "middle", style: { fontSize: 8.5, fontFamily: "'Noto Sans SC',sans-serif", fill: "rgba(60,50,40,0.85)" } }, it.slice(0, 4))))
-          : h("circle", { cx: cx, cy: cy, r: R, fill: "#eee" }),
-        h("circle", { cx: cx, cy: cy, r: 7, fill: "#fff", stroke: "rgba(0,0,0,0.12)" })),
-      h("div", { style: { position: "absolute", top: -3, left: "50%", transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderTop: "8px solid " + t.accent } })),
-    h("div", { style: { fontFamily: F_DISPLAY, fontSize: 12.5, color: result ? t.ink : t.fog, marginTop: 3, maxWidth: "94%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
-      spinning ? "命运旋转中…" : result ? "→ " + result : "点一下 交给命运"),
-    quip ? h("div", { style: { fontFamily: F_BODY, fontSize: 9.5, color: t.sub, marginTop: 1, maxWidth: "94%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, quip.name + "：" + quip.text) : null,
-    edit ? ReactDOM.createPortal(h("div", { className: "fixed inset-0 z-[90] flex items-end", style: { background: "rgba(20,19,15,0.4)" }, onClick: e => { e.stopPropagation(); setEdit(false); } },
+  return ReactDOM.createPortal(h("div", { className: "fixed inset-0 z-[85] flex flex-col items-center", style: { background: "linear-gradient(170deg,#2a2532 0%,#1c1a22 55%,#241f1c 100%)" } },
+    // 顶栏
+    h("div", { className: "w-full flex items-center justify-between shrink-0", style: { padding: "16px 18px 4px" } },
+      h("button", { onClick: onClose, className: "active:opacity-60", style: { color: "rgba(255,255,255,0.75)", fontSize: 22, lineHeight: 1, padding: 4 } }, "✕"),
+      h("button", { onClick: openEdit, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 13, color: "rgba(255,255,255,0.7)", padding: 4 } }, "✎ 编辑")),
+    h("div", { className: "flex-1 min-h-0 w-full overflow-y-auto flex flex-col items-center", style: { padding: "0 24px 30px" } },
+      h("div", { style: { fontFamily: F_DISPLAY, fontSize: 22, color: "#fff", marginTop: 6 } }, data.title || "命运转盘"),
+      h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: "rgba(255,255,255,0.45)", marginTop: 3, letterSpacing: "0.15em" } }, "FATE DECIDES"),
+      // 大转盘
+      h("div", { onClick: spin, style: { position: "relative", width: 300, height: 300, marginTop: 26, cursor: "pointer", filter: "drop-shadow(0 14px 34px rgba(0,0,0,0.45))" } },
+        h(WheelDisc, { items: items, angle: angle, spinning: spinning, size: 300, labels: true, dur: 4.1 }),
+        h("div", { style: { position: "absolute", top: -8, left: "50%", transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "11px solid transparent", borderRight: "11px solid transparent", borderTop: "18px solid #e8b04d", filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.4))" } }),
+        !spinning && !result ? h("div", { style: { position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", background: "rgba(0,0,0,0.55)", color: "#fff", fontFamily: F_DISPLAY, fontSize: 13, padding: "7px 16px", borderRadius: 999, pointerEvents: "none", whiteSpace: "nowrap" } }, "点一下 开转") : null),
+      // 结果
+      h("div", { style: { minHeight: 46, marginTop: 22, textAlign: "center" } },
+        spinning ? h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: "rgba(255,255,255,0.6)" } }, "命运旋转中…")
+        : result ? h("div", { style: { animation: "fadeUp .35s ease both" } },
+            h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: "rgba(255,255,255,0.5)" } }, "命运说——"),
+            h("div", { style: { fontFamily: F_DISPLAY, fontSize: 30, color: "#f5d78e", marginTop: 3, fontWeight: 600 } }, result)) : null),
+      // 角色起哄（完整气泡，不截断）
+      quipBusy ? h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: "rgba(255,255,255,0.4)", marginTop: 14 } }, "有人闻着味来了…") : null,
+      quip ? h("div", { className: "flex items-start gap-2.5", style: { marginTop: 14, maxWidth: 320, animation: "fadeUp .3s ease both" } },
+        quip.char ? h(Avatar, { character: quip.char, size: 36, radius: 999 }) : null,
+        h("div", { style: { background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 16, borderTopLeftRadius: 4, padding: "9px 13px" } },
+          h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: "rgba(255,255,255,0.55)", marginBottom: 2 } }, quip.name),
+          h("div", { style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.65, color: "#fff", whiteSpace: "pre-wrap" } }, quip.text))) : null,
+      result && !spinning ? h("button", { onClick: spin, className: "active:opacity-70", style: { marginTop: 22, fontFamily: F_DISPLAY, fontSize: 14, color: "rgba(255,255,255,0.85)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 999, padding: "9px 26px" } }, "不服，再转一次") : null),
+    // 编辑弹层
+    edit ? h("div", { className: "absolute inset-0 z-10 flex items-end", style: { background: "rgba(0,0,0,0.45)" }, onClick: () => setEdit(false) },
       h("div", { onClick: e => e.stopPropagation(), style: { width: "100%", background: t.bg2, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: "18px 18px 24px" } },
         h("div", { style: { fontFamily: F_DISPLAY, fontSize: 17, color: t.ink, marginBottom: 10 } }, "编辑转盘"),
         h("input", { value: eTitle, onChange: e => setETitle(e.target.value), placeholder: "转盘主题（可空，如：今天吃什么）", style: { width: "100%", outline: "none", padding: "10px 12px", borderRadius: 11, fontFamily: F_BODY, fontSize: 13.5, background: t.bg, color: t.ink, border: "1px solid " + t.line, marginBottom: 10 } }),
         h("textarea", { value: eItems, onChange: e => setEItems(e.target.value), rows: 6, placeholder: "一行一个选项（2~8 个）", style: { width: "100%", outline: "none", resize: "none", padding: "10px 12px", borderRadius: 11, fontFamily: F_BODY, fontSize: 13.5, lineHeight: 1.7, background: t.bg, color: t.ink, border: "1px solid " + t.line } }),
         h("div", { className: "flex gap-2", style: { marginTop: 12 } },
           h("button", { onClick: saveEdit, className: "flex-1 active:opacity-70", style: { background: t.ink, color: t.bg2, fontFamily: F_DISPLAY, fontSize: 14, padding: "11px 0", borderRadius: 12 } }, "保存"),
-          h("button", { onClick: () => setEdit(false), className: "flex-1 active:opacity-60", style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.sub, background: t.bg, border: "1px solid " + t.line, borderRadius: 12, padding: "11px 0" } }, "取消")))), document.body) : null);
+          h("button", { onClick: () => setEdit(false), className: "flex-1 active:opacity-60", style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.sub, background: t.bg, border: "1px solid " + t.line, borderRadius: 12, padding: "11px 0" } }, "取消")))) : null), document.body);
+}
+function WheelWidget({ editMode, onReact }) {
+  const t = useTheme();
+  const [data, setData] = useState(() => loadJSON("x_wheel", { title: "今天吃什么", items: ["火锅", "日料", "麻辣烫", "随便"] }));
+  const [open, setOpen] = useState(false);
+  const items = (data.items || []).map(s => String(s).trim()).filter(Boolean);
+  const save = n => { const merged = Object.assign({}, data, n); setData(merged); saveJSON("x_wheel", merged); };
+  return h(GlassCard, { onClick: () => { if (!editMode) setOpen(true); }, style: { padding: "8px 10px", cursor: "pointer", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" } },
+    data.title ? h("div", { style: { fontFamily: F_BODY, fontSize: 9.5, color: t.fog, marginBottom: 3, maxWidth: "90%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, data.title) : null,
+    h("div", { style: { position: "relative", width: 86, height: 86, flexShrink: 0 } },
+      h(WheelDisc, { items: items, angle: 0, spinning: false, size: 86, labels: true }),
+      h("div", { style: { position: "absolute", top: -3, left: "50%", transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderTop: "8px solid " + t.accent } })),
+    h("div", { style: { fontFamily: F_DISPLAY, fontSize: 12, color: t.fog, marginTop: 4, maxWidth: "94%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
+      data.last && data.last.item ? "上次 → " + data.last.item : "点开 交给命运"),
+    open ? h(WheelFull, { data: data, items: items, onSave: save, onReact: onReact, onClose: () => { setOpen(false); setData(loadJSON("x_wheel", data)); } }) : null);
 }
 // 电子木鱼小组件：点一下功德+1（纯本地零 API），飘 +1、右下角连击数（2 秒不敲就断）。点不进任何页面，只为敲。
 function MuyuWidget({ editMode }) {
@@ -3475,7 +3515,7 @@ function ChatThread({
       ? h("div", { className: "text-center", style: { padding: "30px 0", fontFamily: F_BODY, fontSize: 13, color: t.fog, lineHeight: 1.9 } }, "还没有表情。\n点右上「管理表情库」批量导入。")
       : h("div", { className: "grid grid-cols-4 gap-2", style: { maxHeight: "46vh", overflowY: "auto" } }, (emotes || []).map(em => h("button", { key: em.id, onClick: () => { sendRich({ role: "user", kind: "emote", url: em.url, keyword: em.keyword, content: "[表情] " + em.keyword }); setStickerOpen(false); }, className: "active:opacity-70", style: { border: "1px solid " + t.line, borderRadius: 10, overflow: "hidden", background: t.bg2 } },
         h("div", { style: { width: "100%", aspectRatio: "1" } }, h("img", { src: em.url, referrerPolicy: "no-referrer", loading: "lazy", style: { width: "100%", height: "100%", objectFit: "cover", display: "block" }, onError: e => { e.target.style.display = "none"; } })))))
-  ), callLogOpen && h(CallLogSheet, { calls: (messages || []).filter(x => x.kind === "callend"), chars: [character], onClose: () => setCallLogOpen(false) }), searchOpen && h(ChatSearchSheet, { messages, chars: [character], onClose: () => setSearchOpen(false) }), voiceMsgOpen && h(Sheet, { onClose: () => setVoiceMsgOpen(false) },
+  ), callLogOpen && h(CallLogSheet, { calls: (messages || []).filter(x => x.kind === "callend"), chars: [character], onClose: () => setCallLogOpen(false) }), searchOpen && h(ChatSearchSheet, { messages, chars: [character], onClose: () => setSearchOpen(false), onLocate: i => { setSearchOpen(false); setTimeout(() => locateMsgIn(ref.current, i), 130); } }), voiceMsgOpen && h(Sheet, { onClose: () => setVoiceMsgOpen(false) },
     h(Eyebrow, { style: { marginBottom: 8 } }, "发一条语音"),
     h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 10, lineHeight: 1.5 } }, "写下你要「说」的话，会发成语音气泡，下面自动显示转文字。"),
     h("textarea", { value: voiceMsgText, onChange: e => setVoiceMsgText(e.target.value), rows: 3, autoFocus: true, placeholder: "想说的话…", className: "w-full outline-none p-3 rounded-lg", style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.6, color: t.ink, background: t.bg2, border: `1px solid ${t.line}`, resize: "none" } }),
@@ -4107,7 +4147,19 @@ function CallLogSheet({ calls, chars, onClose }) {
 }
 // 查找聊天记录（微信式）：关键词 + 类型（语音/图片/转账/通话/位置/红包）+ 按日期定位。
 // 点结果/点日期 → 就地展开那天的完整记录（只读简版、命中高亮自动滚到），不用回聊天里翻楼。
-function ChatSearchSheet({ messages, chars, meName, onClose }) {
+// 查找记录「定位到聊天原位」：滚到第 i 条消息并闪一下高亮。
+// 依赖不变量：两个聊天线程的消息容器子节点与 messages 索引一一对应（每个 kind 都渲染、没有 return null 的分支）
+function locateMsgIn(container, i) {
+  try {
+    const node = container && container.children && container.children[i];
+    if (!node || !node.scrollIntoView) return;
+    node.scrollIntoView({ block: "center" });
+    const oldT = node.style.transition, oldR = node.style.borderRadius;
+    node.style.transition = "background .3s"; node.style.borderRadius = "12px"; node.style.background = "rgba(184,145,80,0.28)";
+    setTimeout(() => { node.style.background = "transparent"; setTimeout(() => { node.style.transition = oldT; node.style.borderRadius = oldR; }, 400); }, 1600);
+  } catch (e) {}
+}
+function ChatSearchSheet({ messages, chars, meName, onClose, onLocate }) {
   const t = useTheme();
   const [q, setQ] = useState("");
   const [typeF, setTypeF] = useState(null);
@@ -4135,13 +4187,19 @@ function ChatSearchSheet({ messages, chars, meName, onClose }) {
           h("div", { className: "flex items-center gap-2 shrink-0", style: { marginBottom: 10 } },
             h("button", { onClick: () => setDay(null), className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 13, color: t.tint, background: "transparent", border: "none" } }, "‹ 返回"),
             h("span", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, day),
-            h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, dayMsgs.length + " 条")),
+            h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, dayMsgs.length + " 条"),
+            onLocate ? h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.fog, marginLeft: "auto" } }, "点条目跳到聊天原位") : null),
           h("div", { style: { flex: "1 1 auto", minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch" } },
             dayMsgs.map(x => {
               const m = x.m; const tag = kindTag(m); const txt = String(textOf(m));
               const isHit = !focused && focusTs && m.ts === focusTs ? (focused = true) : false;
-              return h("div", { key: x.i, ref: isHit ? hitRef : null, style: { padding: "7px 10px", borderRadius: 10, marginBottom: 2, background: isHit ? "rgba(184,145,80,0.16)" : "transparent" } },
-                h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginBottom: 2 } }, hm(m.ts) + " · " + (m.role === "system" && !tag ? "系统" : nameOf(m)) + (tag ? " · " + tag : "")),
+              return h("div", { key: x.i, ref: isHit ? hitRef : null,
+                onClick: onLocate ? () => onLocate(x.i) : undefined,
+                className: onLocate ? "active:opacity-70" : "",
+                style: { padding: "7px 10px", borderRadius: 10, marginBottom: 2, background: isHit ? "rgba(184,145,80,0.16)" : "transparent", cursor: onLocate ? "pointer" : "default" } },
+                h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginBottom: 2 } }, hm(m.ts) + " · " + (m.role === "system" && !tag ? "系统" : nameOf(m)) + (tag ? " · " + tag : "") + (onLocate ? " · 定位 ›" : "")),
+                // 自拍带真图（v47.81 她点名「只看到描述看不到图」）：有 imgKey 直接渲染 SelfieBubble
+                m.kind === "selfie" && m.imgKey ? h("div", { onClick: e => e.stopPropagation(), style: { margin: "4px 0" } }, h(SelfieBubble, { m: m })) : null,
                 h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, color: t.ink, lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word" } }, txt.slice(0, 300) || "（无文字）"));
             })))
       : h(Fragment, null,
@@ -6157,7 +6215,7 @@ function GroupThread({
     placeholder: "描述这张照片的内容…",
     className: "w-full outline-none px-4 py-3 rounded-xl",
     style: { fontFamily: F_BODY, fontSize: 14, color: t.ink, background: "#fff", border: "1px solid " + t.line }
-  })), callLogOpen && h(CallLogSheet, { calls: (messages || []).filter(x => x.kind === "callend"), chars: characters, onClose: () => setCallLogOpen(false) }), searchOpen && h(ChatSearchSheet, { messages, chars: characters, onClose: () => setSearchOpen(false) }), voiceMsgOpen && h(Sheet, { onClose: () => setVoiceMsgOpen(false) },
+  })), callLogOpen && h(CallLogSheet, { calls: (messages || []).filter(x => x.kind === "callend"), chars: characters, onClose: () => setCallLogOpen(false) }), searchOpen && h(ChatSearchSheet, { messages, chars: characters, onClose: () => setSearchOpen(false), onLocate: i => { setSearchOpen(false); setTimeout(() => locateMsgIn(ref.current, i), 130); } }), voiceMsgOpen && h(Sheet, { onClose: () => setVoiceMsgOpen(false) },
     h(Eyebrow, { style: { marginBottom: 8 } }, "发一条语音"),
     h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 10, lineHeight: 1.5 } }, "写下你要「说」的话，会发成语音气泡，下面自动显示转文字。"),
     h("textarea", { value: voiceMsgText, onChange: e => setVoiceMsgText(e.target.value), rows: 3, autoFocus: true, placeholder: "想说的话…", className: "w-full outline-none p-3 rounded-lg", style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.6, color: t.ink, background: t.bg2, border: "1px solid " + t.line, resize: "none" } }),

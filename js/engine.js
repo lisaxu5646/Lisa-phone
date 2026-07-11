@@ -1382,6 +1382,15 @@ function fmtStamp(ts) {
   if (sameDay) return fmtClock(d);
   return d.getMonth() + 1 + "/" + d.getDate() + " " + fmtClock(d);
 }
+// 喂给模型的时间戳（prompt 专用，UI 别用）：同天必须明说「今天」——裸时刻模型会瞎猜，
+// 下午说的话晚上在群里被引用成「昨天才说」就是这个坑（v47.81）
+function fmtStampAI(ts) {
+  const d = new Date(ts), now = new Date();
+  if (d.toDateString() === now.toDateString()) return "今天" + fmtClock(d);
+  const yd = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  if (d.toDateString() === yd.toDateString()) return "昨天" + fmtClock(d);
+  return (d.getMonth() + 1) + "/" + d.getDate() + " " + fmtClock(d);
+}
 async function requestGeo() {
   return new Promise(resolve => {
     if (!navigator.geolocation) {
