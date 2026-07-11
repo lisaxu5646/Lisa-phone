@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v47.79";
+const APP_VERSION = "v47.80";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -6176,7 +6176,20 @@ function App() {
     },
     onEditProfile: () => setProfileOpen(true),
     onEditCard: () => setCardOpen(true),
-    onSoon: zh => toast("「" + zh + "」还在施工中 · 敬请期待 🚧")
+    onSoon: zh => toast("「" + zh + "」还在施工中 · 敬请期待 🚧"),
+    // 命运转盘·角色起哄：转完随机一位在聊的角色来一句（走便宜后台池，一句话；没配 API/没角色就静默）
+    onWheelReact: async (title, items, result) => {
+      if (!active) return null;
+      const pool = characters.filter(c => (chatsRef.current[c.id] || []).filter(m => !m.recalled).length >= 2);
+      const c = pool.length ? pool[Math.floor(Math.random() * pool.length)] : characters[0];
+      if (!c) return null;
+      const d = await runProbe(bgActive, ctxFor(c), {
+        instruction: "用户选择困难，把决定交给了手机主屏上的「命运转盘」" + (title ? "（转盘主题：" + title + "）" : "") + "。转盘上的选项：" + items.join("、") + "。刚刚指针停在了【" + result + "】。以「" + c.name + "」的口吻对这个结果说一句话——起哄、拍板、吐槽 Ta 的选择困难、或者对结果本身发表意见都行，按你的人设和此刻心情来，像随口说的一句，不超过 20 字。",
+        schemaHint: "{\"say\":\"一句话\"}",
+        maxTokens: 800
+      });
+      return d && d.say ? { name: c.remark || c.name, text: String(d.say).slice(0, 40) } : null;
+    }
   });else if (screen === "map") body = (window.MapKit ? h(window.MapKit.CharMap, {
     characters: characters,
     status: mapStatusAll(),

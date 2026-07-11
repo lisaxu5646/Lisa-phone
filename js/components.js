@@ -601,6 +601,72 @@ function MemoWidget({ onOpen }) {
             h("span", { className: "flex-1 min-w-0", style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, it.title))))
       : h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 2 } }, "没有待办提醒，记一条？"));
 }
+// 命运转盘小组件（2x2）：选择困难交给命运——点转盘开转，落定后随机一位在聊角色来一句起哄/拍板
+// （走便宜后台池、90 秒节流，纯本地转不花钱）。右上 ✎ 编辑选项（portal 挂 body 防 transform 劫持）
+function WheelWidget({ editMode, onReact }) {
+  const t = useTheme();
+  const [data, setData] = useState(() => loadJSON("x_wheel", { title: "今天吃什么", items: ["火锅", "日料", "麻辣烫", "随便"] }));
+  const [angle, setAngle] = useState(0);
+  const [spinning, setSpinning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [quip, setQuip] = useState(null);      // {name,text} 角色的一句起哄
+  const [edit, setEdit] = useState(false);
+  const [eTitle, setETitle] = useState("");
+  const [eItems, setEItems] = useState("");
+  const lastReact = useRef(0);
+  const items = (data.items || []).map(s => String(s).trim()).filter(Boolean);
+  const COLORS = ["#f2cfd2", "#bcd3f0", "#c3e0b0", "#f2c88f", "#d9c7ee", "#f0dc8f", "#bfe3c6", "#eea3a3"];
+  const cx = 50, cy = 50, R = 46;
+  const slice = (i, n) => {
+    const a0 = (i * 360 / n - 90) * Math.PI / 180, a1 = ((i + 1) * 360 / n - 90) * Math.PI / 180;
+    return "M" + cx + "," + cy + " L" + (cx + R * Math.cos(a0)).toFixed(2) + "," + (cy + R * Math.sin(a0)).toFixed(2) + " A" + R + "," + R + " 0 " + (360 / n > 180 ? 1 : 0) + " 1 " + (cx + R * Math.cos(a1)).toFixed(2) + "," + (cy + R * Math.sin(a1)).toFixed(2) + " Z";
+  };
+  const labelPos = (i, n) => { const a = ((i + 0.5) * 360 / n - 90) * Math.PI / 180; return { x: cx + 28 * Math.cos(a), y: cy + 28 * Math.sin(a) }; };
+  const spin = () => {
+    if (editMode || spinning || items.length < 2) return;
+    const idx = Math.floor(Math.random() * items.length);
+    const seg = 360 / items.length;
+    const target = 360 * (4 + Math.floor(Math.random() * 3)) + (360 - (idx * seg + seg / 2)); // 让选中段的中心停在顶部指针下
+    setSpinning(true); setResult(null); setQuip(null);
+    setAngle(a => a - (a % 360) + target);
+    setTimeout(() => {
+      setSpinning(false); setResult(items[idx]);
+      if (onReact && Date.now() - lastReact.current > 90000) {   // 连转别连环轰 API
+        lastReact.current = Date.now();
+        Promise.resolve(onReact(data.title || "", items, items[idx])).then(q => { if (q && q.text) setQuip(q); }).catch(() => {});
+      }
+    }, 3300);
+  };
+  const openEdit = e => { e.stopPropagation(); setETitle(data.title || ""); setEItems(items.join("\n")); setEdit(true); };
+  const saveEdit = () => {
+    const its = eItems.split(/\n+/).map(s => s.trim()).filter(Boolean).slice(0, 8);
+    if (its.length < 2) return;
+    const n = { title: eTitle.trim(), items: its };
+    setData(n); saveJSON("x_wheel", n); setResult(null); setQuip(null); setEdit(false);
+  };
+  return h(GlassCard, { onClick: spin, style: { padding: "8px 10px", cursor: "pointer", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" } },
+    h("button", { onClick: openEdit, className: "active:opacity-60", style: { position: "absolute", top: 5, right: 8, fontFamily: F_BODY, fontSize: 11, color: t.fog, zIndex: 2, padding: 3 } }, "✎"),
+    data.title ? h("div", { style: { fontFamily: F_BODY, fontSize: 9.5, color: t.fog, marginBottom: 2, maxWidth: "90%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, data.title) : null,
+    h("div", { style: { position: "relative", width: 88, height: 88, flexShrink: 0 } },
+      h("svg", { viewBox: "0 0 100 100", width: 88, height: 88, style: { transform: "rotate(" + angle + "deg)", transition: spinning ? "transform 3.2s cubic-bezier(0.12,0.6,0.08,1)" : "none" } },
+        items.length >= 2 ? items.map((it, i) => h("g", { key: i },
+          h("path", { d: slice(i, items.length), fill: COLORS[i % COLORS.length], stroke: "rgba(255,255,255,0.8)", strokeWidth: 1 }),
+          h("text", { x: labelPos(i, items.length).x, y: labelPos(i, items.length).y, textAnchor: "middle", dominantBaseline: "middle", style: { fontSize: 8.5, fontFamily: "'Noto Sans SC',sans-serif", fill: "rgba(60,50,40,0.85)" } }, it.slice(0, 4))))
+          : h("circle", { cx: cx, cy: cy, r: R, fill: "#eee" }),
+        h("circle", { cx: cx, cy: cy, r: 7, fill: "#fff", stroke: "rgba(0,0,0,0.12)" })),
+      h("div", { style: { position: "absolute", top: -3, left: "50%", transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderTop: "8px solid " + t.accent } })),
+    h("div", { style: { fontFamily: F_DISPLAY, fontSize: 12.5, color: result ? t.ink : t.fog, marginTop: 3, maxWidth: "94%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
+      spinning ? "命运旋转中…" : result ? "→ " + result : "点一下 交给命运"),
+    quip ? h("div", { style: { fontFamily: F_BODY, fontSize: 9.5, color: t.sub, marginTop: 1, maxWidth: "94%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, quip.name + "：" + quip.text) : null,
+    edit ? ReactDOM.createPortal(h("div", { className: "fixed inset-0 z-[90] flex items-end", style: { background: "rgba(20,19,15,0.4)" }, onClick: e => { e.stopPropagation(); setEdit(false); } },
+      h("div", { onClick: e => e.stopPropagation(), style: { width: "100%", background: t.bg2, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: "18px 18px 24px" } },
+        h("div", { style: { fontFamily: F_DISPLAY, fontSize: 17, color: t.ink, marginBottom: 10 } }, "编辑转盘"),
+        h("input", { value: eTitle, onChange: e => setETitle(e.target.value), placeholder: "转盘主题（可空，如：今天吃什么）", style: { width: "100%", outline: "none", padding: "10px 12px", borderRadius: 11, fontFamily: F_BODY, fontSize: 13.5, background: t.bg, color: t.ink, border: "1px solid " + t.line, marginBottom: 10 } }),
+        h("textarea", { value: eItems, onChange: e => setEItems(e.target.value), rows: 6, placeholder: "一行一个选项（2~8 个）", style: { width: "100%", outline: "none", resize: "none", padding: "10px 12px", borderRadius: 11, fontFamily: F_BODY, fontSize: 13.5, lineHeight: 1.7, background: t.bg, color: t.ink, border: "1px solid " + t.line } }),
+        h("div", { className: "flex gap-2", style: { marginTop: 12 } },
+          h("button", { onClick: saveEdit, className: "flex-1 active:opacity-70", style: { background: t.ink, color: t.bg2, fontFamily: F_DISPLAY, fontSize: 14, padding: "11px 0", borderRadius: 12 } }, "保存"),
+          h("button", { onClick: () => setEdit(false), className: "flex-1 active:opacity-60", style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.sub, background: t.bg, border: "1px solid " + t.line, borderRadius: 12, padding: "11px 0" } }, "取消")))), document.body) : null);
+}
 // 电子木鱼小组件：点一下功德+1（纯本地零 API），飘 +1、右下角连击数（2 秒不敲就断）。点不进任何页面，只为敲。
 function MuyuWidget({ editMode }) {
   const t = useTheme();
@@ -958,6 +1024,7 @@ function Home({
   onOpenChar,
   onEditProfile,
   onEditCard,
+  onWheelReact,
   onSoon
 }) {
   const t = useTheme();
@@ -1001,6 +1068,7 @@ function Home({
     w_weather: { kind: "widget", which: "weather" },
     w_muyu: { kind: "widget", which: "muyu" },
     w_ledger: { kind: "widget", which: "ledger" },
+    w_wheel: { kind: "widget", which: "wheel" },
     cast: { kind: "app", zh: "名录", G: GCast },
     ties: { kind: "app", zh: "关系", G: GTies },
     lifestyle: { kind: "app", zh: "行程", G: GLife },
@@ -1030,7 +1098,7 @@ function Home({
     ["w_card", "cast", "ties", "lifestyle", "phone", "w_music", "w_map"],
     ["w_cal", "shop", "carry", "cwallet", "ledger", "w_ledger", "w_us", "w_memo"],
     ["lore", "memlib", "study", "fanfic", "weekly", "read", "debate", "dream", "tarot", "pomodoro", "games"],
-    ["capsule", "w_muyu", "w_weather"]
+    ["capsule", "w_muyu", "w_weather", "w_wheel"]
   ];
   // 空格（sp_ 开头）：真实占一格的「洞」，自由摆放的基础——拖到空格＝挪过去，原位留洞
   const SP_RE = /^sp_/;
@@ -1040,7 +1108,7 @@ function Home({
     var it = key && key.slice(0, 2) === "f_" ? { kind: "folder" } : REG[key];
     if (!it) return 0;
     if (it.kind !== "widget") return 1;
-    return it.which === "cal" ? 9 : it.which === "muyu" ? 4 : it.which === "weather" || it.which === "ledger" ? 2 : 4;
+    return it.which === "cal" ? 9 : it.which === "muyu" || it.which === "wheel" ? 4 : it.which === "weather" || it.which === "ledger" ? 2 : 4;
   };
   // 存档 + 注册表 → 完整布局：套用存档顺序，未放置的新功能补到默认页，丢弃已删除的 key
   // 文件夹（f_ 开头）也是合法项；躺在文件夹里的 app 视作已放置，不再回填到页面
@@ -1349,7 +1417,7 @@ function Home({
     const isHoverTgt = hoverKey === key; // 有 app 悬停在我头上蓄力合并
     // 组件占格：日历 3 宽 3 高（右边留一列放 app），名片/音乐整行宽
     let gCol = "span 1", gRow = "auto";
-    if (it.kind === "widget") { if (it.which === "cal") { gCol = "span 3"; gRow = "span 3"; } else if (it.which === "map") { gCol = "span 2"; gRow = "span 2"; } else if (it.which === "weather" || it.which === "ledger") { gCol = "span 2"; } else if (it.which === "muyu") { gCol = "span 2"; gRow = "span 2"; } else gCol = "span 4"; }
+    if (it.kind === "widget") { if (it.which === "cal") { gCol = "span 3"; gRow = "span 3"; } else if (it.which === "map") { gCol = "span 2"; gRow = "span 2"; } else if (it.which === "weather" || it.which === "ledger") { gCol = "span 2"; } else if (it.which === "muyu" || it.which === "wheel") { gCol = "span 2"; gRow = "span 2"; } else gCol = "span 4"; }
     let inner;
     if (it.kind === "app") inner = h(GlassIcon, { G: it.G, label: it.zh, soon: it.soon, badge: key === "memo" ? (memoDue || 0) : key === "capsule" ? ((typeof window !== "undefined" && window.capsuleDueCount) ? window.capsuleDueCount() : 0) : 0, onClick: function () { if (editMode) return; it.soon ? (onSoon && onSoon(it.zh)) : onOpenApp(key); } });
     else if (isFolder) {
@@ -1364,6 +1432,7 @@ function Home({
     else if (it.which === "muyu") inner = h(MuyuWidget, { editMode: editMode });
     else if (it.which === "weather") inner = h(WeatherWidget, { userGeo: userGeo, onOpen: function () { return onOpenApp("map"); } });
     else if (it.which === "ledger") inner = h(LedgerWidget, { onOpen: function () { return onOpenApp("ledger"); } });
+    else if (it.which === "wheel") inner = h(WheelWidget, { editMode: editMode, onReact: onWheelReact });
     else if (it.which === "map") inner = (window.MapKit ? h(window.MapKit.MapWidget, { characters: characters, status: mapStatus, userGeo: userGeo, onOpen: function () { return onOpenApp("map"); } }) : null);
     return h("div", {
       key: key, "data-appkey": key,
