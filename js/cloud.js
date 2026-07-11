@@ -124,6 +124,38 @@
       return data || null;
     },
 
+    // ---- 聊天云归档（chat_archive 表）：完整历史存云端，本地只留最近的 ----
+    // 拉某角色的云端归档（完整旧消息数组，时间从旧到新）；没有则 []
+    async chatArchiveGet(charId) {
+      if (!client) throw new Error("云服务未就绪");
+      const user = await this.getUser();
+      if (!user) throw new Error("未登录");
+      const { data, error } = await client
+        .from("chat_archive")
+        .select("msgs")
+        .eq("user_id", user.id)
+        .eq("char_id", String(charId))
+        .maybeSingle();
+      if (error) throw error;
+      return (data && Array.isArray(data.msgs)) ? data.msgs : [];
+    },
+    // 把一批旧消息【追加】到云端归档尾部（读-合并-写；单用户无并发，安全）。返回归档后的总条数。
+    async chatArchiveAppend(charId, older) {
+      if (!client) throw new Error("云服务未就绪");
+      const user = await this.getUser();
+      if (!user) throw new Error("未登录");
+      const cur = await this.chatArchiveGet(charId);
+      const merged = cur.concat(Array.isArray(older) ? older : []);
+      const { error } = await client.from("chat_archive").upsert({
+        user_id: user.id,
+        char_id: String(charId),
+        msgs: merged,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) throw error;
+      return merged.length;
+    },
+
     // ---- 自动同步 ----------------------------------------------------
 
     // 本地 x_ 数据有变动时调用：登录状态下防抖后自动 push

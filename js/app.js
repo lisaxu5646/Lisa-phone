@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.08";
+const APP_VERSION = "v48.09";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -88,6 +88,7 @@ function App() {
   const [chats, setChats] = useState({});
   const chatsRef = useRef(chats);
   chatsRef.current = chats; // 始终指向最新聊天记录，避免闭包读到旧值
+  const [chatArch, setChatArch] = useState({}); // {charId: 已归档到云端的旧消息条数}——供聊天页显示「加载更早」
   const [groupChats, setGroupChats] = useState({});
   const [groupSettings, setGroupSettings] = useState({});
   const [moments, setMoments] = useState([]);
@@ -350,6 +351,7 @@ function App() {
     setMemLib(loadJSON("x_memLib", []));
     setMemCfg(Object.assign({}, MEM_CFG_DEFAULT, loadJSON("x_memCfg", {})));
     setChatSettings(loadJSON("x_chatSettings", {}));
+    setChatArch(loadJSON("x_chatArch", {}));
     // 迁移：早期角色自动发帖存的是「吐槽/日常/求助」短名，不在 FORUM_BOARDS，会导致版块/关注页筛不到 → 补成正式吧名
     (() => {
       const bmap = { "吐槽": "吐槽吧", "日常": "日常吧", "求助": "求助吧", "匿名": "匿名吧" };
@@ -565,6 +567,35 @@ function App() {
       [id]: n
     };
   });
+  // ---- 聊天云归档：本地只留最近 N 条，更早的存云端（一条不丢 + 省本地空间）----
+  const CHAT_KEEP_LOCAL = 200; // 每个角色本地保留的最近条数
+  // 把某角色本地超出保留窗口的旧消息归档到云端、再从本地裁掉。⭐先确认云端写成功，才裁本地——任何失败都不裁、零丢失。
+  const offloadChatOne = async charId => {
+    if (!(window.Cloud && window.Cloud.ready())) return { ok: false, msg: "云同步未就绪" };
+    const all = chatsRef.current[charId] || [];
+    if (all.length <= CHAT_KEEP_LOCAL + 30) return { ok: true, moved: 0 }; // 不够多，不用归档
+    const older = all.slice(0, all.length - CHAT_KEEP_LOCAL);
+    const keep = all.slice(all.length - CHAT_KEEP_LOCAL);
+    try {
+      await window.Cloud.chatArchiveAppend(charId, older); // 先上云，抛错就不往下走
+      pChat(charId, () => keep);                            // 云端确认后才裁本地
+      const marks = loadJSON("x_chatArch", {}); marks[charId] = (marks[charId] || 0) + older.length; saveJSON("x_chatArch", marks); setChatArch(marks);
+      return { ok: true, moved: older.length };
+    } catch (e) { return { ok: false, msg: e.message || String(e) }; }
+  };
+  // 一键归档所有角色的旧聊天
+  const offloadAllChats = async () => {
+    if (!(window.Cloud && window.Cloud.ready())) { toast("需要先登录云同步（设置·数据）"); return; }
+    const ids = Object.keys(chatsRef.current || {});
+    let moved = 0, fails = 0;
+    for (const id of ids) { const r = await offloadChatOne(id); if (r.ok) moved += r.moved || 0; else fails++; }
+    toast(moved ? ("已把 " + moved + " 条旧聊天归档到云端、释放了本地空间" + (fails ? "（" + fails + " 个没成功，多半没网）" : "")) : (fails ? "归档失败：" + fails + " 个（检查网络/建表）" : "没有需要归档的旧聊天"));
+  };
+  // 拉某角色的云端归档（完整旧消息，供聊天页「加载更早」查看，不写回本地）
+  const loadChatArchive = async charId => {
+    if (!(window.Cloud && window.Cloud.ready())) return null;
+    try { return await window.Cloud.chatArchiveGet(charId); } catch (e) { toast("拉取云端归档失败：" + (e.message || e)); return null; }
+  };
   const pGChat = (id, u) => setGroupChats(p => {
     const pl = p[id] || [];
     const n = typeof u === "function" ? u(pl) : u;
@@ -6404,6 +6435,8 @@ function App() {
     onAcceptListen: acceptListenInvite,
     emotes: emotesForCharMine(activeChar.id),
     onManageEmotes: () => setScreen("emotes"),
+    archCount: chatArch[activeChar.id] || 0,
+    onLoadOlder: loadChatArchive,
     myBalance: wallet,
     onSendTransfer: (amount, note) => sendTransfer(activeChar.id, amount, note),
     onRespondTransfer: (tid, accept) => respondTransfer(activeChar.id, tid, accept),
@@ -6889,6 +6922,7 @@ function App() {
     onBack: goHome,
     onExport: doExport,
     onImport: doImport,
+    onOffloadChats: offloadAllChats,
     onClearAll: () => {
       Object.keys(localStorage).filter(k => k.startsWith("x_")).forEach(k => localStorage.removeItem(k));
       location.reload();

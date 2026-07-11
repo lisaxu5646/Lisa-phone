@@ -3176,6 +3176,7 @@ function Config({
   onBack,
   onExport,
   onImport,
+  onOffloadChats,
   onClearAll,
   debugBundleFor,
   toast
@@ -3248,6 +3249,7 @@ function Config({
   }), tab === "data" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DataConfig, {
     onExport: onExport,
     onImport: onImport,
+    onOffloadChats: onOffloadChats,
     onClearAll: onClearAll,
     toast: toast
   }), /*#__PURE__*/React.createElement(CtxDebug, {
@@ -3900,10 +3902,11 @@ function storageBreakdown() {
   } catch (e) {}
   return Object.keys(rows).map(name => ({ name, bytes: rows[name] })).sort((a, b) => b.bytes - a.bytes);
 }
-function StorageMeter() {
+function StorageMeter({ onOffloadChats }) {
   const t = useTheme();
   const [info, setInfo] = useState(null);
   const [detail, setDetail] = useState(false);
+  const [offloading, setOffloading] = useState(false);
   const refresh = () => {
     const ls = (typeof localStorageBytes === "function") ? localStorageBytes() : 0;
     const LIMIT = 5 * 1024 * 1024;
@@ -3929,8 +3932,15 @@ function StorageMeter() {
     h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 8, lineHeight: 1.6 } },
       near ? "⚠️ 快满了！点下面「看谁占地方」找出大头。图片(头像/壁纸/朋友圈/聊天图)已自动迁到 IndexedDB 图库、不占这 5MB；剩下占地方的多是文字（聊天记录/同人文/人设）。可删旧聊天、或导出备份后清理。满了新消息会存不进、可能丢。"
         : "这里只存文字（上限约 5MB）——图片已自动迁到浏览器图库、不占这里。占大头的是聊天记录和文本内容。快满时 app 会提前弹警告。"),
+    // 聊天云归档：把旧聊天挪去云端、释放本地（登录云同步才有；先确认云端存好才裁本地=零丢失）
+    onOffloadChats ? h("button", {
+      onClick: async () => { if (offloading) return; setOffloading(true); try { await onOffloadChats(); } finally { setOffloading(false); refresh(); } },
+      disabled: offloading, className: "w-full active:opacity-80 disabled:opacity-50",
+      style: { fontFamily: F_BODY, fontSize: 12.5, color: "#fff", background: t.tint, borderRadius: 10, padding: "9px 0", marginTop: 12 }
+    }, offloading ? "归档中…" : "☁️ 归档旧聊天到云端 · 释放本地空间") : null,
+    onOffloadChats ? h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 5, lineHeight: 1.5 } }, "每个角色本地只留最近 200 条，更早的存到云端（一条不丢，聊天页往上翻可「加载更早」）。需先登录云同步。") : null,
     // 明细：谁占地方一眼看穿
-    h("button", { onClick: () => { setDetail(d => !d); refresh(); }, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 11.5, color: t.tint, marginTop: 8 } }, detail ? "收起明细 ▴" : "看谁占地方 ▾"),
+    h("button", { onClick: () => { setDetail(d => !d); refresh(); }, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 11.5, color: t.tint, marginTop: 10 } }, detail ? "收起明细 ▴" : "看谁占地方 ▾"),
     detail ? h("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", gap: 6 } },
       rows.slice(0, 12).map(r => h("div", { key: r.name },
         h("div", { className: "flex items-center justify-between", style: { marginBottom: 2 } },
@@ -3938,12 +3948,13 @@ function StorageMeter() {
           h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: r.bytes >= 512000 ? "#c25a4a" : t.fog } }, kb(r.bytes) + " · " + Math.round(r.bytes / info.ls * 100) + "%")),
         h("div", { style: { height: 3, borderRadius: 999, background: t.line, overflow: "hidden" } },
           h("div", { style: { width: Math.max(2, Math.round(r.bytes / maxB * 100)) + "%", height: "100%", borderRadius: 999, background: r.bytes >= 512000 ? "#c25a4a" : (r.bytes >= 204800 ? "#b89150" : t.tint) } })))),
-      h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 4, lineHeight: 1.6 } }, "红=大头(≥0.5MB)。壁纸/表情包/头像是常见凶手：换小图、删旧表情包、清理老角色头像最省地方。图片迁 IndexedDB 是根治方向（后续可做）。")) : null,
+      h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 4, lineHeight: 1.6 } }, "红=大头(≥0.5MB)。图片(头像/壁纸/朋友圈)已自动迁到浏览器图库、不占这里；剩下占地方的多是文字。聊天记录最大又会一直涨——用上面「归档旧聊天到云端」最省地方。")) : null,
     info.idbQuota ? h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 6 } }, "音频 / 自拍 / 书正文另存在 IndexedDB（已用 " + mb(info.idbUsed) + " MB，空间大得多、不占这 5MB）") : null);
 }
 function DataConfig({
   onExport,
   onImport,
+  onOffloadChats,
   onClearAll,
   toast
 }) {
@@ -3952,7 +3963,7 @@ function DataConfig({
   const ref = useRef(null);
   return /*#__PURE__*/React.createElement("div", {
     className: "pt-6"
-  }, h(StorageMeter, null), h(CloudSync, { toast: toast }), /*#__PURE__*/React.createElement("div", {
+  }, h(StorageMeter, { onOffloadChats: onOffloadChats }), h(CloudSync, { toast: toast }), /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: F_BODY,
       fontSize: 13,

@@ -2739,12 +2739,15 @@ function ChatThread({
   myBalance,
   emotes,
   onManageEmotes,
+  archCount,
+  onLoadOlder,
   toast
 }) {
   const t = useTheme();
   const bk = block || {};
   const dsp = disp || {};
   const [recallView, setRecallView] = useState(null);
+  const [archView, setArchView] = useState(null); // null | "loading" | [归档消息数组]
   const meAv = { name: (profile && profile.name) || "我", color: (profile && profile.color) || t.tint, avatarImage: profile && profile.avatarImage };
   const fmtT = ts => { const d = new Date(ts || Date.now()); const p = n => String(n).padStart(2, "0"); return p(d.getHours()) + ":" + p(d.getMinutes()) + (dsp.timeSec ? ":" + p(d.getSeconds()) : ""); };
   const subLine = m => { const parts = []; if (dsp.read) parts.push(m.role === "user" ? (m.read ? "已读" : "已送达") : "已读"); if (dsp.time) parts.push(fmtT(m.ts)); return parts.join(" "); };
@@ -2987,7 +2990,11 @@ function ChatThread({
   }, bk.theyBlocked ? "TA 拉黑了你 · 你的消息 TA 看不到；点消息旁的 ! 发送解除申请" : "你已拉黑 TA · 按「回复」看 TA 的反应；到设置里可解除"), /*#__PURE__*/React.createElement("div", {
     ref: ref,
     className: "flex-1 overflow-y-auto px-4 py-4 space-y-1"
-  }, messages.length === 0 && /*#__PURE__*/React.createElement(Empty, {
+  }, archCount > 0 ? h("button", {
+    onClick: async () => { if (archView === "loading") return; setArchView("loading"); const arr = onLoadOlder ? await onLoadOlder(character.id) : null; setArchView(Array.isArray(arr) ? arr : []); },
+    className: "w-full active:opacity-70", style: { fontFamily: F_BODY, fontSize: 12, color: t.tint, padding: "6px 0", marginBottom: 4 }
+  }, archView === "loading" ? "加载中…" : ("☁ 更早的 " + archCount + " 条聊天在云端 · 点开查看")) : null,
+  messages.length === 0 && /*#__PURE__*/React.createElement(Empty, {
     text: "和 " + character.name + " 的对话由此开始"
   }), messages.map((m, i) => {
     if (m.recalled) return /*#__PURE__*/React.createElement("div", {
@@ -3484,7 +3491,19 @@ function ChatThread({
     h(Eyebrow, { style: { marginBottom: 8 } }, cName + " 撤回的消息"),
     h("div", { style: { fontFamily: F_BODY, fontSize: 14.5, lineHeight: 1.6, color: t.ink, background: t.bg, borderRadius: 12, padding: "12px 14px" } }, recallView.origText || "（空）"),
     h("div", { style: { fontFamily: F_BODY, fontSize: 11, letterSpacing: "0.12em", color: t.fog, marginTop: 14, marginBottom: 4 } }, "TA 为什么撤回"),
-    h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, lineHeight: 1.7, color: t.sub, fontStyle: "italic" } }, recallView.reason || "（没说）")), descView && h(Sheet, {
+    h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, lineHeight: 1.7, color: t.sub, fontStyle: "italic" } }, recallView.reason || "（没说）")),
+  Array.isArray(archView) && h(Sheet, { onClose: () => setArchView(null), tall: true },
+    h(Eyebrow, { style: { marginBottom: 8 } }, "更早的聊天 · 云端归档"),
+    archView.length === 0
+      ? h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.fog, textAlign: "center", padding: "30px 0" } }, "云端还没有更早的记录")
+      : h("div", { style: { display: "flex", flexDirection: "column", gap: 8, overflowY: "auto" } },
+          h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, textAlign: "center", marginBottom: 2 } }, "共 " + archView.length + " 条 · 只读回看（不占本地空间）"),
+          archView.map((m, i) => {
+            const mine = m.role === "user";
+            const body = m.content != null && String(m.content) !== "" ? String(m.content) : (m.kind ? "[" + m.kind + "]" : "");
+            return h("div", { key: i, style: { display: "flex", justifyContent: mine ? "flex-end" : "flex-start" } },
+              h("div", { style: { maxWidth: "82%", padding: "7px 11px", borderRadius: 12, fontFamily: F_BODY, fontSize: 13.5, lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word", background: mine ? t.tint : t.bg2, color: mine ? "#fff" : t.ink, border: mine ? "none" : "1px solid " + t.line } }, body));
+          }))), descView && h(Sheet, {
     onClose: () => setDescView(null),
     tall: true
   }, h(Eyebrow, {
