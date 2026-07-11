@@ -2385,7 +2385,7 @@ function MomentsFeed({
     style: {
       marginBottom: 8
     }
-  }, "图片"), String(imgView).startsWith("data:") && h("img", { src: imgView, style: { width: "100%", borderRadius: 12, display: "block" } }), !String(imgView).startsWith("data:") && h("div", {
+  }, "图片"), isImgRef(imgView) && h("img", { src: resolveImg(imgView), style: { width: "100%", borderRadius: 12, display: "block" } }), !isImgRef(imgView) && h("div", {
     style: {
       width: "100%",
       height: 150,
@@ -2400,7 +2400,7 @@ function MomentsFeed({
     k: "album",
     size: 30,
     color: "rgba(255,255,255,0.9)"
-  })), !String(imgView).startsWith("data:") && h("div", {
+  })), !isImgRef(imgView) && h("div", {
     style: {
       fontFamily: F_BODY,
       fontSize: 14,
@@ -2480,10 +2480,10 @@ function MomentsFeed({
         marginTop: 3,
         whiteSpace: "pre-wrap"
       }
-    }, m.content), m.image && (String(m.image).startsWith("data:") ? h("button", {
+    }, m.content), m.image && (isImgRef(m.image) ? h("button", {
       onClick: () => setImgView(m.image),
       className: "mt-2.5 block active:opacity-80"
-    }, h("img", { src: m.image, style: { maxWidth: 160, maxHeight: 160, borderRadius: 10, display: "block" } })) : h("button", {
+    }, h("img", { src: resolveImg(m.image), style: { maxWidth: 160, maxHeight: 160, borderRadius: 10, display: "block" } })) : h("button", {
       onClick: () => setImgView(m.image),
       className: "mt-2.5 flex items-center gap-2 px-3 py-2.5 active:opacity-70",
       style: {
@@ -2663,8 +2663,8 @@ function MomentsProfile({ isMe, character, profile, characters, moments, cover, 
 
   const momentRow = m => h("div", { key: m.id, className: "px-5 py-4", style: { borderBottom: "1px solid " + t.line } },
     h("div", { style: { fontFamily: F_BODY, fontSize: 14.5, lineHeight: 1.6, color: t.ink, whiteSpace: "pre-wrap" } }, m.content),
-    m.image ? (String(m.image).startsWith("data:")
-      ? h("button", { onClick: () => setImgView(m.image), className: "mt-2.5 block active:opacity-80" }, h("img", { src: m.image, style: { maxWidth: 160, maxHeight: 160, borderRadius: 10, display: "block" } }))
+    m.image ? (isImgRef(m.image)
+      ? h("button", { onClick: () => setImgView(m.image), className: "mt-2.5 block active:opacity-80" }, h("img", { src: resolveImg(m.image), style: { maxWidth: 160, maxHeight: 160, borderRadius: 10, display: "block" } }))
       : h("button", { onClick: () => setImgView(m.image), className: "mt-2 flex items-center gap-2 px-3 py-2 active:opacity-70", style: { background: t.bg, borderRadius: 10, border: "1px solid " + t.line } }, h(PGlyph, { k: "album", size: 16, color: t.fog }), h("span", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog } }, "[图片] 点开看描述"))) : null,
     h("div", { className: "flex items-center gap-4 mt-2" },
       h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog } }, timeAgo(m.ts)),
@@ -2678,7 +2678,7 @@ function MomentsProfile({ isMe, character, profile, characters, moments, cover, 
       h("button", { onClick: () => sendC(m), className: "px-3 rounded-full", style: { background: t.ink, color: t.bg2, fontFamily: F_BODY, fontSize: 12 } }, "发")) : null);
 
   return h("div", { className: "h-full flex flex-col" },
-    h("div", { style: { position: "relative", height: 210, flexShrink: 0, background: cover ? ("center/cover no-repeat url(\"" + cover + "\")") : "linear-gradient(135deg,#8a8577,#5f5b50)" } },
+    h("div", { style: { position: "relative", height: 210, flexShrink: 0, background: cover ? ("center/cover no-repeat url(\"" + resolveImg(cover) + "\")") : "linear-gradient(135deg,#8a8577,#5f5b50)" } },
       h("button", { onClick: onBack, className: "active:opacity-60", style: { position: "absolute", top: "calc(env(safe-area-inset-top) + 10px)", left: 14, width: 34, height: 34, borderRadius: 999, background: "rgba(0,0,0,0.32)", display: "flex", alignItems: "center", justifyContent: "center" } }, h(IArrow, { size: 19, color: "#fff" })),
       h("button", { onClick: () => coverRef.current && coverRef.current.click(), className: "active:opacity-70", style: { position: "absolute", top: "calc(env(safe-area-inset-top) + 12px)", right: 14, padding: "6px 12px", borderRadius: 999, background: "rgba(0,0,0,0.32)", fontFamily: F_BODY, fontSize: 11.5, color: "#fff" } }, cover ? "换封面" : "设封面"),
       h("input", { ref: coverRef, type: "file", accept: "image/*", style: { display: "none" }, onChange: pickCover }),
@@ -2695,7 +2695,7 @@ function MomentsProfile({ isMe, character, profile, characters, moments, cover, 
       list.length === 0 && !gen && h(Empty, { text: isMe ? "你还没发过朋友圈" : name + " 还没有朋友圈", sub: isMe ? "点右上「发一条」" : "" }),
       list.map(momentRow)),
     delId && h(ConfirmDialog, { title: "删掉这条朋友圈？", body: "删掉后连同点赞评论一起没了。", confirmLabel: "删掉", danger: true, onConfirm: () => { onDelMoment(delId); setDelId(null); }, onCancel: () => setDelId(null) }),
-    imgView && h(Sheet, { onClose: () => setImgView(null), tall: true }, h(Eyebrow, { style: { marginBottom: 8 } }, "图片"), String(imgView).startsWith("data:") ? h("img", { src: imgView, style: { width: "100%", borderRadius: 12, display: "block" } }) : h("div", { style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.8, color: t.ink, whiteSpace: "pre-wrap" } }, imgView)),
+    imgView && h(Sheet, { onClose: () => setImgView(null), tall: true }, h(Eyebrow, { style: { marginBottom: 8 } }, "图片"), isImgRef(imgView) ? h("img", { src: resolveImg(imgView), style: { width: "100%", borderRadius: 12, display: "block" } }) : h("div", { style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.8, color: t.ink, whiteSpace: "pre-wrap" } }, imgView)),
     compose && h(MomentCompose, { friendGroups, characters, onPost: payload => { onPostMoment(payload); setCompose(false); }, onClose: () => setCompose(false) }));
 }
 
@@ -2914,7 +2914,7 @@ function ChatThread({
   return /*#__PURE__*/React.createElement("div", {
     className: "h-full flex flex-col",
     style: dsp.chatBg ? {
-      backgroundImage: "url(\"" + dsp.chatBg + "\")",
+      backgroundImage: "url(\"" + resolveImg(dsp.chatBg) + "\")",
       backgroundSize: "cover",
       backgroundPosition: "center",
       backgroundRepeat: "no-repeat"
@@ -5230,7 +5230,7 @@ function OfflineMode({
 
   // ---- live ----
   const msgs = activeSession ? activeSession.msgs : [];
-  return h("div", { className: "absolute inset-0 z-20 flex flex-col", style: os.bg ? { backgroundImage: "url(\"" + os.bg + "\")", backgroundSize: "cover", backgroundPosition: "center", backgroundRepeat: "no-repeat", paddingTop: "env(safe-area-inset-top)" } : { background: t.bg, paddingTop: "env(safe-area-inset-top)" } },
+  return h("div", { className: "absolute inset-0 z-20 flex flex-col", style: os.bg ? { backgroundImage: "url(\"" + resolveImg(os.bg) + "\")", backgroundSize: "cover", backgroundPosition: "center", backgroundRepeat: "no-repeat", paddingTop: "env(safe-area-inset-top)" } : { background: t.bg, paddingTop: "env(safe-area-inset-top)" } },
     h("div", { className: "flex items-center gap-3 px-4 py-3 shrink-0", style: { borderBottom: `1px solid ${t.line}`, background: os.bg ? "rgba(255,255,255,0.5)" : t.bg2, backdropFilter: os.bg ? "blur(8px)" : "none", WebkitBackdropFilter: os.bg ? "blur(8px)" : "none" } },
       h("button", { onClick: onClose, className: "active:opacity-50 flex items-center gap-1" }, h(IArrow, { size: 20, color: t.ink }), h("span", { style: { fontFamily: F_BODY, fontSize: 13, color: t.ink } }, "离开")),
       h("div", { className: "flex-1 text-center" },
@@ -5586,7 +5586,7 @@ function GroupOfflineMode({
       h(Slider, { value: sMinW, min: 0, max: 1200, step: 50, onChange: setSMinW })),
     styleSection,
     h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 6 } }, "保存后下次生成生效。"));
-  return h("div", { className: "absolute inset-0 z-20 flex flex-col", style: os.bg ? { backgroundImage: "url(\"" + os.bg + "\")", backgroundSize: "cover", backgroundPosition: "center", backgroundRepeat: "no-repeat", paddingTop: "env(safe-area-inset-top)" } : { background: t.bg, paddingTop: "env(safe-area-inset-top)" } },
+  return h("div", { className: "absolute inset-0 z-20 flex flex-col", style: os.bg ? { backgroundImage: "url(\"" + resolveImg(os.bg) + "\")", backgroundSize: "cover", backgroundPosition: "center", backgroundRepeat: "no-repeat", paddingTop: "env(safe-area-inset-top)" } : { background: t.bg, paddingTop: "env(safe-area-inset-top)" } },
     h("div", { className: "flex items-center gap-3 px-4 py-3 shrink-0", style: { borderBottom: `1px solid ${t.line}`, background: os.bg ? "rgba(255,255,255,0.5)" : t.bg2, backdropFilter: os.bg ? "blur(8px)" : "none", WebkitBackdropFilter: os.bg ? "blur(8px)" : "none" } },
       h("button", { onClick: onClose, className: "active:opacity-50 flex items-center gap-1" }, h(IArrow, { size: 20, color: t.ink }), h("span", { style: { fontFamily: F_BODY, fontSize: 13, color: t.ink } }, "离开")),
       h("div", { className: "flex-1 text-center" },
@@ -5756,7 +5756,7 @@ function GroupThread({
   return h("div", {
     className: "h-full flex flex-col",
     style: gChatBg ? {
-      backgroundImage: "url(\"" + gChatBg + "\")",
+      backgroundImage: "url(\"" + resolveImg(gChatBg) + "\")",
       backgroundSize: "cover",
       backgroundPosition: "center",
       backgroundRepeat: "no-repeat"

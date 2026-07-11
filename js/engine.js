@@ -775,6 +775,9 @@ function dataUrlToBlob(dataUrl) { const m = /^data:([^;,]+)?(;base64)?,([\s\S]*)
 function imgVaultHash(s) { let h = 5381; for (let i = 0; i < s.length; i++) h = (h * 33 + s.charCodeAt(i)) >>> 0; return h.toString(36) + "_" + s.length; }
 // Blob → data:URL（导出整包备份时把图库的图 base64 化打进 JSON）
 function blobToDataUrl(blob) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(blob); }); }
+// 是不是一张「真图片」引用（base64 或图库 iv_ 键）——用来替换旧的 startsWith("data:") 判断，
+// 让迁进图库(iv_)的图仍被当图渲染、而不是当成文字描述。文字描述/http/空 都返回 false。
+function isImgRef(v) { v = String(v || ""); return v.slice(0, 5) === "data:" || v.slice(0, 3) === "iv_"; }
 // 内存缓存：iv_ 键 -> objectURL（挂 window 便于跨脚本共享；开机 hydrate 一次）
 function _imgCache() { if (typeof window === "undefined") return new Map(); return window.__imgUrlCache || (window.__imgUrlCache = new Map()); }
 async function hydrateImgVault() { try { const entries = await idbVaultEntries(); const c = _imgCache(); entries.forEach(([k, blob]) => { if (k && blob && !c.has(k)) { try { c.set(k, URL.createObjectURL(blob)); } catch (e) {} } }); return entries.length; } catch (e) { return 0; } }

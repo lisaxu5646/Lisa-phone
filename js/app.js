@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.05";
+const APP_VERSION = "v48.06";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -478,6 +478,28 @@ function App() {
         // 主屏壁纸
         const wp = loadJSON("x_wallpaper", "");
         if (isB64(wp)) { const iv = await imgToVault(wp); if (!cancelled) { saveJSON("x_wallpaper", iv); setWallpaper(iv); } }
+        if (cancelled) return;
+        // 朋友圈图（用户上传的才是 base64；AI 朋友圈的 image 是文字描述，isB64 false 自动跳过）
+        const moms = loadJSON("x_moments", []); let mChg = false;
+        for (const mo of moms) { if (mo && isB64(mo.image)) { mo.image = await imgToVault(mo.image); mChg = true; } }
+        if (cancelled) return; if (mChg) { saveJSON("x_moments", moms); setMoments(moms); }
+        // 朋友圈封面（{key: dataUrl}）
+        const cov = loadJSON("x_momentsCover", {}); let covChg = false;
+        for (const k in cov) { if (isB64(cov[k])) { cov[k] = await imgToVault(cov[k]); covChg = true; } }
+        if (cancelled) return; if (covChg) { saveJSON("x_momentsCover", cov); setMomentsCover(cov); }
+        // 各类设置里的背景图（chatBg / bg 两个字段都可能是上传的 base64）——聊天设置 / 群设置 / 线下设置
+        const migSettings = async (key, setter) => {
+          const obj = loadJSON(key, {}); let chg = false;
+          for (const k in obj) { const e = obj[k]; if (!e || typeof e !== "object") continue; for (const f of ["chatBg", "bg"]) { if (isB64(e[f])) { e[f] = await imgToVault(e[f]); chg = true; } } }
+          if (!cancelled && chg) { saveJSON(key, obj); setter && setter(obj); }
+        };
+        await migSettings("x_chatSettings", setChatSettings); if (cancelled) return;
+        await migSettings("x_groupSettings", setGroupSettings); if (cancelled) return;
+        await migSettings("x_offlineSettings", setOfflineSettings); if (cancelled) return;
+        // 情侣空间自定义图（{cid:{bg,myAvatar,charAvatar}}）
+        const cpf = loadJSON("x_coupleProfile", {}); let cpChg = false;
+        for (const k in cpf) { const e = cpf[k]; if (!e) continue; for (const f of ["bg", "myAvatar", "charAvatar"]) { if (isB64(e[f])) { e[f] = await imgToVault(e[f]); cpChg = true; } } }
+        if (cancelled) return; if (cpChg) { saveJSON("x_coupleProfile", cpf); setCoupleProfile(cpf); }
       } catch (e) {}
     })();
     return () => { cancelled = true; };
@@ -4055,7 +4077,7 @@ function App() {
       const thread = (mom.comments || []).map(c => (c.author || "某人") + "：" + String(c.text || "")).join("\n");
       const scene = author
         ? "这是「" + author.name + "」发的朋友圈：「" + mom.content + "」。"
-        : "这是用户「" + meName + "」自己发的朋友圈：「" + mom.content + "」" + (mom.image ? "（配图：" + mom.image + "）" : "") + "。";
+        : "这是用户「" + meName + "」自己发的朋友圈：「" + mom.content + "」" + (mom.image ? (typeof isImgRef === "function" && isImgRef(mom.image) ? "（配了一张图片）" : "（配图：" + mom.image + "）") : "") + "。";
       const lastLine = replyTo
         ? "刚回复了「" + replyTo + "」的评论：「" + text + "」——**这句主要是对「" + replyTo + "」说的，TA 必须回**，别人看情况插不插话。"
         : (thread ? "刚又追评了：「" + text + "」。" : "刚在下面评论了：「" + text + "」。");
@@ -4114,7 +4136,7 @@ function App() {
         const rel = rels[c.id + "->me"] ? rels[c.id + "->me"].label : "";
         return "- " + c.name + "：人设[" + String(c.persona || "").slice(0, 70) + "] 好感度" + aff + "/100 心情" + md + (rel ? " 对我关系[" + rel + "]" : "");
       }).join("\n");
-      const system = "你在模拟朋友圈互动。「" + meName + "」发了一条朋友圈：「" + mom.content + "」" + (mom.image ? "（配图：" + mom.image + "）" : "") + "\n\n能看到的好友及其状态：\n" + lines + (worldbook && worldbook.trim() ? "\n\n【世界观】" + worldbook.slice(0, 400) : "") + "\n\n请根据每个人的性格、心情、好感度和这条内容，真实地决定 Ta 的反应：可能只点赞、只评论、又赞又评、或已读不理——不要所有人都反应，也不要千篇一律。**保底：至少要有一位好友留下评论互动（通常是好感度较高的那位），不要出现全部已读不理、无人评论的情况。**评论要符合各自人设与关系。有的人还会顺手回复别的好友的评论（replyTo 填被回复者名）。\n只输出 JSON：{\"reactions\":[{\"name\":\"名字\",\"liked\":true或false,\"comment\":\"评论或null\"}],\"replies\":[{\"name\":\"名字\",\"replyTo\":\"被回复的评论者\",\"text\":\"回复\"}]}";
+      const system = "你在模拟朋友圈互动。「" + meName + "」发了一条朋友圈：「" + mom.content + "」" + (mom.image ? (typeof isImgRef === "function" && isImgRef(mom.image) ? "（配了一张图片）" : "（配图：" + mom.image + "）") : "") + "\n\n能看到的好友及其状态：\n" + lines + (worldbook && worldbook.trim() ? "\n\n【世界观】" + worldbook.slice(0, 400) : "") + "\n\n请根据每个人的性格、心情、好感度和这条内容，真实地决定 Ta 的反应：可能只点赞、只评论、又赞又评、或已读不理——不要所有人都反应，也不要千篇一律。**保底：至少要有一位好友留下评论互动（通常是好感度较高的那位），不要出现全部已读不理、无人评论的情况。**评论要符合各自人设与关系。有的人还会顺手回复别的好友的评论（replyTo 填被回复者名）。\n只输出 JSON：{\"reactions\":[{\"name\":\"名字\",\"liked\":true或false,\"comment\":\"评论或null\"}],\"replies\":[{\"name\":\"名字\",\"replyTo\":\"被回复的评论者\",\"text\":\"回复\"}]}";
       const raw = await callAI(active, system, [{
         role: "user",
         content: "开始"

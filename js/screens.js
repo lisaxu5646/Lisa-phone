@@ -2328,7 +2328,7 @@ function Us({ characters, couples, whispers, onBack, onInvite, onUnlink, onGenWh
       h(Head, { zh: "情侣空间", en: partner.name, onBack: () => setView(null),
         right: onSetCoupleImg ? h("button", { onClick: () => setCpEdit(true), className: "active:opacity-50", title: "自定义" }, h(IPencil, { size: 18, color: t.ink })) : null }),
       h("div", { className: "flex-1 overflow-y-auto pb-8" },
-        h("div", { style: { position: "relative", height: 168, background: cprof.bg ? "center/cover no-repeat url(" + cprof.bg + ")" : "linear-gradient(135deg,#f3c6d3,#c8b0e0)" } },
+        h("div", { style: { position: "relative", height: 168, background: cprof.bg ? "center/cover no-repeat url(" + (typeof resolveImg === "function" ? resolveImg(cprof.bg) : cprof.bg) + ")" : "linear-gradient(135deg,#f3c6d3,#c8b0e0)" } },
           h("div", { style: { position: "absolute", left: 22, bottom: -28, display: "flex" } },
             h("div", { style: { borderRadius: 999, border: "3px solid " + t.bg, overflow: "hidden" } }, h(Avatar, { character: paChar, size: 66, radius: 999 })),
             h("div", { style: { marginLeft: -18, borderRadius: 999, border: "3px solid " + t.bg, overflow: "hidden" } }, h(Avatar, { character: myChar, size: 66, radius: 999 })))),
