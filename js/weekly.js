@@ -404,6 +404,7 @@
   // 一条采访（单角色：专访 Q&A + 狗仔），Q./A. 排版 + 神态动作 + OBSERVED 印章
   function InterviewEntry(props) {
     const t = useTheme(); const e = props.entry;
+    const tp = typeof useTtsPlayer === "function" ? useTtsPlayer() : null; // 专访回答朗读
     return h("div", { style: { position: "relative" } },
       h("div", { style: { position: "absolute", top: 30, right: -2, transform: "rotate(6deg)", border: "1.5px solid " + t.accent, color: t.accent, borderRadius: 4, padding: "2px 7px", fontFamily: "'Archivo',sans-serif", letterSpacing: "0.16em", fontSize: 9, opacity: 0.85, pointerEvents: "none" } }, "OBSERVED"),
       h("div", { className: "flex items-baseline justify-between", style: { marginBottom: 3 } },
@@ -419,7 +420,8 @@
             h("span", { style: { flex: "0 0 auto", fontFamily: F_DISPLAY, fontStyle: "italic", fontSize: 14, color: t.accent, width: 16 } }, "A."),
             h("span", { style: { fontFamily: F_BODY, fontSize: 15, color: t.ink, lineHeight: 1.62 } },
               qa.a,
-              qa.action ? h("span", { style: { fontStyle: "italic", color: t.fog } }, "（" + qa.action + "）") : null)));
+              qa.action ? h("span", { style: { fontStyle: "italic", color: t.fog } }, "（" + qa.action + "）") : null,
+              (tp && props.spk && typeof TtsDot === "function") ? h(TtsDot, { k: "wiv" + i, text: qa.a, spk: props.spk, tp: tp }) : null)));
       }),
       e.paparazzi && (e.paparazzi.title || e.paparazzi.body) ? h("div", { style: { marginTop: 16, padding: "13px 15px", background: t.bg2, borderRadius: 10, border: "1px solid " + t.line } },
         h("div", { style: { fontFamily: "'Archivo',sans-serif", letterSpacing: "0.18em", textTransform: "uppercase", fontSize: 9, color: t.accent, marginBottom: 6 } }, "GOSSIP · 狗仔"),
@@ -520,7 +522,7 @@
               h(Avatar, { character: char || { name: e.charName }, size: 62, radius: 7 }),
               h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: on ? t.ink : t.fog, textAlign: "center", marginTop: 5, fontWeight: on ? 600 : 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, e.charName));
           })),
-        en ? h(InterviewEntry, { key: en.id, entry: en, busy: busyUnit === en.id, onRegen: function () { regenInterview(en); } }) : null
+        en ? h(InterviewEntry, { key: en.id, entry: en, spk: (props.characters || []).find(function (c) { return c.id === en.charId; }), busy: busyUnit === en.id, onRegen: function () { regenInterview(en); } }) : null
       ) : h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.fog, lineHeight: 1.6 } }, "本周无人露面——采访版空场。");
     } else if (sub && sub.kind === "media") {
       const sec = medias.find(function (s) { return s.id === sub.id; });

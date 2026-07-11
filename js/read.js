@@ -333,6 +333,7 @@
     const partner = props.characters.find(function (c) { return c.id === book.partnerId; });
     const bg = props.bgActive || props.active; // 批注/讲解/总结走便宜后台池；讨论仍用主 active
     const chOf = function (id) { return props.characters.find(function (c) { return c.id === id; }); };
+    const tp = typeof useTtsPlayer === "function" ? useTtsPlayer() : null; // 讲解/批注朗读（懒合成，重听免费）
     const explainOn = book.showExplains !== false; // 逐段讲解卡片是否显示（默认开）
     const explainAt = function (pg, i) { return (book.explains || {})[pg + "_" + i] || null; };
 
@@ -525,7 +526,9 @@
               ex ? h("div", { key: "ex_" + i, style: { display: "flex", gap: 7, margin: "-6px 0 16px", padding: "9px 12px", background: t.tint + "16", borderRadius: 10 } },
                 exCh ? h(Avatar, { character: exCh, size: 18, radius: 6 }) : null,
                 h("div", { style: { flex: 1 } },
-                  h("div", { style: { fontFamily: F_BODY, fontSize: 10, color: t.tint, marginBottom: 3, letterSpacing: .3 } }, (ex.charName || "") + " · 讲解"),
+                  h("div", { style: { display: "flex", alignItems: "center", gap: 4, marginBottom: 3 } },
+                    h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.tint, letterSpacing: .3 } }, (ex.charName || "") + " · 讲解"),
+                    (tp && typeof TtsDot === "function") ? h(TtsDot, { k: "rex" + pageIdx + "_" + i, text: ex.text, spk: exCh, tp: tp }) : null),
                   h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, lineHeight: 1.72, color: t.ink } }, ex.text))) : null,
               // 还没讲的段落：给个「讲讲这段」入口
               (!ex && explainOn && partner) ? h("button", { key: "one_" + i, onClick: function () { explainOne(i); }, disabled: busy, style: { margin: "-8px 0 14px", fontFamily: F_BODY, fontSize: 11, color: t.fog, opacity: busy ? .5 : 1 } }, "▸ 让 " + partner.name + " 讲讲这段") : null,
@@ -535,7 +538,9 @@
                 return h("div", { key: a.id, style: { display: "flex", gap: 7, margin: "-6px 0 16px", padding: "8px 11px", background: t.bg2, borderLeft: "2px solid " + t.tint, borderRadius: "0 8px 8px 0" } },
                   ch ? h(Avatar, { character: ch, size: 18, radius: 6 }) : null,
                   h("div", { style: { flex: 1 } },
-                    h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.tint, marginBottom: 2 } }, a.charName),
+                    h("div", { style: { display: "flex", alignItems: "center", gap: 4, marginBottom: 2 } },
+                      h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.tint } }, a.charName),
+                      (tp && typeof TtsDot === "function") ? h(TtsDot, { k: "rann" + a.id, text: a.note, spk: ch, tp: tp }) : null),
                     h("div", { style: { fontFamily: F_BODY, fontSize: 13, lineHeight: 1.6, color: t.sub } }, a.note)));
               }));
           }));
@@ -571,6 +576,7 @@
   function SelExplainSheet(props) {
     const t = props.t;
     const d = props.data;
+    const tp = typeof useTtsPlayer === "function" ? useTtsPlayer() : null;
     return h("div", { style: { position: "absolute", inset: 0, zIndex: 50, display: "flex", flexDirection: "column", justifyContent: "flex-end" } },
       h("div", { onClick: props.onClose, style: { flex: 1, background: "rgba(0,0,0,.3)" } }),
       h("div", { style: { background: t.bg, borderRadius: "18px 18px 0 0", padding: "16px 18px 26px", maxHeight: "70%", overflowY: "auto", boxShadow: "0 -6px 20px rgba(0,0,0,.18)" } },
@@ -581,7 +587,9 @@
         h("div", { style: { fontFamily: "'Noto Serif SC',serif", fontSize: 13.5, lineHeight: 1.7, color: t.sub, padding: "8px 11px", background: t.bg2, borderLeft: "2px solid " + t.line, borderRadius: "0 8px 8px 0", marginBottom: 12 } }, "「" + d.q + "」"),
         d.busy
           ? h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.fog, padding: "6px 2px" } }, (props.partner ? props.partner.name : "Ta") + " 在想怎么讲…")
-          : h("div", { style: { fontFamily: F_BODY, fontSize: 14.5, lineHeight: 1.78, color: t.ink, whiteSpace: "pre-wrap" } }, d.a)));
+          : h("div", null,
+              h("div", { style: { fontFamily: F_BODY, fontSize: 14.5, lineHeight: 1.78, color: t.ink, whiteSpace: "pre-wrap" } }, d.a),
+              (tp && typeof TtsDot === "function" && d.a) ? h("div", { style: { marginTop: 4 } }, h(TtsDot, { k: "rsel", text: d.a, spk: props.partner, tp: tp })) : null)));
   }
 
   // ---- 步进器 ----
@@ -616,6 +624,7 @@
   function DiscussSheet(props) {
     const t = props.t;
     const endRef = useRef(null);
+    const tp = typeof useTtsPlayer === "function" ? useTtsPlayer() : null;
     useEffect(function () { if (endRef.current) endRef.current.scrollIntoView({ block: "end" }); }, [props.chat.length, props.busy]);
     return h("div", { style: { position: "absolute", inset: 0, zIndex: 45, display: "flex", flexDirection: "column", justifyContent: "flex-end" } },
       h("div", { onClick: props.onClose, style: { flex: 1, background: "rgba(0,0,0,.25)" } }),
@@ -629,8 +638,9 @@
           props.chat.length === 0 ? h("div", { style: { textAlign: "center", color: t.fog, fontFamily: F_BODY, fontSize: 12.5, paddingTop: 20, lineHeight: 1.7 } }, "就读到的这一段，随便聊——\n人物为什么这么做、你俩怎么看、接下来会怎样。")
             : props.chat.map(function (m, i) {
                 const mine = m.role === "user";
-                return h("div", { key: i, style: { display: "flex", justifyContent: mine ? "flex-end" : "flex-start", marginBottom: 8 } },
-                  h("div", { style: { maxWidth: "78%", padding: "8px 12px", borderRadius: 13, fontFamily: F_BODY, fontSize: 14, lineHeight: 1.55, whiteSpace: "pre-wrap", background: mine ? t.tint : t.bg2, color: mine ? "#fff" : t.ink, border: mine ? "none" : "1px solid " + t.line } }, m.content));
+                return h("div", { key: i, style: { display: "flex", alignItems: "flex-end", gap: 3, justifyContent: mine ? "flex-end" : "flex-start", marginBottom: 8 } },
+                  h("div", { style: { maxWidth: "78%", padding: "8px 12px", borderRadius: 13, fontFamily: F_BODY, fontSize: 14, lineHeight: 1.55, whiteSpace: "pre-wrap", background: mine ? t.tint : t.bg2, color: mine ? "#fff" : t.ink, border: mine ? "none" : "1px solid " + t.line } }, m.content),
+                  (!mine && tp && typeof TtsDot === "function") ? h(TtsDot, { k: "rdis" + i, text: m.content, spk: props.partner, tp: tp }) : null);
               }),
           props.busy ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, padding: "2px 4px" } }, (props.partner ? props.partner.name : "Ta") + " 在想…") : null,
           h("div", { ref: endRef })),

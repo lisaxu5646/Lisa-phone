@@ -393,6 +393,10 @@
     const s = props.session;
     const m = MODES[s.mode] || {};
     const [fwd, setFwd] = useState(false);
+    const tp = typeof useTtsPlayer === "function" ? useTtsPlayer() : null; // 解牌朗读（懒合成，重听免费）
+    const chOf = function (id) { return (props.characters || []).find(function (c) { return c.id === id; }); };
+    const char = chOf(s.charId);
+    const dot = function (k, text, spk) { return (tp && spk && typeof TtsDot === "function") ? h(TtsDot, { k: k, text: text, spk: spk, tp: tp }) : null; };
 
     // 一张牌片
     const cardTile = (c, pos, i, small) => h("div", { key: "c" + i, style: { flex: small ? "0 0 auto" : "1 1 0", width: small ? 74 : "auto", minWidth: small ? 74 : 88, maxWidth: small ? 74 : 130 } },
@@ -416,7 +420,9 @@
           dc ? h("div", { style: { textAlign: "center", fontFamily: F_BODY, fontSize: 12, color: t.sub, marginBottom: 22 } }, cardLabel(dc)) : null,
           h("div", { style: { fontFamily: F_BODY, fontSize: 11, fontWeight: 700, color: t.sub, marginBottom: 12, letterSpacing: .3 } }, "各人怎么看这张牌"),
           entries.map((e, i) => h("div", { key: i, style: { marginBottom: 15, paddingBottom: 15, borderBottom: i < entries.length - 1 ? "1px solid " + t.line : "none" } },
-            h("div", { style: { fontFamily: F_DISPLAY, fontSize: 15.5, color: t.ink, marginBottom: 3 } }, e.charName),
+            h("div", { style: { display: "flex", alignItems: "center", gap: 5, marginBottom: 3 } },
+              h("span", { style: { fontFamily: F_DISPLAY, fontSize: 15.5, color: t.ink } }, e.charName),
+              dot("td" + i, e.text, chOf(e.charId))),
             h("div", { style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.8, color: t.ink } }, e.text)))));
     }
 
@@ -444,7 +450,8 @@
         (s.reads || []).map((r, i) => h("div", { key: "r" + i, style: { marginBottom: 16 } },
           h("div", { style: { display: "flex", alignItems: "baseline", gap: 8, marginBottom: 5 } },
             h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, fontWeight: 700, color: ACCENT, background: "rgba(74,63,107,0.1)", borderRadius: 6, padding: "1px 8px" } }, r.pos || (s.spread || [])[i] || ("第" + (i + 1) + "张")),
-            cards[i] ? h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, cardLabel(cards[i])) : null),
+            cards[i] ? h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, cardLabel(cards[i])) : null,
+            dot("tr" + i, r.text, char)),
           h("div", { style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.8, color: t.ink, whiteSpace: "pre-wrap" } }, r.text))),
         // 收束
         s.summary ? h("div", { style: { marginTop: 8, padding: "14px 16px", background: "rgba(74,63,107,0.06)", border: "1px solid rgba(74,63,107,0.22)", borderRadius: 13 } },
@@ -453,7 +460,8 @@
         // 角色本人对这几张牌的想法
         s.charThought ? h("div", { style: { marginTop: 12, display: "flex", gap: 10, alignItems: "flex-start", padding: "12px 14px", background: t.bg2, border: "1px solid " + t.line, borderRadius: 13 } },
           h("span", { style: { fontFamily: F_DISPLAY, fontSize: 13, color: GOLD, flexShrink: 0 } }, s.charName + "："),
-          h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, lineHeight: 1.75, color: t.ink, fontStyle: "italic" } }, s.charThought)) : null,
+          h("div", { style: { flex: 1, fontFamily: F_BODY, fontSize: 13.5, lineHeight: 1.75, color: t.ink, fontStyle: "italic" } }, s.charThought),
+          dot("tct", s.charThought, char)) : null,
         // 给角色算一卦：转发给 Ta
         s.mode === "forchar" && props.onForwardToChat ? h("button", { onClick: doForward, disabled: fwd, className: "w-full active:opacity-80",
           style: { marginTop: 18, fontFamily: F_BODY, fontSize: 13.5, fontWeight: 700, color: "#fff", background: fwd ? t.fog : ACCENT, borderRadius: 12, padding: "12px 0" } }, fwd ? "正在转发…" : "把这一卦转发给 " + s.charName) : null));

@@ -1136,6 +1136,9 @@
     function autoGrow() { const el = taRef.current; if (el) { el.style.height = "auto"; el.style.height = Math.min(130, el.scrollHeight) + "px"; } }
     const cpc = cpChars((props.fic && props.fic.cp) || [], props.characters, props.profile);
     const perFic = (window.Fanfic.loadCfg().perFic) || 3000;
+    const rtp = typeof useTtsPlayer === "function" ? useTtsPlayer() : null; // 幕文朗读（懒合成，读前800字，重听免费）
+    // 用哪个音色读幕文：优先非「我」的主角、且配了音色的那个
+    const narVoice = cpc.find(function (c) { return c && !c.isMe && c.voiceId; }) || cpc.find(function (c) { return c && c.voiceId; }) || null;
     // 新叙事到来 → 只先露第一段，其余点击逐段展开
     React.useEffect(function () {
       if (trans.length > prevLen.current && trans[trans.length - 1] && trans[trans.length - 1].who === "nar") setReveal(1);
@@ -1195,7 +1198,11 @@
             h("div", { style: { fontFamily: "'Noto Serif SC',serif", fontStyle: "italic", fontSize: 14.5, lineHeight: 1.85, color: t.accent, whiteSpace: "pre-wrap", wordBreak: "break-word", overflowWrap: "anywhere" } }, e.text));
           const paras = e.text.split(/\n{2,}/).map(function (x) { return x.trim(); }).filter(Boolean);
           const showN = (i === lastIdx) ? Math.min(reveal, paras.length) : paras.length;
-          return h("div", { key: i }, (showN ? paras.slice(0, showN) : [e.text]).map(function (p, j) { return para(p, j); }));
+          const fullyShown = showN >= paras.length;
+          return h("div", { key: i },
+            (showN ? paras.slice(0, showN) : [e.text]).map(function (p, j) { return para(p, j); }),
+            (fullyShown && rtp && narVoice && typeof TtsDot === "function") ? h("div", { style: { marginTop: -6, marginBottom: 12 } },
+              h(TtsDot, { k: "rp" + i, text: e.text, spk: narVoice, tp: rtp })) : null);
         }),
         busy ? h(Spinner, { label: trans.length ? "剧情推进中…" : "开场中…" }) : null,
         // 逐段展开

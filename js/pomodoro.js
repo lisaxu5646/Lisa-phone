@@ -71,7 +71,7 @@
   }
 
   // 结局统计卡（结果页 + 往期回看共用）
-  function ResultCard(t, rec, char, onClose) {
+  function ResultCard(t, rec, char, onClose, tp) {
     const row = (k, v, danger) => h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 0", borderBottom: "1px dashed " + t.line } },
       h("span", { style: { fontFamily: F_BODY, fontSize: 13, color: t.fog } }, k),
       h("span", { style: { fontFamily: F_DISPLAY, fontSize: 15, color: danger && v ? "#a8433a" : t.ink, fontWeight: 600 } }, v));
@@ -91,7 +91,9 @@
             h("span", { style: { fontFamily: F_DISPLAY, fontSize: 15, color: (rec.wrong ? "#a8433a" : t.ink), fontWeight: 600 } }, String(rec.wrong || 0)))),
         rec.annotation ? h("div", { style: { textAlign: "center", padding: "4px 6px" } },
           h("div", { style: { fontFamily: F_DISPLAY, fontStyle: "italic", fontSize: 20, lineHeight: 1.6, color: t.ink } }, "“" + rec.annotation + "”"),
-          h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog, marginTop: 12, textAlign: "right" } }, "— " + (rec.charName || (char && char.name) || ""))) : null));
+          h("div", { style: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, marginTop: 12 } },
+            (tp && char && typeof TtsDot === "function") ? h(TtsDot, { k: "pmd" + rec.id, text: rec.annotation, spk: char, tp: tp }) : null,
+            h("span", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog } }, "— " + (rec.charName || (char && char.name) || "")))) : null));
   }
 
   function Pomodoro(props) {
@@ -121,6 +123,7 @@
 
     const charOf = id => chars.find(c => c.id === id);
     const moodOf = id => { const mo = props.moods && props.moods[id]; return mo && mo.label ? String(mo.label) : ""; };
+    const tp = typeof useTtsPlayer === "function" ? useTtsPlayer() : null; // 赛后感言朗读
 
     const finish = status => {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -175,7 +178,7 @@
       return h("div", { className: "h-full", style: { position: "relative", background: t.bg } },
         h("div", { className: "h-full flex flex-col items-center justify-center", style: { opacity: 0.25 } },
           h("div", { style: { fontFamily: F_DISPLAY, fontSize: 60, color: t.ink } }, fmtClock(0))),
-        ResultCard(t, result.rec, result.char, () => { setResult(null); setSess(null); setView("setup"); }));
+        ResultCard(t, result.rec, result.char, () => { setResult(null); setSess(null); setView("setup"); }, tp));
     }
 
     // ---- 往期回看 ----
@@ -193,7 +196,7 @@
                   h("span", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, r.task),
                   h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: r.status === "done" ? "#4f6d5a" : "#a8433a" } }, r.statusZh || (r.status === "done" ? "圆满完成" : "中途离开"))),
                 h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, fmtDate(r.ts) + " · " + r.charName + " · " + r.minutes + " 分钟" + (r.escapes ? " · 逃跑 " + r.escapes : ""))))),
-        detail ? ResultCard(t, detail, charOf(detail.charId), () => setDetail(null)) : null);
+        detail ? ResultCard(t, detail, charOf(detail.charId), () => setDetail(null), tp) : null);
     }
 
     // ---- 沉浸计时页 ----

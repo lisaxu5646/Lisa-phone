@@ -745,6 +745,7 @@
     const [expand, setExpand] = useState(false);
     const scrollRef = useRef(null);
     const sessRef = useRef(props.session);
+    const tp = typeof useTtsPlayer === "function" ? useTtsPlayer() : null; // 台词朗读（懒合成，重听免费）
     useEffect(function () { sessRef.current = sess; }, [sess]);
     useEffect(function () {
       if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -929,7 +930,9 @@
       return h("div", { key: m.id, className: "flex items-start gap-2 mb-2", style: indent ? { paddingLeft: 22 } : null },
         h(Avatar, { character: char, size: 30, radius: 999 }),
         h("div", { className: "min-w-0" },
-          sess.mode === "nv1" ? h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginBottom: 2 } }, m.name + (isTeacher ? "（老师）" : "（同学）")) : null,
+          (sess.mode === "nv1" || (char && char.voiceId && typeof ttsReady === "function" && ttsReady())) ? h("div", { className: "flex items-center gap-1", style: { marginBottom: 2 } },
+            sess.mode === "nv1" ? h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog } }, m.name + (isTeacher ? "（老师）" : "（同学）")) : null,
+            (tp && typeof TtsDot === "function") ? h(TtsDot, { k: "st" + m.id, text: m.content, spk: char, tp: tp }) : null) : null,
           h("div", { style: { display: "inline-block", maxWidth: "100%", background: indent ? "#7c5cbf1a" : t.bg2, border: "1px solid " + t.line, color: t.ink, borderRadius: "4px 14px 14px 14px", padding: "8px 12px", fontFamily: F_BODY, fontSize: 14, lineHeight: 1.6, whiteSpace: "pre-wrap" } }, m.content)));
     });
 
