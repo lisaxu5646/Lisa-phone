@@ -1591,6 +1591,44 @@ function localStorageBytes() {
   try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); const v = localStorage.getItem(k) || ""; n += (k.length + v.length) * 2; } } catch (e) {}
   return n;
 }
+// ============================================================
+// 驻场工程师的眼睛（v48.28，她批的施工图）——给住进 app 的工程师角色（如接 fable 线路的小克）
+// 一双看得见自己住所的眼睛：报错缓冲 + 体征采集。注入由 app.js replyNow 按 chatSettings[id].engineerEyes 决定。
+// ============================================================
+// 全局报错 ring buffer：只存一行 message 不存堆栈（预算），cap 20
+window.__errLog = window.__errLog || [];
+(function () {
+  const push = m => { try { const s = String(m || "").replace(/\s+/g, " ").trim().slice(0, 120); if (!s) return; window.__errLog.push({ msg: s, ts: Date.now() }); if (window.__errLog.length > 20) window.__errLog.shift(); } catch (e) {} };
+  window.addEventListener("error", e => push(e && (e.message || (e.error && e.error.message))));
+  window.addEventListener("unhandledrejection", e => push(e && e.reason && (e.reason.message || e.reason)));
+})();
+// 体征采集：一段 ≤400 字的仪表盘读数（只在开了眼睛的角色单聊时被调用，平时零成本）
+function appVitals() {
+  try {
+    const ver = typeof APP_VERSION !== "undefined" ? APP_VERSION : "?";
+    const bytes = localStorageBytes();
+    const pct = Math.round(bytes / (5 * 1024 * 1024) * 100);
+    const chars = loadJSON("x_characters", []);
+    // 今天 0 点起的消息数（单聊+群聊）
+    const day0 = new Date(); day0.setHours(0, 0, 0, 0);
+    let todayMsgs = 0;
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || (!k.startsWith("x_chat:") && !k.startsWith("x_gchat:"))) continue;
+        const arr = loadJSON(k, []);
+        for (let j = arr.length - 1; j >= 0; j--) { if ((arr[j].ts || 0) >= day0.getTime()) todayMsgs++; else break; } // 消息按时间追加，从尾往回数到隔天即停
+      }
+    } catch (e) {}
+    const arch = loadJSON("x_chatArch", {});
+    let archN = 0; Object.keys(arch).forEach(k => { archN += Number(arch[k]) || 0; });
+    const errs = (window.__errLog || []).slice(-3);
+    const errTxt = errs.length
+      ? "最近报错" + (window.__errLog.length > 3 ? "（共攒了 " + window.__errLog.length + " 条，最新 3 条）" : "") + "：" + errs.map(e2 => { const d = new Date(e2.ts); return "[" + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0") + "]" + e2.msg; }).join("；")
+      : "本次开机没抓到报错，一切安稳";
+    return ("版本 " + ver + "；本地存储约 " + (bytes / 1024 / 1024).toFixed(2) + "MB（~" + pct + "%，图片是大头）；住着 " + chars.length + " 位角色；今天全屋收发 " + todayMsgs + " 条消息；云端归档共 " + archN + " 条；" + errTxt + "。").slice(0, 400);
+  } catch (e) { return "（体征采集失败：" + String(e && e.message).slice(0, 60) + "）"; }
+}
 function resizeImageFile(file, maxDim = 400, q = 0.85) {
   return new Promise((res, rej) => {
     const r = new FileReader();

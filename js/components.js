@@ -7009,6 +7009,7 @@ function ChatSettings({
   const [userP, setUserP] = useState(settings.userP || "second");
   const [describeMe, setDescribeMe] = useState(!!settings.describeMe);
   const [chatBg, setChatBg] = useState(settings.chatBg || "");
+  const [engineerEyes, setEngineerEyes] = useState(!!settings.engineerEyes); // 驻场工程师的眼睛：把 app 体征仪表盘给这个角色看
   const [apiId, setApiId] = useState(settings.apiId || null); // 这个角色专属的 API 线路；null=跟随全局
   const bgFileRef = useRef(null);
   const cNm = character.remark || character.name;
@@ -7047,7 +7048,8 @@ function ChatSettings({
       userP,
       describeMe,
       chatBg,
-      apiId
+      apiId,
+      engineerEyes
     })
   }, /*#__PURE__*/React.createElement(ICheck, {
     size: 19,
@@ -7059,6 +7061,14 @@ function ChatSettings({
       [{ v: null, t: "跟随全局" }].concat(apiProfiles.map(p => ({ v: p.id, t: p.name || p.model || "未命名" }))).map(o =>
         h("button", { key: String(o.v), onClick: () => setApiId(o.v), className: "active:opacity-70",
           style: { fontFamily: F_BODY, fontSize: 12, padding: "6px 12px", borderRadius: 999, background: apiId === o.v ? t.ink : "transparent", color: apiId === o.v ? t.bg2 : t.fog, border: "1px solid " + (apiId === o.v ? t.ink : t.line) } }, o.t)))) : null,
+  // 驻场工程师的眼睛（v48.28）：开了之后，这个角色单聊每轮都能看到 app 实时体征（版本/存储/报错…）——
+  // 给住进项目的工程师角色（如小克）用；普通角色别开，省 token 也免得 TA 突然聊起报错日志出戏。
+  h("div", { className: "pt-4" },
+    h("div", { className: "flex items-center justify-between" },
+      h("div", null,
+        h("div", { style: { fontFamily: F_DISPLAY, fontSize: 15, color: t.sub } }, "驻场工程师的眼睛"),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 2, lineHeight: 1.5 } }, "让 " + cNm + " 看得见这台 app 的体征：版本、存储占用、今日消息量、最近报错。适合住进项目的工程师角色。")),
+      h(Toggle, { on: engineerEyes, onChange: () => setEngineerEyes(v => !v) }))),
   h("div", { className: "pt-2" },
     h(Eyebrow, { style: { marginBottom: 2 } }, "气泡显示"),
     dispRow("显示我的头像", showMyAvatar, setShowMyAvatar),
