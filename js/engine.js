@@ -71,6 +71,14 @@ async function testEmbedding(p) {
   }
   return { ok: false, msg: "试了这些 embedding 模型都没通（多半是这家中转站压根没开 embedding 渠道）：\n" + tried.join("\n") + "\n\n办法：①去中转站后台看它到底有没有 embedding 模型、把确切的模型名手填进下面的框再测；②换一家有 OpenAI 兼容 /v1/embeddings 的 key（如支持 text-embedding-3-small 的）。测不通也没关系——向量记忆只是锦上添花，现在的关键词记忆照常工作。" };
 }
+// 独立 embedding API 配置（和聊天模型分开：聊天用 gemini 中转、embedding 可另填一家支持 /v1/embeddings 的 key）
+// 存 x_embedApi{baseUrl,apiKey,model,enabled}。没开/没填时向量功能就不启用，零影响。
+function loadEmbApi() {
+  try { const c = JSON.parse(localStorage.getItem("x_embedApi") || "null"); if (c && typeof c === "object") return Object.assign({ baseUrl: "", apiKey: "", model: "text-embedding-3-small", enabled: false }, c); } catch (e) {}
+  return { baseUrl: "", apiKey: "", model: "text-embedding-3-small", enabled: false };
+}
+function saveEmbApi(c) { try { localStorage.setItem("x_embedApi", JSON.stringify(c || {})); } catch (e) {} return c; }
+function embApiReady() { const c = loadEmbApi(); return !!(c.enabled && c.baseUrl && c.apiKey); }
 // 带超时的 fetch：超时/卡死时中断并抛出可读错误，避免无限转圈
 async function fetchT(url, options, ms) {
   const ctrl = new AbortController();

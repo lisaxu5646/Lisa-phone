@@ -3066,6 +3066,50 @@ function ImageApiConfig({ toast }) {
             h("div", { style: { fontFamily: F_BODY, fontSize: 12, fontWeight: 700, color: "#c25a4a", marginBottom: 6 } }, "❌ 没出图。接口/报错原文（可长按复制、截图发我）："),
             h("div", { style: { fontFamily: "monospace", fontSize: 11, lineHeight: 1.6, color: t.ink, wordBreak: "break-all", userSelect: "text", WebkitUserSelect: "text", maxHeight: 200, overflowY: "auto" } }, testRes.err))) : null) : null);
 }
+// 独立 embedding API 配置：聊天模型和向量记忆分家。聊天那家（如 gemini 中转）没 embedding 渠道时，
+// 这里另填一家支持 OpenAI 兼容 /v1/embeddings 的 key，只管向量记忆，不影响聊天。
+function EmbedApiConfig({ toast }) {
+  const t = useTheme();
+  const [c, setC] = useState(() => (typeof loadEmbApi === "function" ? loadEmbApi() : { baseUrl: "", apiKey: "", model: "text-embedding-3-small", enabled: false }));
+  const set = patch => { const n = Object.assign({}, c, patch); setC(n); if (typeof saveEmbApi === "function") saveEmbApi(n); };
+  const [models, setModels] = useState([]);
+  const [fetching, setFetching] = useState(false);
+  const [test, setTest] = useState(null);
+  const pull = async () => {
+    if (!c.baseUrl || !c.apiKey) { toast && toast("先填接口地址和密钥"); return; }
+    setFetching(true);
+    try { const ms = await fetchModelList(c); setModels(ms || []); toast && toast((ms || []).length + " 个模型（挑含 embedding/embed/bge 的）"); }
+    catch (e) { toast && toast("拉取失败：" + (e.message || e)); }
+    finally { setFetching(false); }
+  };
+  const runTest = async () => {
+    if (typeof testEmbedding !== "function") { toast && toast("模块没加载"); return; }
+    if (!c.baseUrl || !c.apiKey) { toast && toast("先填接口地址和密钥"); return; }
+    setTest({ busy: true });
+    try { const r = await testEmbedding({ baseUrl: c.baseUrl, apiKey: c.apiKey, embedModel: c.model }); setTest(r); }
+    catch (e) { setTest({ ok: false, msg: String((e && e.message) || e) }); }
+  };
+  const inSt = { width: "100%", outline: "none", padding: "9px 12px", borderRadius: 10, fontFamily: F_BODY, fontSize: 13.5, background: t.bg2, color: t.ink, border: "1px solid " + t.line };
+  const row = (label, node) => h("div", { className: "mb-3" }, h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, marginBottom: 4 } }, label), node);
+  return h("div", { className: "pt-8 mt-6", style: { borderTop: "1px dashed " + t.line } },
+    h("div", { className: "flex items-center justify-between py-2" },
+      h("div", { style: { paddingRight: 12 } },
+        h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, "向量记忆 API · Embedding"),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, lineHeight: 1.5, color: t.fog, marginTop: 2 } }, "和聊天模型【分开】填。你聊天那家（gemini 中转）没有 embedding 渠道——在这另填一个支持 OpenAI 兼容 /v1/embeddings 的 key，专门跑向量记忆。⚠️ 目前向量检索还在开发中，这里测通=准备就绪，实际更聪明的检索要等下个版本接上；测不通也不影响现有关键词记忆。")),
+      h(Toggle, { on: c.enabled === true, onChange: v => { set({ enabled: v }); toast && toast(v ? "已开启独立向量 API" : "已关闭"); } })),
+    c.enabled ? h("div", { className: "pt-3" },
+      row("接口地址 Base URL", h("input", { value: c.baseUrl || "", onChange: e => set({ baseUrl: e.target.value }), placeholder: "如 https://xxx.com（会自动补 /v1/embeddings）", style: inSt })),
+      row("密钥 API Key", h("input", { value: c.apiKey || "", onChange: e => set({ apiKey: e.target.value }), placeholder: "sk-…", type: "password", style: inSt })),
+      row("模型", h("div", null,
+        h("div", { className: "flex gap-2" },
+          h("input", { value: c.model || "", onChange: e => set({ model: e.target.value }), placeholder: "text-embedding-3-small", style: Object.assign({}, inSt, { flex: 1 }) }),
+          h("button", { onClick: pull, disabled: fetching, className: "shrink-0 active:opacity-70 disabled:opacity-50", style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 10, padding: "0 14px" } }, fetching ? "拉取中…" : "拉取模型")),
+        models.length > 0 ? h("div", { className: "flex flex-wrap gap-1.5", style: { marginTop: 8, maxHeight: 118, overflowY: "auto" } }, models.map(m => h("button", { key: m, onClick: () => set({ model: m }), className: "active:opacity-70", style: { fontFamily: F_BODY, fontSize: 11.5, padding: "4px 10px", borderRadius: 999, background: c.model === m ? t.ink : t.bg2, color: c.model === m ? t.bg2 : t.sub, border: "1px solid " + t.line } }, m))) : null,
+        h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 6, lineHeight: 1.5 } }, "填一个【embedding】模型名（名字通常含 embedding / embed / bge）。常见能用的：text-embedding-3-small（便宜够用）、text-embedding-3-large、bge-m3。"))),
+      h("button", { onClick: runTest, disabled: test && test.busy, className: "w-full mt-2 active:opacity-80 disabled:opacity-50", style: { fontFamily: F_BODY, fontSize: 13, color: "#fff", background: t.tint, borderRadius: 10, padding: "11px 0" } }, test && test.busy ? "检测中…" : "🔬 测一下这个 embedding 接口"),
+      test && !test.busy ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", padding: "10px 12px", borderRadius: 10, marginTop: 10, background: test.ok ? "rgba(90,150,90,0.1)" : "rgba(194,90,74,0.09)", border: "1px solid " + (test.ok ? "#8ab88a55" : "#c25a4a55"), color: test.ok ? "#4a7a4a" : "#b0503f" } },
+        test.ok ? ("✅ 通了！模型「" + test.model + "」，向量维度 " + test.dim + "。向量记忆的接口这边就绪了。") : ("❌ 没测通：\n" + (test.msg || "未知"))) : null) : null);
+}
 // 上下文透视（v47.75 借汪汪机的调试页思路）：把「此刻和 TA 聊天会喂给模型的完整 system prompt」
 // 按【段落】拆开展示。角色变笨/OOC/忘事时来这里一眼定位是哪一段的问题。只读、零 API。
 function CtxDebug({ characters, getBundle }) {
@@ -3269,16 +3313,6 @@ function ApiConfig({
       setFetching(false);
     }
   };
-  // 测这个配置支不支持向量（embedding）——想搞向量记忆前先按这个确认
-  const [embTest, setEmbTest] = useState(null);
-  const testEmb = async () => {
-    if (!cur.baseUrl || !cur.apiKey) { toast("先填地址和 key"); return; }
-    setEmbTest({ busy: true });
-    try {
-      const r = await testEmbedding(cur);
-      setEmbTest(r);
-    } catch (e) { setEmbTest({ ok: false, msg: e.message || String(e) }); }
-  };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(LineField, {
     zh: "选择配置",
     en: "Profile",
@@ -3412,17 +3446,8 @@ function ApiConfig({
       temperature: v
     })
   })),
-  // 向量记忆前置检测：这个 API 支不支持 embedding
-  h("div", { style: { marginTop: 20, paddingTop: 16, borderTop: "1px solid " + t.line } },
-    h("div", { className: "flex items-center justify-between", style: { marginBottom: 6 } },
-      h("div", null,
-        h("span", { style: { fontFamily: F_DISPLAY, fontSize: 15, color: t.ink } }, "向量记忆检测"),
-        h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginLeft: 8 } }, "Embedding")),
-      h("button", { onClick: testEmb, disabled: embTest && embTest.busy, className: "active:opacity-70 disabled:opacity-40", style: { fontFamily: F_BODY, fontSize: 11.5, color: t.ink, borderBottom: "1.5px solid " + t.ink, paddingBottom: 1 } }, embTest && embTest.busy ? "检测中…" : "测一下")),
-    h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, lineHeight: 1.6, marginBottom: embTest && !embTest.busy ? 8 : 0 } }, "想搞向量记忆（更聪明的记忆检索）先测这个——会真调一次这家的 /embeddings 接口。"),
-    embTest && !embTest.busy ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, lineHeight: 1.6, padding: "9px 12px", borderRadius: 10, background: embTest.ok ? "rgba(90,150,90,0.1)" : "rgba(194,90,74,0.09)", border: "1px solid " + (embTest.ok ? "#8ab88a55" : "#c25a4a55"), color: embTest.ok ? "#4a7a4a" : "#b0503f" } },
-      embTest.ok ? ("✅ 支持！模型「" + embTest.model + "」，向量维度 " + embTest.dim + "。可以搞向量记忆了。") : ("❌ 不支持 / 没测通：" + (embTest.msg || "未知") + (embTest.embModelHint ? "" : "\n可在下面手填 embedModel 再试。"))) : null,
-    h("input", { value: cur.embedModel || "", onChange: e => upd({ embedModel: e.target.value }), placeholder: "可选：手填 embedding 模型名（如 text-embedding-3-small）", style: { width: "100%", outline: "none", marginTop: 8, padding: "8px 11px", borderRadius: 9, fontFamily: F_BODY, fontSize: 12, background: t.bg2, color: t.ink, border: "1px solid " + t.line } })),
+  // 向量记忆：独立 embedding API（和聊天模型分开填）
+  h(EmbedApiConfig, { toast: toast }),
   /*#__PURE__*/React.createElement("div", {
     className: "flex gap-3 mt-8"
   }, /*#__PURE__*/React.createElement("button", {
