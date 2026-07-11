@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.28";
+const APP_VERSION = "v48.29";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -241,7 +241,13 @@ function App() {
   // 世界书结构化词条（第1步：能录能看能存 + 旧blob迁移；注入仍先按"启用的全局词条拼起来"，关键词/绑角色/适用范围的精细注入是第2步）
   const [loreEntries, setLoreEntries] = useState([]);
   const loreRef = useRef(loreEntries); loreRef.current = loreEntries;
-  const saveLore = list => { setLoreEntries(list); loreRef.current = list; saveJSON("x_loreEntries", list); };
+  const loreVecTimer = useRef(null);
+  const saveLore = list => {
+    setLoreEntries(list); loreRef.current = list; saveJSON("x_loreEntries", list);
+    // 世界书向量增量维护（v48.29）：词条增删改后台补嵌+清孤儿，防抖 4s；没配 embedding 内部直接返回
+    clearTimeout(loreVecTimer.current);
+    loreVecTimer.current = setTimeout(() => { if (typeof ensureLoreVecs === "function") ensureLoreVecs(loreRef.current).catch(() => {}); }, 4000);
+  };
   // 扁平 baseline：只含「全局 + 启用 + 常驻或无关键词」的词条，给次要功能（群聊/通话/朋友圈/论坛/各App）兜底用；
   // 主聊天走 ctxFor 里的 loreText 引擎做 per角色/关键词/scope/优先级检索，不用这个。
   const deriveWorldbook = list => (list || []).filter(e => e && e.enabled !== false && (!e.charIds || e.charIds.length === 0) && (e.payload || "").trim() && (e.alwaysOn || !((e.keyword || "").trim()))).map(e => (e.title ? "〔" + e.title + "〕" : "") + String(e.payload).trim()).join("\n\n");
@@ -753,10 +759,12 @@ function App() {
     memVecTimer.current = setTimeout(() => { if (typeof ensureMemVecs === "function") ensureMemVecs(memLibRef.current).catch(() => {}); }, 4000);
   };
   // 向量记忆开机：把 IDB 里的向量读进内存缓存 → 后台给缺向量的条目补嵌（换设备导入存档后会在这里自动重建索引）
+  // v48.29 世界书向量同款开机流程（词条向量也在 IDB 不进云，导入存档后自动重建）
   useEffect(() => {
     const t = setTimeout(() => {
       if (typeof hydrateMemVecs !== "function") return;
       hydrateMemVecs().then(() => ensureMemVecs(memLibRef.current)).catch(() => {});
+      if (typeof hydrateLoreVecs === "function") hydrateLoreVecs().then(() => ensureLoreVecs(loreRef.current)).catch(() => {});
     }, 3500);
     return () => clearTimeout(t);
   }, []);
@@ -6362,12 +6370,24 @@ function App() {
         for (const [k, b] of entries) { try { vault[k] = await blobToDataUrl(b); vaultCount++; } catch (e) {} }
       }
     } catch (e) {}
+    // ⭐备份 v3（backlog：数据安全最高优先）：自拍可选打包——自拍存 IndexedDB(x_selfies) 不进云同步，
+    // 换设备时唯一的迁移通道就是这份文件。图多会让备份变大，导出时现场问一句（不做常驻开关）。
+    let selfies = {}, selfieCount = 0;
+    try {
+      if (typeof idbImgEntries === "function" && typeof blobToDataUrl === "function") {
+        const sEntries = await idbImgEntries();
+        if (sEntries.length && window.confirm("要把 " + sEntries.length + " 张自拍也打进备份吗？\n\n自拍只存在这台设备上、不走云同步——不打包的话换设备就没了。打包会让备份文件变大一些。")) {
+          for (const [k, b] of sEntries) { try { selfies[k] = await blobToDataUrl(b); selfieCount++; } catch (e) {} }
+        }
+      }
+    } catch (e) {}
     const blob = new Blob([JSON.stringify({
       __archive: 1,
-      version: 2,
+      version: 3,
       exportedAt: Date.now(),
       data: dump,
-      vault: vault
+      vault: vault,
+      selfies: selfies
     }, null, 2)], {
       type: "application/json"
     });
@@ -6377,7 +6397,7 @@ function App() {
     a.download = "archive-backup-" + new Date().toISOString().slice(0, 10) + ".json";
     a.click();
     URL.revokeObjectURL(url);
-    toast("已导出备份（含 " + vaultCount + " 张图片）");
+    toast("已导出备份（含 " + vaultCount + " 张图片" + (selfieCount ? "、" + selfieCount + " 张自拍" : "") + "）");
   };
   const doImport = file => {
     const r = new FileReader();
@@ -6401,10 +6421,19 @@ function App() {
         try { localStorage.setItem(k, v); }
         catch (err) { failed.push({ k, size: (v || "").length }); }
       });
-      // ⭐阶段4：恢复图片仓库（v2 备份含 vault）——把 base64 写回 IndexedDB，头像/壁纸的 iv_ 键才能 resolve。
+      // ⭐阶段4：恢复图片仓库（v2+ 备份含 vault）——把 base64 写回 IndexedDB，头像/壁纸的 iv_ 键才能 resolve。
+      // v48.29：先整仓清空再写入（backlog：旧机器攒的孤儿 blob 不再一代代带着走，防止图库越导越肥）。
+      // 只在备份自带 vault 时才清——v1 老备份图是 base64 直存 data 里，本地图库与它无关，不动。
       if (parsed.vault && typeof idbVaultPut === "function" && typeof dataUrlToBlob === "function") {
+        try { if (typeof idbVaultClear === "function") await idbVaultClear(); } catch (e2) {}
         for (const [k, durl] of Object.entries(parsed.vault)) {
           try { const b = dataUrlToBlob(durl); if (b) await idbVaultPut(k, b); } catch (e2) {}
+        }
+      }
+      // ⭐备份 v3：恢复自拍（打包过才有）——不清旧自拍，只增量写回（自拍键是内容相关的，覆盖无害）
+      if (parsed.selfies && typeof idbImgPut === "function" && typeof dataUrlToBlob === "function") {
+        for (const [k, durl] of Object.entries(parsed.selfies)) {
+          try { const b = dataUrlToBlob(durl); if (b) await idbImgPut(k, b); } catch (e2) {}
         }
       }
       if (failed.length) {

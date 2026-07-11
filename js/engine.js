@@ -188,6 +188,53 @@ function cosSim(a, b) {
   const d = Math.sqrt(na) * Math.sqrt(nb);
   return d ? dot / d : 0;
 }
+// ============================================================
+// 世界书向量（v48.29，backlog #3）：给【带关键词】的词条也配 embedding——
+// 关键词没打中字面、但近期对话语义贴近时也能召回（「上次那家川菜馆」召回关键词只写了「火锅」的词条）。
+// 设计与向量记忆同款：向量只进 IndexedDB(x_lorevec) 不进云；selectLore 保持同步签名，
+// 靠 replyNow 发送前 primeQueryVec 预热的同一枚查询向量（查询文本同为最近对话）；
+// 没预热/没开 embedding → 行为与旧版完全一致。正则词条不参与语义召回（正则是刻意的精确扳机）。
+// ============================================================
+function loreEntryEmbedText(e) { return (((e.title || "") + " " + ((e.keyword || "").split(/[,，、|]/).join(" ")) + " " + String(e.payload || "")).trim()).slice(0, 420); }
+function idbLoreVecOpen() { return new Promise((res, rej) => { const r = indexedDB.open("x_lorevec", 1); r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains("vec")) r.result.createObjectStore("vec"); }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+async function idbLoreVecPut(k, val) { const db = await idbLoreVecOpen(); return new Promise((res, rej) => { const tx = db.transaction("vec", "readwrite"); tx.objectStore("vec").put(val, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
+async function idbLoreVecDel(k) { const db = await idbLoreVecOpen(); return new Promise(res => { const tx = db.transaction("vec", "readwrite"); tx.objectStore("vec").delete(k); tx.oncomplete = () => res(); tx.onerror = () => res(); }); }
+async function idbLoreVecEntries() { const db = await idbLoreVecOpen(); return new Promise(res => { const tx = db.transaction("vec", "readonly"); const st = tx.objectStore("vec"); let ks = null, vs = null; const done = () => { if (ks && vs) res(ks.map((k, i) => [k, vs[i]])); }; const kq = st.getAllKeys(); const vq = st.getAll(); kq.onsuccess = () => { ks = kq.result || []; done(); }; vq.onsuccess = () => { vs = vq.result || []; done(); }; tx.onerror = () => res([]); }); }
+function _loreVecCache() { if (typeof window === "undefined") return new Map(); return window.__loreVecCache || (window.__loreVecCache = new Map()); }
+async function hydrateLoreVecs() {
+  if (typeof window !== "undefined" && window.__loreVecHydrated) return _loreVecCache().size;
+  try { const entries = await idbLoreVecEntries(); const c = _loreVecCache(); entries.forEach(([k, val]) => { if (k && val && val.v && !c.has(k)) c.set(k, val); }); } catch (e) {}
+  if (typeof window !== "undefined") window.__loreVecHydrated = true;
+  return _loreVecCache().size;
+}
+// 只嵌「设了关键词且非正则」的词条（常驻/无关键词的本来就常进，不用向量）；顺手清孤儿
+async function ensureLoreVecs(entries, opts) {
+  opts = opts || {};
+  if (!embApiReady()) return 0;
+  await hydrateLoreVecs();
+  const model = loadEmbApi().model;
+  const cache = _loreVecCache();
+  const list = (entries || []).filter(e => e && e.id && ((e.keyword || "").trim()) && !e.regex && (e.payload || "").trim());
+  const todo = list.filter(e => { if (opts.force) return true; const cur = cache.get(e.id); return !(cur && cur.m === model && cur.h === memVecHash(loreEntryEmbedText(e))); });
+  const liveIds = new Set(list.map(e => e.id));
+  for (const k of Array.from(cache.keys())) { if (!liveIds.has(k)) { cache.delete(k); idbLoreVecDel(k); } }
+  if (!todo.length) return 0;
+  const BATCH = 16;
+  let done = 0;
+  for (let i = 0; i < todo.length; i += BATCH) {
+    const batch = todo.slice(i, i + BATCH);
+    const vecs = await embedTexts(batch.map(loreEntryEmbedText));
+    if (!vecs) return done;
+    for (let j = 0; j < batch.length; j++) {
+      const rec = { h: memVecHash(loreEntryEmbedText(batch[j])), m: model, v: vecs[j] };
+      cache.set(batch[j].id, rec);
+      await idbLoreVecPut(batch[j].id, rec);
+    }
+    done += batch.length;
+    if (i + BATCH < todo.length) await new Promise(res => setTimeout(res, 300));
+  }
+  return done;
+}
 // 带超时的 fetch：超时/卡死时中断并抛出可读错误，避免无限转圈
 async function fetchT(url, options, ms) {
   const ctrl = new AbortController();
@@ -437,14 +484,35 @@ function selectLore(entries, opts) {
   const scope = opts.scope || "chat";
   const charIds = opts.charIds || [];
   const text = opts.text || "";
+  const missed = []; // 过了 scope/绑定、但关键词没打中字面的——语义补捞候选（v48.29）
   const hit = (entries || []).filter(e => {
     if (!e || e.enabled === false || !((e.payload || "").trim())) return false;
     if (!loreScopeOn(e, scope)) return false;
     const bind = e.charIds || []; // 全局(无绑定)对所有人可见；否则要与在场角色有交集
     if (bind.length && !bind.some(id => charIds.indexOf(id) >= 0)) return false;
     if (e.alwaysOn) return true; // 常驻：无视关键词强注
-    return loreKeywordHit(e, text); // 有关键词=命中才进；无关键词=常进
+    const ok = loreKeywordHit(e, text); // 有关键词=命中才进；无关键词=常进
+    if (!ok && (e.keyword || "").trim() && !e.regex) missed.push(e);
+    return ok;
   });
+  // ⭐语义补捞（v48.29）：关键词没打中、但近期对话语义贴近的词条最多补 2 条（预算）。
+  // 查询向量吃 replyNow 发送前 primeQueryVec 预热的那枚（同一份最近对话文本）；没预热/没开 embedding = 完全不补，行为同旧版。
+  if (missed.length && text) {
+    const qVec = getQueryVec(text);
+    if (qVec && qVec.v) {
+      const cache = _loreVecCache();
+      const scored = [];
+      for (const e of missed) {
+        const cv = cache.get(e.id);
+        if (cv && cv.v && cv.m === qVec.m && cv.v.length === qVec.v.length) {
+          const sem = (cosSim(qVec.v, cv.v) - 0.38) / 0.32; // bge 余弦分布窄，减基线归一（同记忆库）
+          if (sem >= 0.5) scored.push({ e, sem });
+        }
+      }
+      scored.sort((a, b) => b.sem - a.sem);
+      scored.slice(0, 2).forEach(x => hit.push(x.e));
+    }
+  }
   hit.sort((a, b) => (b.priority || 3) - (a.priority || 3) || (a.ts || 0) - (b.ts || 0));
   return hit;
 }
@@ -760,6 +828,8 @@ function idbImgOpen() { return new Promise((res, rej) => { const r = indexedDB.o
 async function idbImgPut(k, blob) { const db = await idbImgOpen(); return new Promise((res, rej) => { const tx = db.transaction("img", "readwrite"); tx.objectStore("img").put(blob, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
 async function idbImgGet(k) { const db = await idbImgOpen(); return new Promise((res, rej) => { const tx = db.transaction("img", "readonly"); const rq = tx.objectStore("img").get(k); rq.onsuccess = () => res(rq.result || null); rq.onerror = () => rej(rq.error); }); }
 async function idbImgDel(k) { const db = await idbImgOpen(); return new Promise(res => { const tx = db.transaction("img", "readwrite"); tx.objectStore("img").delete(k); tx.oncomplete = () => res(); tx.onerror = () => res(); }); }
+// 自拍整仓遍历（备份 v3 用）：[[key, blob], ...]
+async function idbImgEntries() { const db = await idbImgOpen(); return new Promise(res => { const tx = db.transaction("img", "readonly"); const st = tx.objectStore("img"); let ks = null, vs = null; const done = () => { if (ks && vs) res(ks.map((k, i) => [k, vs[i]])); }; const kq = st.getAllKeys(); const vq = st.getAll(); kq.onsuccess = () => { ks = kq.result || []; done(); }; vq.onsuccess = () => { vs = vq.result || []; done(); }; tx.onerror = () => res([]); }); }
 // 拼自拍的图像 prompt（外貌 + 此刻穿着/情境/神情）
 function buildSelfiePrompt(char, sceneDesc, st) {
   const parts = ["一张真实的手机自拍照（第一人称自拍视角 selfie，手臂伸出去拍的构图）。"];
@@ -892,6 +962,8 @@ function idbVaultOpen() { return new Promise((res, rej) => { const r = indexedDB
 async function idbVaultPut(k, blob) { const db = await idbVaultOpen(); return new Promise((res, rej) => { const tx = db.transaction("img", "readwrite"); tx.objectStore("img").put(blob, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
 async function idbVaultGet(k) { const db = await idbVaultOpen(); return new Promise((res, rej) => { const tx = db.transaction("img", "readonly"); const rq = tx.objectStore("img").get(k); rq.onsuccess = () => res(rq.result || null); rq.onerror = () => rej(rq.error); }); }
 async function idbVaultDel(k) { const db = await idbVaultOpen(); return new Promise(res => { const tx = db.transaction("img", "readwrite"); tx.objectStore("img").delete(k); tx.oncomplete = () => res(); tx.onerror = () => res(); }); }
+// 清空图库（导入 v2+ 备份前用：旧机器攒的孤儿 blob 不再带进新档，防止越导越大）
+async function idbVaultClear() { const db = await idbVaultOpen(); return new Promise(res => { const tx = db.transaction("img", "readwrite"); tx.objectStore("img").clear(); tx.oncomplete = () => res(); tx.onerror = () => res(); }); }
 async function idbVaultEntries() { const db = await idbVaultOpen(); return new Promise(res => { const tx = db.transaction("img", "readonly"); const st = tx.objectStore("img"); let ks = null, vs = null; const done = () => { if (ks && vs) res(ks.map((k, i) => [k, vs[i]])); }; const kq = st.getAllKeys(); const vq = st.getAll(); kq.onsuccess = () => { ks = kq.result || []; done(); }; vq.onsuccess = () => { vs = vq.result || []; done(); }; tx.onerror = () => res([]); }); }
 // data:URL → Blob（base64 或 URI 编码都支持）
 function dataUrlToBlob(dataUrl) { const m = /^data:([^;,]+)?(;base64)?,([\s\S]*)$/.exec(String(dataUrl || "")); if (!m) return null; const mime = m[1] || "image/png"; if (m[2]) { const bin = atob(m[3]); const arr = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); return new Blob([arr], { type: mime }); } return new Blob([decodeURIComponent(m[3])], { type: mime }); }

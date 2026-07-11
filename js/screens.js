@@ -3099,7 +3099,11 @@ function EmbedApiConfig({ toast }) {
     setRebuild({ busy: true, done: 0, total: 0 });
     try {
       const n = await ensureMemVecs(lib, { onProgress: (done, total) => setRebuild({ busy: true, done, total }) });
-      setRebuild({ busy: false, msg: n > 0 ? ("✅ 建好了：这次新嵌 " + n + " 条，记忆库共 " + lib.length + " 条全部就绪。之后新记忆入库会自动补嵌，不用再点。") : ("✅ 索引已是最新：" + lib.length + " 条记忆全都有向量，不用重建。") });
+      // v48.29 顺手把世界书词条的向量也建了（带关键词的词条语义补捞用）
+      let loreN = 0;
+      try { const loreLib = JSON.parse(localStorage.getItem("x_loreEntries") || "[]"); if (typeof ensureLoreVecs === "function" && Array.isArray(loreLib) && loreLib.length) loreN = await ensureLoreVecs(loreLib); } catch (e) {}
+      const loreMsg = loreN > 0 ? "世界书也新嵌了 " + loreN + " 条词条。" : "";
+      setRebuild({ busy: false, msg: n > 0 ? ("✅ 建好了：这次新嵌 " + n + " 条，记忆库共 " + lib.length + " 条全部就绪。" + loreMsg + "之后新记忆/词条入库会自动补嵌，不用再点。") : ("✅ 索引已是最新：" + lib.length + " 条记忆全都有向量。" + loreMsg) });
     } catch (e) { setRebuild({ busy: false, msg: "❌ 建到一半断了：" + String((e && e.message) || e) + "\n已嵌好的不白费，再点一次会从缺的地方继续。" }); }
   };
   const inSt = { width: "100%", outline: "none", padding: "9px 12px", borderRadius: 10, fontFamily: F_BODY, fontSize: 13.5, background: t.bg2, color: t.ink, border: "1px solid " + t.line };
