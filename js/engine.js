@@ -769,6 +769,28 @@ function ttsLangBoost(text) {
   if (s.trim() && !/[一-鿿぀-ヿ가-힣]/.test(s) && /[a-zA-Z]/.test(s)) return "English";
   return "Chinese";
 }
+// 取一个能调的 AI profile（优先后台便宜池，没有用主模型）——给「日语汉字转假名」这类合成期小活用
+function ttsHelperProfile() {
+  try {
+    const list = JSON.parse(localStorage.getItem("x_api") || "[]");
+    if (!Array.isArray(list) || !list.length) return null;
+    const bgId = JSON.parse(localStorage.getItem("x_bgApi") || "null");
+    const actId = JSON.parse(localStorage.getItem("x_activeApi") || "null");
+    return list.find(p => p.id === bgId) || list.find(p => p.id === actId) || list[0] || null;
+  } catch (e) { return null; }
+}
+// 日语汉字 → 假名读音（v47.93）：MiniMax 对「寝」这类中日共用汉字压不住会读成中文，
+// 合成前先让 AI 把汉字换成这句里的正确假名读音，喂假名给 TTS 就不会串中文。失败降级回原文（至少能出声）
+async function jpKanaReading(text) {
+  const p = ttsHelperProfile();
+  if (!p || !p.apiKey || !p.model) return text;
+  const sys = "你是日语朗读注音助手。把下面这句日语【全部汉字】替换成它在这句话里的正确假名读音（ひらがな），送假名/助词/原有假名保持不变，语序不变。不要罗马音、不要空格、不要标注、不要解释，只输出替换后的整句假名文本。";
+  const raw = await callAI(p, sys, [{ role: "user", content: text }], { maxTokens: 600, timeout: 30000 });
+  let kana = String(raw || "").trim().replace(/^["「『]|["」』]$/g, "");
+  // 校验：结果里不该再有汉字残留（宽松），且非空——否则用原文兜底
+  if (!kana || /[一-鿿]/.test(kana)) return text;
+  return kana;
+}
 // 合成一段语音：先查缓存，没有才真调 MiniMax（t2a_v2，hex 音频 → mp3 blob）
 async function ttsSpeak(text, voiceId) {
   const a = loadTtsApi();
@@ -789,10 +811,15 @@ async function ttsSpeak(text, voiceId) {
   const emo = slowed ? "neutral" : ttsEmotionOf(txt);   // 主动压稳时锁平静情绪
   const pit = 0;
   const boost = ttsLangBoost(txt);   // 按句子语言选发音矫正（日语句走 Japanese，别被中文带偏口音）
-  // 缓存键带语速档 + 语言矫正：不同参数别互相命中
-  const key = ttsCacheKey(vid + ":" + emo + ":lb:" + boost + (slowed ? ":s" + Math.round(spd * 100) : ""), txt);
+  // 日语汉字注音（v47.93）：音色开了 jpKana + 是日语句 + 含汉字 → 先转假名再合成，治「寝→中文qin」
+  const wantKana = !!ve.jpKana && boost === "Japanese" && /[一-鿿]/.test(txt);
+  // 缓存键带语速档 + 语言矫正 + 注音标记：不同参数别互相命中
+  const key = ttsCacheKey(vid + ":" + emo + ":lb:" + boost + (slowed ? ":s" + Math.round(spd * 100) : "") + (wantKana ? ":kana" : ""), txt);
   const hit = await idbAudGet(key).catch(() => null);
   if (hit && hit.size > 0) return hit;
+  // 缓存没命中才真去转假名（转换也缓存进最终音频，重听免费）
+  let synthTxt = txt;
+  if (wantKana) { try { synthTxt = await jpKanaReading(txt); } catch (e) {} }
   const base = (a.baseUrl || "https://api.minimax.io").trim().replace(/\/+$/, "");
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), 60000);
@@ -801,8 +828,8 @@ async function ttsSpeak(text, voiceId) {
     r = await fetch(base + "/v1/t2a_v2?GroupId=" + encodeURIComponent(a.groupId), {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + a.apiKey },
-      // language_boost 按句子语言自动选（v47.92）：中文句→Chinese矫正、日语句→Japanese，治日语角色被中文带偏
-      body: JSON.stringify({ model: a.model || "speech-02-hd", text: txt, stream: false, language_boost: boost, voice_setting: { voice_id: vid, speed: spd, vol: 1.0, pitch: pit, emotion: emo }, audio_setting: { sample_rate: 32000, bitrate: 128000, format: "mp3", channel: 1 } }),
+      // language_boost 按句子语言自动选（v47.92）；synthTxt 可能是汉字转假名后的文本（v47.93 jpKana）
+      body: JSON.stringify({ model: a.model || "speech-02-hd", text: synthTxt, stream: false, language_boost: boost, voice_setting: { voice_id: vid, speed: spd, vol: 1.0, pitch: pit, emotion: emo }, audio_setting: { sample_rate: 32000, bitrate: 128000, format: "mp3", channel: 1 } }),
       signal: ctrl.signal
     });
   } finally { clearTimeout(to); }

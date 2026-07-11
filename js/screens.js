@@ -2988,6 +2988,12 @@ function TtsApiConfig({ toast, characters, onAssignVoice }) {
             })(),
             // 语速调过（<1）却没角色在用 → 警告：实际聊天不会变
             v.speed != null && v.speed < 0.99 && users.length === 0 ? h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: "#c25a4a", marginTop: 6, lineHeight: 1.6, background: "rgba(194,90,74,0.08)", borderRadius: 8, padding: "6px 9px" } }, "⚠️ 语速设置只对试听生效——没有角色在用这个 voice_id。去角色档案把「音色」填成上面这个 id（一字不差、别多空格），实际聊天里 TA 的语音才会跟着变。") : null,
+            // 日语·汉字注音（v47.93）：日语角色专用。治「寝→中文qin」——合成前把汉字转成假名读音
+            h("div", { className: "flex items-center justify-between", style: { marginTop: 10, paddingTop: 8, borderTop: "1px dashed " + t.line } },
+              h("div", { style: { paddingRight: 10 } },
+                h("span", { style: { fontFamily: F_BODY, fontSize: 12, color: t.ink } }, "日语·汉字注音"),
+                h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.fog, marginLeft: 6 } }, "日语角色开：汉字按假名读，不串中文")),
+              h(Toggle, { on: !!v.jpKana, onChange: on => { saveVlib(vlib.map(x => x.id === v.id ? { ...x, jpKana: on } : x)); toast && toast(on ? "日语句里的汉字会先转假名再读（每条多一次很便宜的AI转换）" : "已关闭注音"); } })),
             assignFor === v.id ? h("div", { className: "flex flex-wrap gap-2", style: { marginTop: 8 } },
               (characters || []).length === 0 ? h("span", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog } }, "还没有角色，先去名录建一个。") :
               (characters || []).map(ch => h("button", { key: ch.id, onClick: () => { onAssignVoice && onAssignVoice(ch.id, v.id); setAssignFor(null); }, className: "active:opacity-70",
