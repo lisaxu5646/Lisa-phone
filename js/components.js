@@ -1568,7 +1568,7 @@ function Home({
       pi === 0 && h("div", { className: "text-center mb-3" },
         h("div", { style: { fontFamily: F_DISPLAY, fontWeight: 300, fontSize: 62, lineHeight: 1, color: t.ink, letterSpacing: "0.01em" } }, fmtClock(now)),
         h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.sub, marginTop: 2 } }, now.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" }))),
-      h("div", { className: "grid grid-cols-4 gap-y-3 gap-x-3" },
+      h("div", { className: "grid grid-cols-4 gap-y-3 gap-x-3", style: { gridAutoFlow: "dense" } },
         (keys || []).map(function (key) { return renderItem(key); })));
   })), curLayout.length > 1 && h("div", { className: "flex justify-center gap-1.5 pt-2 shrink-0" }, curLayout.map(function (_, pi) { return h("span", { key: pi, style: { width: pi === page ? 16 : 6, height: 6, borderRadius: 999, background: pi === page ? t.ink : t.line, transition: "all .25s" } }); }))), /*#__PURE__*/React.createElement("div", {
     className: "relative shrink-0 px-4 pt-1",
@@ -1627,9 +1627,11 @@ function HomeCard({ card, profile, onEditCard, onEditProfile, onOpenCodex }) {
     h("div", { className: "flex items-start gap-4" },
       h("button", { onClick: onEditProfile, className: "active:opacity-70", style: { flexShrink: 0 } }, h(Avatar, { character: { name: profile.name, avatarImage: profile.avatarImage, color: profile.color || t.accent }, size: 56, radius: 999 })),
       h("div", { className: "flex-1 min-w-0", style: { paddingTop: 1 } },
-        h("div", { style: { fontFamily: F_DISPLAY, fontSize: 22, color: t.ink, lineHeight: 1.2 } }, name),
-        h("div", { style: { fontFamily: F_DISPLAY, fontSize: 13.5, fontStyle: "italic", color: t.fog, marginTop: 3 } }, sign ? "“" + sign + "”" : "点铅笔写一句签名"),
-        tags.length ? h("div", { className: "flex flex-wrap gap-2", style: { marginTop: 9 } }, tags.map((tg, i) => h("span", { key: i, style: { fontFamily: F_BODY, fontSize: 11.5, color: t.sub, background: "rgba(255,255,255,0.5)", border: "1px solid " + t.line, borderRadius: 999, padding: "3px 11px" } }, "#" + tg))) : null),
+        h("div", { style: { fontFamily: F_DISPLAY, fontSize: 22, color: t.ink, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, name),
+        // 签名锁单行（省略号）：多行/长签名都不再把名片撑大，卡片高度固定
+        h("div", { style: { fontFamily: F_DISPLAY, fontSize: 13.5, fontStyle: "italic", color: t.fog, marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, sign ? "“" + sign.replace(/\s*\n\s*/g, " ") + "”" : "点铅笔写一句签名"),
+        // #标签紧凑横排：缩小内边距/字号/间距，让标签在同一行流式排布（不再一个一行竖着堆），窄了自动换行、一行通常放得下三个左右
+        tags.length ? h("div", { className: "flex flex-wrap gap-1.5", style: { marginTop: 8 } }, tags.map((tg, i) => h("span", { key: i, style: { fontFamily: F_BODY, fontSize: 11, color: t.sub, background: "rgba(255,255,255,0.5)", border: "1px solid " + t.line, borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap", flexShrink: 0 } }, "#" + tg))) : null),
       h("div", { className: "flex flex-col gap-1.5", style: { flexShrink: 0 } },
         h("button", { onClick: onEditCard, className: "active:opacity-60 flex items-center justify-center", style: { width: 30, height: 30, borderRadius: 999, background: "rgba(255,255,255,0.5)", border: "1px solid " + t.line } }, h(IPencil, { size: 14, color: t.fog })),
         onOpenCodex ? h("button", { onClick: onOpenCodex, className: "active:opacity-60 flex items-center justify-center", title: "使用手册", style: { width: 30, height: 30, borderRadius: 999, background: "rgba(255,255,255,0.5)", border: "1px solid " + t.line, fontFamily: F_DISPLAY, fontSize: 14, color: t.fog } }, "?") : null)));
