@@ -1,11 +1,63 @@
 // ============================================================
 // CAST + form
 // ============================================================
+// 角色卡一键导入（v48.30，搬家器）：整篇卡粘进来 → 自动拆 名字/人设/初始长期记忆/记忆库种子（〔置顶〕识别）。
+// 认「## 标题」分节的卡（如小克的出生证明）；没有结构的就整篇当人设，绝不导入失败。
+function parseCharCard(raw) {
+  const text = String(raw || "").replace(/\r/g, "");
+  const out = { name: "", persona: "", longMem: "", seeds: [] };
+  let m = text.match(/^#\s*([^\n·#]+?)\s*[·|]?\s*角色卡/m) || text.match(/名字[「"']([^」"']+)[」"']/);
+  if (m) out.name = m[1].trim();
+  const secs = [];
+  const re = /^##+\s*(.+)$/gm;
+  let last = null, mm;
+  while ((mm = re.exec(text))) {
+    if (last) secs.push({ title: last.title, body: text.slice(last.end, mm.index).trim() });
+    last = { title: mm[1].trim(), end: mm.index + mm[0].length };
+  }
+  if (last) secs.push({ title: last.title, body: text.slice(last.end).trim() });
+  const find = kws => secs.find(s => kws.some(k => s.title.includes(k)));
+  const pSec = find(["人设"]);
+  const mSec = find(["长期记忆", "初始记忆"]);
+  const sSec = find(["记忆库种子", "种子", "记忆库"]);
+  if (pSec) out.persona = pSec.body.trim();
+  if (mSec) out.longMem = mSec.body.trim();
+  if (sSec) {
+    out.seeds = sSec.body.split(/\n(?=\d+[\.、．)]\s*)/).map(s => s.replace(/^\d+[\.、．)]\s*/, "").replace(/\s+/g, " ").trim()).filter(s => s.length > 4).map(s => {
+      const pinned = /[〔\[【]\s*置顶\s*[〕\]】]/.test(s);
+      return { text: s.replace(/[〔\[【]\s*置顶\s*[〕\]】]/g, "").trim(), pinned };
+    });
+  }
+  if (!out.persona) out.persona = text.trim(); // 没认出结构：整篇当人设，名字留给用户改
+  return out;
+}
+function CardImportSheet({ onImport, onClose }) {
+  const t = useTheme();
+  const [txt, setTxt] = useState("");
+  const p = txt.trim() ? parseCharCard(txt) : null;
+  return h(Sheet, { onClose, tall: true },
+    h("div", { style: { fontFamily: F_DISPLAY, fontSize: 20, color: t.ink, marginBottom: 4 } }, "导入角色卡"),
+    h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, marginBottom: 12, lineHeight: 1.55 } }, "把整篇角色卡粘进来（支持「## 人设 / ## 长期记忆 / ## 记忆库种子」分节的卡，种子里〔置顶〕会自动置顶）——一键建档+种记忆，不用再手动逐步贴。没有分节的就整篇当人设。"),
+    h("textarea", { value: txt, onChange: e => setTxt(e.target.value), rows: 10, placeholder: "在这里粘贴整篇角色卡…", style: { width: "100%", background: t.bg, border: "1px solid " + t.line, borderRadius: 12, padding: "11px 13px", fontFamily: F_BODY, fontSize: 13, color: t.ink, resize: "none", lineHeight: 1.6 } }),
+    p ? h("div", { style: { marginTop: 12, padding: "11px 13px", borderRadius: 12, background: t.bg, border: "1px solid " + t.line } },
+      h(Eyebrow, { style: { marginBottom: 6 } }, "解析预览"),
+      h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink, lineHeight: 1.8 } },
+        "名字：" + (p.name || "（没认出来，导入后记得改）"),
+        h("br"), "人设：" + (p.persona ? p.persona.length + " 字" : "—"),
+        h("br"), "初始长期记忆：" + (p.longMem ? p.longMem.length + " 字" : "（无）"),
+        h("br"), "记忆库种子：" + (p.seeds.length ? p.seeds.length + " 条（置顶 " + p.seeds.filter(s => s.pinned).length + " 条）" : "（无）"))) : null,
+    h("button", {
+      onClick: () => { if (p && p.persona) onImport(p); },
+      className: "w-full mt-3 active:opacity-70",
+      style: { background: p && p.persona ? t.ink : t.line, color: t.bg2, borderRadius: 14, padding: "13px 0", fontFamily: F_BODY, fontSize: 15 }
+    }, "导入并建档"));
+}
 function Cast({
   characters,
   onBack,
   onEdit,
   onAdd,
+  onImportCard,
   onOpenChar
 }) {
   const t = useTheme();
@@ -15,13 +67,15 @@ function Cast({
     zh: "名录",
     en: "Guest List",
     onBack: onBack,
-    right: /*#__PURE__*/React.createElement("button", {
-      onClick: onAdd,
-      className: "active:opacity-50"
-    }, /*#__PURE__*/React.createElement(IPlus, {
-      size: 20,
-      color: t.ink
-    }))
+    right: h("div", { className: "flex items-center gap-3" },
+      onImportCard ? h("button", { onClick: onImportCard, className: "active:opacity-50", style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, border: "1px solid " + t.line, borderRadius: 999, padding: "4px 10px" } }, "导入角色卡") : null,
+      /*#__PURE__*/React.createElement("button", {
+        onClick: onAdd,
+        className: "active:opacity-50"
+      }, /*#__PURE__*/React.createElement(IPlus, {
+        size: 20,
+        color: t.ink
+      })))
   }), h("div", {
     className: "flex-1 overflow-y-auto px-5 pb-8 pt-1"
   }, characters.length === 0 ? h(Empty, {

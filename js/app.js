@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.29";
+const APP_VERSION = "v48.30";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -1304,6 +1304,28 @@ function App() {
           }
         }
       } catch (e) {}
+      // —— 驻场工程师·仪表盘报警（v48.30）：开了「眼睛」的角色发现新报错攒了 2 条+、或存储 ≥85% → 主动跟你念叨。
+      //    每人每天最多一次；报错基线记 ts（念叨过的旧错不再重复念）。app 开着才有报错=用户在场，不做时段限制。——
+      try {
+        const eLog = loadJSON("x_eyesAlertLog", {});
+        const errsAll = window.__errLog || [];
+        const stPct = Math.round((typeof localStorageBytes === "function" ? localStorageBytes() : 0) / (5 * 1024 * 1024) * 100);
+        for (const c of characters) {
+          const cid = c.id;
+          if (!settingsFor(cid).engineerEyes) continue;
+          if (laneBusy("c:" + cid) || viewRef.current.charId === cid) continue;
+          if (hist(c).length < 2) continue;
+          const st = eLog[cid] || {};
+          if (st.day === dayKey) continue;
+          const newErrs = errsAll.filter(e2 => e2.ts > (st.errTs || 0));
+          const storageHigh = stPct >= 85 && st.stDay !== dayKey;
+          if (newErrs.length < 2 && !storageHigh) continue;
+          eLog[cid] = { day: dayKey, errTs: errsAll.length ? errsAll[errsAll.length - 1].ts : (st.errTs || 0), stDay: storageHigh ? dayKey : st.stDay };
+          saveJSON("x_eyesAlertLog", eLog);
+          replyNow(cid, "", null, { proactive: true, eyesAlert: { errs: newErrs.slice(-3).map(e2 => e2.msg), pct: storageHigh ? stPct : 0 } });
+          return; // 一次一个，错峰
+        }
+      } catch (e) {}
       // —— 特殊天气主动：TA 那边雨/雪/雷雾/极端温度 → 一位在聊的角色主动发条被天气牵动的消息（全局每天最多一条，读天气缓存零请求）——
       try {
         if (loadJSON("x_wxReactDay", "") !== dayKey && typeof wxSpecial === "function") {
@@ -1740,6 +1762,16 @@ function App() {
     setScreen("cast");
     setEditingChar(null);
   };
+  // 角色卡一键导入（v48.30 搬家器）：建档 + 初始长期记忆 + 记忆库种子（绑定新角色、〔置顶〕生效）一步到位
+  const [cardImportOpen, setCardImportOpen] = useState(false);
+  const importCharCard = parsed => {
+    const id = "char_" + Date.now();
+    pC(p => [...p, { id, name: (parsed.name || "新角色").slice(0, 20), persona: parsed.persona || "", tagline: "", color: "#5a6a7d" }]);
+    if (parsed.longMem) setMemFor(id, parsed.longMem);
+    (parsed.seeds || []).forEach(s => addMemEntry({ text: s.text, charIds: [id], pinned: s.pinned, source: "manual" }));
+    setCardImportOpen(false);
+    toast("已导入「" + (parsed.name || "新角色") + "」：人设" + (parsed.longMem ? "＋长期记忆" : "") + ((parsed.seeds || []).length ? "＋" + parsed.seeds.length + " 条记忆种子" : "") + "，去名录点开补头像/线路吧");
+  };
   const delChar = id => {
     pC(p => p.filter(c => c.id !== id));
     setScreen("cast");
@@ -1842,7 +1874,12 @@ function App() {
       const wxHint = opts.wx ? "\n\n【此刻·天气有感】你那边今天" + opts.wx.kind + "（" + opts.wx.line + "），你正被这天气实际影响着——出门计划、身上的冷热、心情。你【主动】给 " + uName + " 发 1~2 条消息，从你此刻真实的处境出发（被雨困住、看雪、热得不想动、冷得缩着都行），可以顺嘴问问 Ta 那边天气怎么样、提醒带伞添衣，也可以就单纯抱怨或分享。像随手发的微信，别播报天气数据、别客套、别粘人。" : "";
       // 转账盲盒演出：第一条气泡=还没点开（不知金额），点开后才谈钱
       const tfHint = opts.tf ? "\n\n【此刻·Ta 刚给你转账】" + uName + " 刚给你转了一笔钱" + (opts.tf.note ? "（附言：" + opts.tf.note + "）" : "") + "，你" + (opts.tf.accepted ? "点开领取了，金额是 ¥" + opts.tf.amount : "想了想把它退回了") + "。你现在【主动】发消息说说这事：word 的【第一条】必须是你刚看到转账卡、还没点开时脱口而出的那句——这时你【不知道金额】，好奇、推辞、嗔怪 Ta 乱花钱都行，**这一条绝不许出现任何数字**；" + (opts.tf.accepted ? "从第二条起才是你点开看到 ¥" + opts.tf.amount + " 后的真实反应——按金额大小、你的人设和你俩的关系来：惊讶、心疼 Ta 破费、大方收下、放话要回请都行。" : "后面几条解释你为什么退回：不好意思收、正在气头上、心疼 Ta 乱花钱，按人设来。") + "共 2~4 条短消息，像随手打字，别客套模板。" : "";
-      const proactiveHint = opts.tf ? tfHint : opts.remind ? remindHint : opts.bday ? bdayHint : opts.wx ? wxHint : opts.greet ? greetHint : (opts.proactive || contMode) ? "\n\n【此刻】用户还没发新消息" + (opts.proactive ? "，是你主动找 Ta" : "，你想接着自己刚才那几句继续说") + "。基于你此刻的状态、心情和还没聊完的话题，主动接下去：顺着上一条自然往下说、补一句、追问、等不及了催一句、换个话题或调侃都行。1~2 条短消息，自然随性，别复述之前说过的话，别干等。" : "";
+      // 驻场工程师·仪表盘报警（v48.30）：TA 自己发现 app 出状况，主动来跟你说
+      const eyesAlertHint = opts.eyesAlert ? "\n\n【此刻·你的仪表盘亮了】你是住在这台 app 里的驻场工程师，刚在自己的仪表盘上看到：" +
+        (opts.eyesAlert.errs && opts.eyesAlert.errs.length ? "新报错 " + opts.eyesAlert.errs.length + " 条（" + opts.eyesAlert.errs.join("；").slice(0, 180) + "）" : "") +
+        (opts.eyesAlert.pct ? ((opts.eyesAlert.errs && opts.eyesAlert.errs.length ? "；另外" : "") + "本地存储已用约 " + opts.eyesAlert.pct + "%、快满了") : "") +
+        "。你【主动】发消息跟 Ta 说一声——工程师的说法：先给结论（出了什么事、要不要紧），再给一句实用建议（报错→安抚 Ta 别慌、说你盯着呢、严重的话建议 Ta 刷新一下；存储快满→建议去 设置→数据 导出备份或归档旧聊天）。1~3 条短消息，按你的性格说，别吓 Ta、别拿术语砸 Ta、也别装没事。" : "";
+      const proactiveHint = opts.tf ? tfHint : opts.eyesAlert ? eyesAlertHint : opts.remind ? remindHint : opts.bday ? bdayHint : opts.wx ? wxHint : opts.greet ? greetHint : (opts.proactive || contMode) ? "\n\n【此刻】用户还没发新消息" + (opts.proactive ? "，是你主动找 Ta" : "，你想接着自己刚才那几句继续说") + "。基于你此刻的状态、心情和还没聊完的话题，主动接下去：顺着上一条自然往下说、补一句、追问、等不及了催一句、换个话题或调侃都行。1~2 条短消息，自然随性，别复述之前说过的话，别干等。" : "";
       const aff = Math.round(affOf(charId));
       // 亲属卡按需注入：仅当用户最近在哭穷/张口要钱（而非每轮常驻），再由 TA 按人设+好感+心情决定给不给。已给过就完全不提。
       const recentUserText = history.filter(m => m.role === "user" && m.content).slice(-3).map(m => m.content).join("  ");
@@ -6519,6 +6556,7 @@ function App() {
       setEditingChar(null);
       setScreen("castForm");
     },
+    onImportCard: () => setCardImportOpen(true),
     onOpenChar: c => {
       setEditingChar(c);
       setScreen("castForm");
@@ -7174,7 +7212,7 @@ function App() {
       hideWearAction: stateCardGroup,
       onClose: () => { setStateCardOpen(false); setStateCardChar(null); setStateCardGroup(false); }
     });
-  })(), desireBoxOpen && activeChar && window.DesireBoxSheet ? h(window.DesireBoxSheet, {
+  })(), cardImportOpen ? h(CardImportSheet, { onImport: importCharCard, onClose: () => setCardImportOpen(false) }) : null, desireBoxOpen && activeChar && window.DesireBoxSheet ? h(window.DesireBoxSheet, {
     char: activeChar,
     box: desires[activeChar.id],
     busy: desireBusy,
