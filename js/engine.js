@@ -42,6 +42,33 @@ async function fetchModelList(p) {
   if (d.error) throw new Error(d.error.message);
   return (d.data || []).map(m => m.id).sort();
 }
+// 检测这个 API 支不支持 embedding（向量记忆的前提）：真调一次 /embeddings，返回 { ok, dim, model, msg }
+// 只走 openai 兼容格式（中转站基本都是这个）；anthropic 原生没 embedding、gemini 端点不同——都提示换法
+async function testEmbedding(p) {
+  const base = (p.baseUrl || "").replace(/\/$/, "");
+  const fmt = detectFormat(base);
+  if (fmt === "anthropic") return { ok: false, msg: "Anthropic 原生不提供 embedding。若你用的是中转站，把地址换成它的 OpenAI 兼容端点(通常 .../v1)再测。" };
+  if (fmt === "gemini") return { ok: false, msg: "Gemini 的 embedding 端点是 :embedContent，和这里不同。多数中转站有 OpenAI 兼容的 /v1/embeddings，把地址换成那个再测。" };
+  const root = base.endsWith("/v1") ? base : base + "/v1";
+  const candidates = [p.embedModel, "text-embedding-3-small", "text-embedding-ada-002", "bge-m3", "text-embedding-v3"].filter(Boolean);
+  let lastErr = "";
+  for (const model of candidates) {
+    try {
+      const r = await fetchT(root + "/embeddings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + p.apiKey },
+        body: JSON.stringify({ model: model, input: "测试向量" })
+      }, 20000);
+      const raw = await r.text();
+      let d; try { d = JSON.parse(raw); } catch (e) { lastErr = "返回非 JSON：" + raw.slice(0, 80); continue; }
+      if (d && d.error) { lastErr = (d.error.message || JSON.stringify(d.error)).slice(0, 120); continue; }
+      const vec = d && d.data && d.data[0] && d.data[0].embedding;
+      if (Array.isArray(vec) && vec.length) return { ok: true, dim: vec.length, model: model };
+      lastErr = "返回里没找到向量：" + raw.slice(0, 80);
+    } catch (e) { lastErr = e.message || String(e); }
+  }
+  return { ok: false, msg: lastErr || "都试过了，没有可用的 embedding 模型" };
+}
 // 带超时的 fetch：超时/卡死时中断并抛出可读错误，避免无限转圈
 async function fetchT(url, options, ms) {
   const ctrl = new AbortController();

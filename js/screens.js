@@ -3244,6 +3244,16 @@ function ApiConfig({
       setFetching(false);
     }
   };
+  // 测这个配置支不支持向量（embedding）——想搞向量记忆前先按这个确认
+  const [embTest, setEmbTest] = useState(null);
+  const testEmb = async () => {
+    if (!cur.baseUrl || !cur.apiKey) { toast("先填地址和 key"); return; }
+    setEmbTest({ busy: true });
+    try {
+      const r = await testEmbedding(cur);
+      setEmbTest(r);
+    } catch (e) { setEmbTest({ ok: false, msg: e.message || String(e) }); }
+  };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(LineField, {
     zh: "选择配置",
     en: "Profile",
@@ -3376,7 +3386,19 @@ function ApiConfig({
     onChange: v => upd({
       temperature: v
     })
-  })), /*#__PURE__*/React.createElement("div", {
+  })),
+  // 向量记忆前置检测：这个 API 支不支持 embedding
+  h("div", { style: { marginTop: 20, paddingTop: 16, borderTop: "1px solid " + t.line } },
+    h("div", { className: "flex items-center justify-between", style: { marginBottom: 6 } },
+      h("div", null,
+        h("span", { style: { fontFamily: F_DISPLAY, fontSize: 15, color: t.ink } }, "向量记忆检测"),
+        h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginLeft: 8 } }, "Embedding")),
+      h("button", { onClick: testEmb, disabled: embTest && embTest.busy, className: "active:opacity-70 disabled:opacity-40", style: { fontFamily: F_BODY, fontSize: 11.5, color: t.ink, borderBottom: "1.5px solid " + t.ink, paddingBottom: 1 } }, embTest && embTest.busy ? "检测中…" : "测一下")),
+    h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, lineHeight: 1.6, marginBottom: embTest && !embTest.busy ? 8 : 0 } }, "想搞向量记忆（更聪明的记忆检索）先测这个——会真调一次这家的 /embeddings 接口。"),
+    embTest && !embTest.busy ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, lineHeight: 1.6, padding: "9px 12px", borderRadius: 10, background: embTest.ok ? "rgba(90,150,90,0.1)" : "rgba(194,90,74,0.09)", border: "1px solid " + (embTest.ok ? "#8ab88a55" : "#c25a4a55"), color: embTest.ok ? "#4a7a4a" : "#b0503f" } },
+      embTest.ok ? ("✅ 支持！模型「" + embTest.model + "」，向量维度 " + embTest.dim + "。可以搞向量记忆了。") : ("❌ 不支持 / 没测通：" + (embTest.msg || "未知") + (embTest.embModelHint ? "" : "\n可在下面手填 embedModel 再试。"))) : null,
+    h("input", { value: cur.embedModel || "", onChange: e => upd({ embedModel: e.target.value }), placeholder: "可选：手填 embedding 模型名（如 text-embedding-3-small）", style: { width: "100%", outline: "none", marginTop: 8, padding: "8px 11px", borderRadius: 9, fontFamily: F_BODY, fontSize: 12, background: t.bg2, color: t.ink, border: "1px solid " + t.line } })),
+  /*#__PURE__*/React.createElement("div", {
     className: "flex gap-3 mt-8"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => {
@@ -3803,20 +3825,51 @@ function CloudSync({ toast }) {
     label("云备份"), ...inner);
 }
 // 本地存储占用条：localStorage 约 5MB 上限（图片吃大头），快满时红色预警——防「悄悄写满丢数据」
+// 存储 key → 人话名称（谁占地方一眼看懂）；前缀匹配，最长优先
+const STORAGE_KEY_LABELS = [
+  ["x_chat:", "聊天记录"], ["x_gchat:", "群聊记录"], ["x_emojiPacks", "表情包"], ["x_emoji", "表情包"],
+  ["x_wallpaper", "壁纸"], ["x_moments", "朋友圈"], ["x_characters", "角色档案(含头像)"],
+  ["x_memLib", "记忆库"], ["x_memories", "长期记忆"], ["x_diaries", "日记"],
+  ["x_forumPosts", "论坛帖子"], ["x_forumComments", "论坛评论"], ["x_fanfic", "同人文"],
+  ["x_carry", "随身物"], ["x_selfie", "自拍(缩略)"], ["x_coupleExDiary", "交换日记"],
+  ["x_capsule", "时光胶囊"], ["x_schedules", "角色日程"], ["x_couple", "情侣空间"],
+  ["x_ledger", "记账"], ["x_memo", "备忘录"], ["x_read", "一起读"], ["x_study", "一起学"],
+  ["x_lore", "世界书"], ["x_geo", "定位"], ["x_wx", "天气缓存"]
+];
+function storageBreakdown() {
+  const rows = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i); if (!k) continue;
+      const bytes = (k.length + (localStorage.getItem(k) || "").length) * 2;
+      let label = null;
+      for (const [pfx, name] of STORAGE_KEY_LABELS) { if (k.indexOf(pfx) === 0) { label = name; break; } }
+      if (!label) label = k.indexOf("x_") === 0 ? "其他数据" : "系统/其他";
+      rows[label] = (rows[label] || 0) + bytes;
+    }
+  } catch (e) {}
+  return Object.keys(rows).map(name => ({ name, bytes: rows[name] })).sort((a, b) => b.bytes - a.bytes);
+}
 function StorageMeter() {
   const t = useTheme();
   const [info, setInfo] = useState(null);
-  useEffect(() => {
+  const [detail, setDetail] = useState(false);
+  const refresh = () => {
     const ls = (typeof localStorageBytes === "function") ? localStorageBytes() : 0;
     const LIMIT = 5 * 1024 * 1024;
+    const rows = storageBreakdown();
     if (navigator.storage && navigator.storage.estimate) {
-      navigator.storage.estimate().then(est => setInfo({ ls: ls, lim: LIMIT, idbUsed: est.usage || 0, idbQuota: est.quota || 0 })).catch(() => setInfo({ ls: ls, lim: LIMIT }));
-    } else setInfo({ ls: ls, lim: LIMIT });
-  }, []);
+      navigator.storage.estimate().then(est => setInfo({ ls: ls, lim: LIMIT, idbUsed: est.usage || 0, idbQuota: est.quota || 0, rows: rows })).catch(() => setInfo({ ls: ls, lim: LIMIT, rows: rows }));
+    } else setInfo({ ls: ls, lim: LIMIT, rows: rows });
+  };
+  useEffect(refresh, []);
   if (!info) return null;
   const pct = Math.min(100, Math.round(info.ls / info.lim * 100));
   const near = pct >= 80;
   const mb = n => (n / 1048576).toFixed(1);
+  const kb = n => n >= 102400 ? (n / 1048576).toFixed(2) + " MB" : Math.round(n / 1024) + " KB";
+  const rows = info.rows || [];
+  const maxB = rows.length ? rows[0].bytes : 1;
   return h("div", { style: { marginBottom: 20, padding: "14px 15px", background: t.bg2, border: "1px solid " + (near ? "#c25a4a" : t.line), borderRadius: 12 } },
     h("div", { className: "flex items-center justify-between", style: { marginBottom: 8 } },
       h("span", { style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.ink } }, "本地存储占用"),
@@ -3824,8 +3877,18 @@ function StorageMeter() {
     h("div", { style: { height: 8, borderRadius: 999, background: t.line, overflow: "hidden" } },
       h("div", { style: { width: pct + "%", height: "100%", borderRadius: 999, background: near ? "#c25a4a" : (pct >= 60 ? "#b89150" : t.tint), transition: "width .3s" } })),
     h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 8, lineHeight: 1.6 } },
-      near ? "⚠️ 快满了！主要是图片（头像/壁纸/朋友圈图/表情包）占地方——删掉些用不到的图、或导出备份后清理。满了新消息会存不进、可能丢。"
+      near ? "⚠️ 快满了！点下面「看谁占地方」找出大头——通常是壁纸/表情包/头像/朋友圈图。删掉用不到的、或导出备份后清理。满了新消息会存不进、可能丢。"
         : "文字＋图片都存这里（上限约 5MB），图片占大头。快满时 app 会提前弹警告。"),
+    // 明细：谁占地方一眼看穿
+    h("button", { onClick: () => { setDetail(d => !d); refresh(); }, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 11.5, color: t.tint, marginTop: 8 } }, detail ? "收起明细 ▴" : "看谁占地方 ▾"),
+    detail ? h("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", gap: 6 } },
+      rows.slice(0, 12).map(r => h("div", { key: r.name },
+        h("div", { className: "flex items-center justify-between", style: { marginBottom: 2 } },
+          h("span", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.ink } }, r.name),
+          h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: r.bytes >= 512000 ? "#c25a4a" : t.fog } }, kb(r.bytes) + " · " + Math.round(r.bytes / info.ls * 100) + "%")),
+        h("div", { style: { height: 3, borderRadius: 999, background: t.line, overflow: "hidden" } },
+          h("div", { style: { width: Math.max(2, Math.round(r.bytes / maxB * 100)) + "%", height: "100%", borderRadius: 999, background: r.bytes >= 512000 ? "#c25a4a" : (r.bytes >= 204800 ? "#b89150" : t.tint) } })))),
+      h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 4, lineHeight: 1.6 } }, "红=大头(≥0.5MB)。壁纸/表情包/头像是常见凶手：换小图、删旧表情包、清理老角色头像最省地方。图片迁 IndexedDB 是根治方向（后续可做）。")) : null,
     info.idbQuota ? h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 6 } }, "音频 / 自拍 / 书正文另存在 IndexedDB（已用 " + mb(info.idbUsed) + " MB，空间大得多、不占这 5MB）") : null);
 }
 function DataConfig({
