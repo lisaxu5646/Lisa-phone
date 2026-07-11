@@ -1163,7 +1163,7 @@ async function generateOffline(p, ctx, session) {
 // 结束线下时把整段浓缩成一条记忆（第三人称，供存入记忆库）
 async function summarizeOffline(p, ctx, session) {
   const userName = (ctx.profile && ctx.profile.name) || "用户";
-  const text = (session.msgs || []).map(m => {
+  const text = (session.msgs || []).filter(m => !isOocMsg(m)).map(m => {
     if (m.role === "char") return ctx.char.name + "：" + (m.content || "");
     if (m.role === "narration") return "【场景】" + (m.content || "");
     return userName + "：" + (m.content || "");
@@ -1389,6 +1389,11 @@ function lunarFestivalOn(dateObj) {
   if (l.m === 12 && l.d === lunarMonthDays(l.y, 12)) return "除夕";
   return null;
 }
+// 这条消息是不是 OOC 幕后对话（v48.13 她点名：OOC 是说给模型听的，角色本人不该记住）。
+// 两种形态都要认：①用户的 OOC 提问和群/线下的 OOC 回复都存 kind:"ooc"；
+// ②单聊的 OOC 回复历史上存的是 kind:"system" + turnId:"ooc_…"——按 turnId 前缀兜住（含她已有的旧记录）。
+// 所有「角色视角」的取材（记忆抽取/长期记忆/日记/周刊/同人文/塔罗/梦境/辩论/番茄钟/prompt 原文窗）都用它过滤。
+function isOocMsg(m) { return !!(m && (m.kind === "ooc" || (m.turnId && String(m.turnId).indexOf("ooc_") === 0))); }
 // OOC：跳出角色，直接和模型对话（调整/问状态/问剧情）
 async function oocAsk(p, ctx, question) {
   const existing = (ctx.directives || []).map(d => (typeof d === "string" ? d : d && d.text) || "").filter(s => s.trim());

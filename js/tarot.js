@@ -56,7 +56,7 @@
     const msgs = loadJSON("x_chat:" + charId, []);
     if (!msgs.length) return "";
     return msgs.slice(-10)
-      .filter(m => m && (m.content || "").trim() && (m.role === "user" || m.role === "assistant"))
+      .filter(m => m && (m.content || "").trim() && (m.role === "user" || m.role === "assistant") && !isOocMsg(m))
       .map(m => (m.role === "user" ? uName : charName) + "：" + String(m.content).replace(/\s+/g, " ").slice(0, 70))
       .join("\n");
   }

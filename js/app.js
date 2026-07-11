@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.12";
+const APP_VERSION = "v48.13";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -847,7 +847,7 @@ function App() {
   };
   const extractMemForChar = async charId => {
     if (!active) { toast("请先到设置配置 API"); return; }
-    const msgs = (chatsRef.current[charId] || []).filter(m => !m.recalled && m.kind !== "offlinelog").slice(-40);
+    const msgs = (chatsRef.current[charId] || []).filter(m => !m.recalled && m.kind !== "offlinelog" && !isOocMsg(m)).slice(-40);
     if (msgs.length < 2) { toast("对话太少，先多聊几句"); return; }
     startLane("c:" + charId);
     try { const n = await extractAndAddForChar(charId, msgs); toast(n ? "已抽取 " + n + " 条记忆" : "没有抽到新的记忆点（都已经记过了）"); }
@@ -862,7 +862,7 @@ function App() {
     const cnt = (memExtractCtrRef.current[charId] || 0) + 1;
     memExtractCtrRef.current[charId] = cnt;
     if (cnt % interval !== 0) return;
-    const msgs = (chatsRef.current[charId] || []).filter(m => !m.recalled && m.kind !== "offlinelog").slice(-24);
+    const msgs = (chatsRef.current[charId] || []).filter(m => !m.recalled && m.kind !== "offlinelog" && !isOocMsg(m)).slice(-24);
     if (msgs.length < 4) return;
     try { await extractAndAddForChar(charId, msgs); } catch (e) {/* 静默 */}
   };
@@ -964,7 +964,7 @@ function App() {
     return "";
   };
   // 近期对话文本（供世界书关键词命中）
-  const recentChatText = char => (chatsRef.current[char.id] || []).filter(m => !m.recalled).slice(-8).map(m => m.content).join("\n");
+  const recentChatText = char => (chatsRef.current[char.id] || []).filter(m => !m.recalled && !isOocMsg(m)).slice(-8).map(m => m.content).join("\n");
   // 按角色 + 适用范围检索世界书注入文本（scope: chat/subjects/debate/lifestyle/diary）
   const loreFor = (char, scope) => loreText(loreRef.current, { charIds: char ? [char.id] : [], scope: scope || "chat", text: char ? recentChatText(char) : "" });
   const ctxFor = char => ({
@@ -988,7 +988,7 @@ function App() {
     moodLabel: (moods[char.id] || {}).label || null,
     directives: directives[char.id] || [],
     memory: memories[char.id],
-    memLib: retrieveMemories(memLibRef.current, char.id, (chatsRef.current[char.id] || []).filter(m => !m.recalled).slice(-8).map(m => m.content).join("\n"), { limit: memCfgRef.current.topK || 5 }),
+    memLib: retrieveMemories(memLibRef.current, char.id, recentChatText(char), { limit: memCfgRef.current.topK || 5 }),
     geo: prefs.geoAware ? geo : null,
     timeAware: prefs.timeAware,
     giftLog: (() => {
@@ -1148,7 +1148,7 @@ function App() {
     // 短期原文窗 = 最近 ctxN 条 ∪ 最近 recentDays 天（消死区：只要是这几天说的一定带上）
     // 封顶用【字符预算】而非条数：长消息少带几条、短消息多带几条 → 成本可控，且高频用户不会每轮都顶着上百条原文（按次计费的核心 prompt）
     recentChat: (() => {
-      const all = (chatsRef.current[char.id] || []).filter(m => !m.recalled && m.content);
+      const all = (chatsRef.current[char.id] || []).filter(m => !m.recalled && m.content && !isOocMsg(m));
       if (!all.length) return "";
       const ctxN = settingsFor(char.id).ctxN || 50;
       const days = memCfgRef.current.recentDays || 3;
@@ -1719,7 +1719,7 @@ function App() {
     const unsummarized = msgs.length - lastSum;
     if (unsummarized >= s.sumThresh) {
       const char = characters.find(c => c.id === charId);
-      const toSummarize = msgs.slice(lastSum, msgs.length - s.sumBuffer);
+      const toSummarize = msgs.slice(lastSum, msgs.length - s.sumBuffer).filter(m => !isOocMsg(m)); // OOC 不进长期记忆（计数窗口不变，只是浓缩时剔掉）
       if (toSummarize.length > 0) {
         try {
           // 止漂移：只浓缩这段新对话成一段带日期的记忆，【追加】到旧记忆末尾，不重炼整团（避免老细节被反复压糊）。封顶 8000 字，超了从头截、保最近。
@@ -2159,7 +2159,13 @@ function App() {
     }
     startLane("c:" + charId);
     try {
-      const res = await oocAsk(active, ctxFor(char), text.trim());
+      // OOC 助手的连续性：角色视角的 recentChat 已把 OOC 全滤掉（v48.13），
+      // 但助手自己要能接得上之前的 OOC 来回——单独补一段【带标签】的幕后对话，和正戏分清、不会再混
+      const oocCtx = ctxFor(char);
+      const oocLines = (chatsRef.current[charId] || []).filter(m => !m.recalled && isOocMsg(m)).slice(-8)
+        .map(m => (m.role === "user" ? "用户(OOC)" : "助手(OOC)") + "：" + String(m.content || "").slice(0, 300)).join("\n");
+      if (oocLines) oocCtx.recentChat = (oocCtx.recentChat ? oocCtx.recentChat + "\n\n" : "") + "【最近的 OOC 幕后对话（用户越过角色和你这个助手聊的——角色本人不知道这些，别当成他俩的对话）】\n" + oocLines;
+      const res = await oocAsk(active, oocCtx, text.trim());
       // 合理的调整要求 → 存成长期准则（refused 时不存）
       if (res.directive && !res.refused) addDirective(charId, res.directive);
       pChat(charId, p => [...p, {
@@ -2334,7 +2340,7 @@ function App() {
       if (gs.memoryInterop) {
         const memLines = members.map(c => {
           const mem = memories[c.id];
-          const priv = gs.privateCtxN > 0 ? (chatsRef.current[c.id] || []).filter(m => !m.recalled).slice(-gs.privateCtxN).map(m => "[" + fmtStampAI(m.ts) + "] " + (m.role === "user" ? profile.name || "用户" : c.name) + ": " + m.content).join("\n") : "";
+          const priv = gs.privateCtxN > 0 ? (chatsRef.current[c.id] || []).filter(m => !m.recalled && !isOocMsg(m)).slice(-gs.privateCtxN).map(m => "[" + fmtStampAI(m.ts) + "] " + (m.role === "user" ? profile.name || "用户" : c.name) + ": " + m.content).join("\n") : "";
           const seg = [mem && "长期记忆：" + mem, priv && "最近私聊（带时间，请和群聊记录一起按真实时间先后理解发生顺序）：\n" + priv].filter(Boolean).join("\n");
           return seg ? "『" + c.name + "』\n" + seg : "";
         }).filter(Boolean).join("\n\n");
@@ -2725,7 +2731,7 @@ function App() {
       toast("请先配置 API");
       return;
     }
-    const msgs = (groupChatsRef.current[groupId] || []).filter(m => m.content).slice(-40);
+    const msgs = (groupChatsRef.current[groupId] || []).filter(m => m.content && !isOocMsg(m)).slice(-40);
     if (msgs.length < 2) {
       toast("群聊太少");
       return;
@@ -2814,7 +2820,7 @@ function App() {
     const msgs = (groupChatsRef.current[groupId] || []).filter(m => m.role === "user" || m.role === "assistant" || m.role === "narration");
     const lastSum = gs.lastSummarizedCount || 0;
     if (msgs.length - lastSum < thresh) return;
-    const toSum = msgs.slice(lastSum, msgs.length - buffer);
+    const toSum = msgs.slice(lastSum, msgs.length - buffer).filter(m => !isOocMsg(m)); // OOC 不进群记忆（计数窗口不变）
     if (!toSum.length || !active) return;
     try {
       const summary = await summarizeGroup(active, { profile }, toSum);
@@ -3186,7 +3192,7 @@ function App() {
       // 素材只截【目标那一天】的聊天（0点~24点），别让最近3天的旧事跨天被反复回炉
       const dayStart = new Date(targetTs); dayStart.setHours(0, 0, 0, 0);
       const ds = dayStart.getTime(), de = ds + 86400000;
-      const dayMsgs = (chatsRef.current[charId] || []).filter(m => !m.recalled && m.content && (m.ts || 0) >= ds && (m.ts || 0) < de);
+      const dayMsgs = (chatsRef.current[charId] || []).filter(m => !m.recalled && m.content && !isOocMsg(m) && (m.ts || 0) >= ds && (m.ts || 0) < de);
       const dayChatText = dayMsgs.map(m => (m.role === "user" ? (profile.name || "用户") : char.name) + ": " + m.content).join("\n");
       // 上一篇日记（目标日之前最近的一篇）——喂给模型当「别重复」参照
       const prevD = (diariesRef.current[charId] || []).filter(e => (e.ts || 0) < targetTs).sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
@@ -6821,7 +6827,7 @@ function App() {
     worldbook: worldbook,
     moods: moods,
     // 注入最近聊天抓人设用（只读，不写回记忆）
-    recentChatFor: (charId) => (chatsRef.current[charId] || []).filter(m => !m.recalled && m.content).slice(-16).map(m => (m.role === "user" ? (profile.name || "用户") : (characters.find(c => c.id === charId) || {}).name || "TA") + ": " + m.content).join("\n"),
+    recentChatFor: (charId) => (chatsRef.current[charId] || []).filter(m => !m.recalled && m.content && !isOocMsg(m)).slice(-16).map(m => (m.role === "user" ? (profile.name || "用户") : (characters.find(c => c.id === charId) || {}).name || "TA") + ": " + m.content).join("\n"),
     toast: toast,
     onBack: () => setScreen("home")
   });else if (screen === "fanfic") body = h(FanficApp, {

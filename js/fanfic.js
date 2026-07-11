@@ -148,7 +148,7 @@
     const blocks = [];
     cpChars.forEach(function (c) {
       const log = loadJSON("x_chat:" + c.id, []);
-      const tail = (log || []).filter(function (m) { return m && (m.role === "user" || m.role === "assistant") && m.content; }).slice(-14);
+      const tail = (log || []).filter(function (m) { return m && (m.role === "user" || m.role === "assistant") && m.content && !isOocMsg(m); }).slice(-14);
       if (!tail.length) return;
       const lines = tail.map(function (m) { return (m.role === "assistant" ? c.name : "对方") + "：" + String(m.content).slice(0, 80); });
       blocks.push("· 和「" + c.name + "」的近期聊天（可提炼 TA 的说话习惯、你俩的相处质感、在意的事，化用进文里，别照抄）：\n" + lines.join("\n"));

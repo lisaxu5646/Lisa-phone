@@ -124,6 +124,7 @@
   // ---- 素材采集：把窗口内的 RP 聊天记录抽成 per-char + global ---------
   function cleanMsg(m) {
     if (!m || m.role === "system") return null;
+    if (isOocMsg(m)) return null; // OOC 幕后对话不是 RP 素材（v48.13）
     if (m.kind && ["system", "callinvite", "location", "emote"].indexOf(m.kind) >= 0) return null;
     let c = (m.content || "").trim();
     if (!c) return null;
