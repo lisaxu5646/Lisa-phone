@@ -3038,8 +3038,12 @@ function ChatThread({
     }, m.content));
     if (m.kind === "ooc") return h("div", {
       key: i,
-      className: "flex justify-end my-2"
-    }, h("div", {
+      className: "flex justify-end my-2 items-start gap-1.5"
+    }, onDeleteMessages ? h("button", {
+      onClick: () => window.confirm("删除这条 OOC 记录？") && onDeleteMessages([i]),
+      className: "active:opacity-50 shrink-0",
+      style: { fontFamily: F_BODY, fontSize: 13, color: t.fog, opacity: 0.55, padding: "4px 4px 0 0", order: -1 }
+    }, "✕") : null, h("div", {
       className: "px-3 py-1.5",
       style: {
         fontFamily: F_BODY,
@@ -3090,7 +3094,13 @@ function ChatThread({
         opacity: 0.7,
         marginTop: 6
       }
-    }, "SYSTEM RESPONSE"));
+    }, "SYSTEM RESPONSE",
+      // OOC 回复（system 形态·turnId ooc_ 开头）也给删除口（和 OOC 提问一起清干净）
+      (onDeleteMessages && typeof isOocMsg === "function" && isOocMsg(m)) ? h("button", {
+        onClick: () => window.confirm("删除这条 OOC 记录？") && onDeleteMessages([i]),
+        className: "active:opacity-50",
+        style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginLeft: 10, letterSpacing: 0 }
+      }, "✕ 删除") : null));
     if (m.kind === "transfer") return h("div", {
       key: i,
       onTouchStart: selMode ? undefined : () => startPress(i), onTouchEnd: endPress,
@@ -5886,8 +5896,12 @@ function GroupThread({
   }), messages.map((m, i) => {
     if (m.kind === "ooc") return h("div", {
       key: i,
-      className: "flex my-2 " + (m.role === "user" ? "justify-end" : "justify-start")
-    }, h("div", {
+      className: "flex my-2 items-start gap-1.5 " + (m.role === "user" ? "justify-end" : "justify-start")
+    }, onDeleteMessages ? h("button", {
+      onClick: () => window.confirm("删除这条 OOC 记录？") && onDeleteMessages([i]),
+      className: "active:opacity-50 shrink-0",
+      style: { fontFamily: F_BODY, fontSize: 13, color: t.fog, opacity: 0.55, padding: "4px 4px 0 0", order: m.role === "user" ? -1 : 1 }
+    }, "✕") : null, h("div", {
       className: "px-3 py-1.5",
       style: {
         fontFamily: F_BODY,
