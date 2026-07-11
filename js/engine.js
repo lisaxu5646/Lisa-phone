@@ -79,6 +79,115 @@ function loadEmbApi() {
 }
 function saveEmbApi(c) { try { localStorage.setItem("x_embedApi", JSON.stringify(c || {})); } catch (e) {} return c; }
 function embApiReady() { const c = loadEmbApi(); return !!(c.enabled && c.baseUrl && c.apiKey); }
+// ============================================================
+// 向量记忆（v48.11）：给记忆库条目配 embedding，检索时语义相似度+关键词混合打分——
+// 「上次吃的那顿」也能召回「火锅之约」。设计要点：
+// · 向量（1024 维浮点）只进 IndexedDB(x_memvec)，绝不进 localStorage/云存档（几百条就是 MB 级）；
+//   换设备导入存档后检测到缺向量会自动静默重嵌（embedding 便宜/免费，重建零成本）。
+// · 检索函数 retrieveMemories 保持【同步】签名不动（ctxFor 等几十处调用零改动）：
+//   发消息前先 primeQueryVec() 把查询向量预热进内存缓存，检索时同步取用；
+//   没预热/没开开关/API 挂了 → 缓存未命中 → 自动回落纯关键词打分，行为与旧版完全一致，零影响。
+// · 每条向量记录 {文本hash, 模型名}：改了文本或换了 embedding 模型自动检测重嵌，不拿两个语义空间硬比。
+// ============================================================
+function memVecHash(s) { let h = 5381; s = String(s || ""); for (let i = 0; i < s.length; i++) h = (h * 33 + s.charCodeAt(i)) >>> 0; return h.toString(36) + "_" + s.length; }
+function idbVecOpen() { return new Promise((res, rej) => { const r = indexedDB.open("x_memvec", 1); r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains("vec")) r.result.createObjectStore("vec"); }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+async function idbVecPut(k, val) { const db = await idbVecOpen(); return new Promise((res, rej) => { const tx = db.transaction("vec", "readwrite"); tx.objectStore("vec").put(val, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
+async function idbVecDel(k) { const db = await idbVecOpen(); return new Promise(res => { const tx = db.transaction("vec", "readwrite"); tx.objectStore("vec").delete(k); tx.oncomplete = () => res(); tx.onerror = () => res(); }); }
+async function idbVecClear() { const db = await idbVecOpen(); return new Promise(res => { const tx = db.transaction("vec", "readwrite"); tx.objectStore("vec").clear(); tx.oncomplete = () => res(); tx.onerror = () => res(); }); }
+async function idbVecEntries() { const db = await idbVecOpen(); return new Promise(res => { const tx = db.transaction("vec", "readonly"); const st = tx.objectStore("vec"); let ks = null, vs = null; const done = () => { if (ks && vs) res(ks.map((k, i) => [k, vs[i]])); }; const kq = st.getAllKeys(); const vq = st.getAll(); kq.onsuccess = () => { ks = kq.result || []; done(); }; vq.onsuccess = () => { vs = vq.result || []; done(); }; tx.onerror = () => res([]); }); }
+// 内存缓存：记忆条目 id -> {h:文本hash, m:模型名, v:Float32Array}（挂 window 跨脚本共享）
+function _memVecCache() { if (typeof window === "undefined") return new Map(); return window.__memVecCache || (window.__memVecCache = new Map()); }
+async function hydrateMemVecs() {
+  if (typeof window !== "undefined" && window.__memVecHydrated) return _memVecCache().size;
+  try { const entries = await idbVecEntries(); const c = _memVecCache(); entries.forEach(([k, val]) => { if (k && val && val.v && !c.has(k)) c.set(k, val); }); } catch (e) {}
+  if (typeof window !== "undefined") window.__memVecHydrated = true;
+  return _memVecCache().size;
+}
+// bge 系官方用法：短查询→长文档检索时【只在查询侧】加指令前缀，文档侧不加（嵌错一边质量明显掉）
+const BGE_QUERY_PREFIX = "为这个句子生成表示以用于检索相关文章：";
+// 批量嵌入。texts -> Float32Array[]（顺序与输入一致）。没配 API 返回 null；网络/格式错误抛异常（调用方自行兜底）
+async function embedTexts(texts, opts) {
+  opts = opts || {};
+  const c = loadEmbApi();
+  if (!(c.enabled && c.baseUrl && c.apiKey && c.model)) return null;
+  const base = c.baseUrl.replace(/\/$/, "");
+  const root = base.endsWith("/v1") ? base : base + "/v1";
+  const isBge = /bge/i.test(c.model);
+  // bge 单条输入上限 512 token：中文按字截 420 字兜底（加上前缀仍在限内）
+  const input = texts.map(t => { let s = String(t || "").slice(0, 420); if (opts.isQuery && isBge) s = BGE_QUERY_PREFIX + s; return s || " "; });
+  const r = await fetchT(root + "/embeddings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + c.apiKey },
+    body: JSON.stringify({ model: c.model, input: input })
+  }, opts.timeout || 25000);
+  const d = await r.json();
+  if (!d || !Array.isArray(d.data)) throw new Error((d && d.error && (d.error.message || JSON.stringify(d.error))) || "embedding 返回格式不对");
+  const arr = d.data.slice().sort((a, b) => (a.index || 0) - (b.index || 0)).map(x => Float32Array.from((x && x.embedding) || []));
+  if (arr.length !== texts.length || arr.some(v => !v.length)) throw new Error("embedding 返回条数/维度不对");
+  return arr;
+}
+// 条目 -> 待嵌文本（带标签一起嵌，标签也是语义的一部分）
+function memEntryEmbedText(e) { return (String(e.text || "") + ((e.tags && e.tags.length) ? ("（" + e.tags.join("、") + "）") : "")).slice(0, 420); }
+// 给记忆库补嵌向量：只处理「没向量/文本变了/换了模型」的条目（force=全量重嵌），分批走 API、批间歇口气（免费模型有限速）。
+// 顺手清掉已删除条目的孤儿向量。onProgress(done,total)。返回本次嵌了几条。任何时候没配 API 都静默返回 0。
+async function ensureMemVecs(lib, opts) {
+  opts = opts || {};
+  if (!embApiReady()) return 0;
+  await hydrateMemVecs();
+  const model = loadEmbApi().model;
+  const cache = _memVecCache();
+  const list = (lib || []).filter(e => e && e.id && e.text);
+  const todo = list.filter(e => { if (opts.force) return true; const cur = cache.get(e.id); return !(cur && cur.m === model && cur.h === memVecHash(memEntryEmbedText(e))); });
+  // 孤儿清理：缓存/IDB 里有、记忆库里已经没有的条目
+  const liveIds = new Set(list.map(e => e.id));
+  for (const k of Array.from(cache.keys())) { if (!liveIds.has(k)) { cache.delete(k); idbVecDel(k); } }
+  if (!todo.length) { if (opts.onProgress) opts.onProgress(0, 0); return 0; }
+  const BATCH = 16;
+  let done = 0;
+  if (opts.onProgress) opts.onProgress(0, todo.length);
+  for (let i = 0; i < todo.length; i += BATCH) {
+    const batch = todo.slice(i, i + BATCH);
+    const vecs = await embedTexts(batch.map(memEntryEmbedText));
+    if (!vecs) return done;
+    for (let j = 0; j < batch.length; j++) {
+      const rec = { h: memVecHash(memEntryEmbedText(batch[j])), m: model, v: vecs[j] };
+      cache.set(batch[j].id, rec);
+      await idbVecPut(batch[j].id, rec);
+    }
+    done += batch.length;
+    if (opts.onProgress) opts.onProgress(done, todo.length);
+    if (i + BATCH < todo.length) await new Promise(res => setTimeout(res, 300));
+  }
+  return done;
+}
+// 查询向量缓存（LRU 20 条）：key = 模型|查询文本hash。查询取【末尾】420 字——最近的消息在最后，语义检索要贴着最新话题
+function _qVecCache() { if (typeof window === "undefined") return new Map(); return window.__qVecCache || (window.__qVecCache = new Map()); }
+function _qVecKey(text) { return loadEmbApi().model + "|" + memVecHash(String(text || "").slice(-420)); }
+// 发消息前调这个把查询向量预热进缓存（一次小嵌入调用 ~200-400ms，和大模型几秒比可忽略）。永不抛异常。
+async function primeQueryVec(text) {
+  try {
+    text = String(text || "");
+    if (!embApiReady() || !text.trim()) return null;
+    const key = _qVecKey(text);
+    const qc = _qVecCache();
+    if (qc.has(key)) { const hit = qc.get(key); qc.delete(key); qc.set(key, hit); return hit; }
+    const arr = await embedTexts([text.slice(-420)], { isQuery: true, timeout: 6000 });
+    if (!arr || !arr[0]) return null;
+    qc.set(key, arr[0]);
+    while (qc.size > 20) qc.delete(qc.keys().next().value);
+    return arr[0];
+  } catch (e) { return null; }
+}
+// 检索时同步取查询向量：预热过才有，没有就 null（= 纯关键词打分）
+function getQueryVec(text) {
+  try { if (!embApiReady()) return null; const v = _qVecCache().get(_qVecKey(text)); return v ? { v: v, m: loadEmbApi().model } : null; } catch (e) { return null; }
+}
+function cosSim(a, b) {
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  const d = Math.sqrt(na) * Math.sqrt(nb);
+  return d ? dot / d : 0;
+}
 // 带超时的 fetch：超时/卡死时中断并抛出可读错误，避免无限转圈
 async function fetchT(url, options, ms) {
   const ctrl = new AbortController();
@@ -437,14 +546,24 @@ function memTokens(text) {
   }
   return set;
 }
-function scoreMemEntry(entry, qTokens, now) {
+function scoreMemEntry(entry, qTokens, now, qVec) {
   const eTokens = memTokens((entry.text || "") + " " + (entry.tags || []).join(" "));
   let overlap = 0;
   qTokens.forEach(tk => { if (eTokens.has(tk)) overlap += tk.length >= 2 ? 1.4 : 1; });
   // 标签直接命中 query 额外加权
   let tagHit = 0;
   (entry.tags || []).forEach(tag => { if (qTokens.has(tag.toLowerCase())) tagHit += 2; });
-  const keyword = overlap + tagHit;
+  let keyword = overlap + tagHit;
+  // ⭐向量语义（v48.11）：查询向量预热过且该条目已嵌 → 语义相似度和关键词混合。
+  // 关键词继续兜底精确名词命中（人名地名向量容易糊），向量管「换了说法也认得」。
+  // bge 系余弦分布很窄（完全不相关也有 0.3+），减基线归一化再放大到与关键词分同量级，不然等于没筛。
+  if (qVec && qVec.v) {
+    const cv = _memVecCache().get(entry.id);
+    if (cv && cv.v && cv.m === qVec.m && cv.v.length === qVec.v.length) {
+      const sem = Math.max(0, Math.min(1, (cosSim(qVec.v, cv.v) - 0.38) / 0.32));
+      keyword = keyword * 0.6 + sem * 7;
+    }
+  }
   // ⭐艾宾浩斯（2026-07-09）：记忆有「保持率」——多久没被想起就渐渐淡；被检索到=复习，会刷新并变牢
   // stability：复习(hits)越多越稳（遗忘半衰期变长）；情绪强度大的事本身更难忘
   const aRaw = Math.max(0, Math.min(5, entry.a == null ? 1 : entry.a));
@@ -465,7 +584,9 @@ function retrieveMemories(lib, charId, queryText, opts = {}) {
   const list = (lib || []).filter(e => e && e.text && (!e.charIds || e.charIds.length === 0 || e.charIds.includes(charId)));
   if (list.length === 0) return [];
   const qTokens = memTokens(queryText);
-  const scored = list.map(e => ({ e, s: scoreMemEntry(e, qTokens, Date.now()) }));
+  // 向量：只有发送前 primeQueryVec 预热过、缓存命中才拿得到；没有就 null=纯关键词，行为同旧版
+  const qVec = opts.vec === false ? null : getQueryVec(queryText);
+  const scored = list.map(e => ({ e, s: scoreMemEntry(e, qTokens, Date.now(), qVec) }));
   scored.sort((a, b) => b.s - a.s);
   // 置顶条目一定进；其余按分数，忽略几乎无关联（分数过低且非置顶）的
   const picked = scored.filter(x => x.e.pinned || x.s > 0.9).slice(0, limit).map(x => x.e);

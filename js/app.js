@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.10";
+const APP_VERSION = "v48.11";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -715,13 +715,25 @@ function App() {
     return n;
   });
   // ---- 记忆库（memory library）----
+  const memVecTimer = useRef(null);
   const saveMemLib = next => {
     // ref 必须在这里同步更新：同一轮里连续多次保存（逐条 addMemEntry / 先了结旧约定再入新条）之间不会重渲染，
     // 若只等渲染期赋值，后一次保存会拿旧数组把前一次覆盖掉（lost write，v47.55 细节逐条入库曾因此只存活最后一条）
     memLibRef.current = next;
     setMemLib(next);
     saveJSON("x_memLib", next);
+    // 向量增量维护（v48.11）：新增/编辑/删除后台补嵌+清孤儿。防抖 4s——批量逐条入库只嵌一次；没配 embedding API 时内部直接返回
+    clearTimeout(memVecTimer.current);
+    memVecTimer.current = setTimeout(() => { if (typeof ensureMemVecs === "function") ensureMemVecs(memLibRef.current).catch(() => {}); }, 4000);
   };
+  // 向量记忆开机：把 IDB 里的向量读进内存缓存 → 后台给缺向量的条目补嵌（换设备导入存档后会在这里自动重建索引）
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (typeof hydrateMemVecs !== "function") return;
+      hydrateMemVecs().then(() => ensureMemVecs(memLibRef.current)).catch(() => {});
+    }, 3500);
+    return () => clearTimeout(t);
+  }, []);
   // 记忆去重：归一化文本（去空白标点）后，和同角色（或全局）已有条目比对——完全相同、或一方几乎是另一方子串就算重复
   // 记忆条目唯一 id：同毫秒多批抽取也不撞（撞了会导致删/改错条目）
   const uniqMemId = (now, i) => "m_" + now + "_" + i + "_" + Math.floor(Math.random() * 1e4);
@@ -1358,6 +1370,8 @@ function App() {
       oCtx.worldbook = loreText(loreRef.current, { charIds: [charId], scope: "chat", text: offText });
       oCtx.curWear = (states[charId] && states[charId].wearing) || ""; // 着装连贯：把当前穿着喂回去
       const oMemN = osFor(charId).memN;
+      // 向量记忆：预热线下这段的查询向量，让下面的同步检索走语义相似度（失败自动纯关键词）
+      if (typeof primeQueryVec === "function" && (oMemN == null || oMemN > 0)) await primeQueryVec((workSess.msgs || []).slice(-6).map(m => m.content || "").join("\n"));
       if (oMemN != null) oCtx.memLib = oMemN <= 0 ? [] : retrieveMemories(memLibRef.current, charId, (workSess.msgs || []).slice(-6).map(m => m.content || "").join("\n"), { limit: oMemN });
       const res = await generateOffline(active, oCtx, { ...workSess, narr: osNarr(charId), maxTokens: osFor(charId).maxTokens, minWords: osFor(charId).minWords });
       pushOffMsg(charId, {
@@ -1774,6 +1788,9 @@ function App() {
     try {
       if (!active) throw new Error("请先到设置配置 API");
       const _s = settingsFor(charId);
+      // 向量记忆（v48.11）：先把「最近对话」查询向量预热进缓存（一次小嵌入调用 ~300ms），
+      // 下面 ctxFor 里的同步记忆检索即可用语义相似度挑条目；没开开关/失败自动纯关键词，永不抛错不挡发送
+      if (typeof primeQueryVec === "function") await primeQueryVec(recentChatText(char));
       const bundle = buildBundle(ctxFor(char));
       const emotes = emotesForChar(charId);
       const emoteHint = emotes.length ? "\n【表情包】你有一组表情图可以发，像真人发微信表情那样，只在情绪合适时偶尔甩一张（别每条都发，多数时候不发）。可用关键词：" + emotes.map(e => e.keyword).join(" / ") + "。想发就把 emote 填成其中一个关键词（与上面列的完全一致），否则 null。" : "";
@@ -2321,6 +2338,7 @@ function App() {
           const seg = [mem && "长期记忆：" + mem, priv && "最近私聊（带时间，请和群聊记录一起按真实时间先后理解发生顺序）：\n" + priv].filter(Boolean).join("\n");
           return seg ? "『" + c.name + "』\n" + seg : "";
         }).filter(Boolean).join("\n\n");
+        if (typeof primeQueryVec === "function") await primeQueryVec(hist); // 向量记忆预热（失败自动纯关键词）
         const groupMem = formatMemLib(retrieveMemories(memLibRef.current, members[0] && members[0].id, hist, {
           limit: memCfgRef.current.topK || 5
         }));
@@ -3786,6 +3804,7 @@ function App() {
         const char = people[0];
         const hist = withUser.map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.content }));
         const whoCalled = callerIsChar ? "【谁打的这通电话】是【你】主动拨给 " + uName + " 的、Ta 接起来了——是你想找 Ta，别搞反成 Ta 打给你、更别问 Ta『不是你打给我的吗』。" : "【谁打的这通电话】是 " + uName + " 打给你的、你接了。";
+        if (typeof primeQueryVec === "function") await primeQueryVec(recentChatText(char)); // 向量记忆预热（ctxFor 的检索用的是聊天文本）
         const sys = buildBundle(ctxFor(char)) + "\n\n【当前场景：" + modeZh + "中】你正和" + uName + "打电话。" + whoCalled + "用口语化短句自然对话，像真的在通话。**你可以一次说好几句（多个气泡），把想说的一次说完，别说一半。**" + (isVideo ? " 因为是视频通话对方能看到你，**每次都必须额外给一句此刻的动作/神态描写 action**（如 靠在沙发上笑、把镜头凑近、揉眼睛），不能省略。" : "") + "\n【输出】只输出 JSON：{\"say\":[\"气泡1\",\"气泡2\"]" + (isVideo ? ",\"action\":\"此刻动作神态一句(必填)\"" : "") + "}。say 里只放你说出口的话，不要加名字前缀、不要旁白、不要括号。";
         const raw = await callAI(active, sys, hist, { maxTokens: 2400 });
         const d = extractJSON(raw) || {};
@@ -3806,6 +3825,7 @@ function App() {
         // 群通话补记忆：群 OOC 规矩 + 记忆库检索（不互通的群守封闭分区，不读全局记忆库）——之前群通话两样都没接
         const cgs = cur.groupId ? gsFor(cur.groupId) : null;
         const cDirs = cur.groupId ? (directives[cur.groupId] || []).map(d => (typeof d === "string" ? d : d && d.text) || "").filter(x => x.trim()) : [];
+        if ((!cur.groupId || (cgs && cgs.memoryInterop)) && typeof primeQueryVec === "function") await primeQueryVec(hist.slice(-8).map(m => m.content).join("\n")); // 向量记忆预热
         const cMem = (!cur.groupId || (cgs && cgs.memoryInterop)) ? formatMemLib(retrieveMemories(memLibRef.current, people[0] && people[0].id, hist.slice(-8).map(m => m.content).join("\n"), { limit: 5 })) : "";
         const sys = "这是一个多人" + modeZh + "，用户" + uName + "和以下角色都在通话里。角色们用口语化短句自然对话，会顺着彼此和用户的话接梗、插话、跑题，像真的多人语音那样。每个角色想多说几句就多给几条，把话说完。" + (callerIsChar && callerName ? "\n【谁发起的这通电话】是【" + callerName + "】主动拨给 " + uName + " 的、Ta 接了——" + callerName + " 清楚是自己打过去的，别搞反成 " + uName + " 打来的、别问『不是你打给我的吗』。" : "") + "\n\n【在场角色】\n" + memberDesc + "\n\n【角色间关系】\n" + relLines + (cDirs.length ? "\n\n【用户立下的群规矩（高优先·务必遵守）】\n" + cDirs.map((x, ii) => (ii + 1) + ". " + x.trim()).join("\n") : "") + (cMem && cMem.trim() ? "\n\n【记忆库·相关条目（自然记得，别生硬复述）】\n" + cMem.trim() : "") + (cWorld ? "\n\n【世界书】\n" + cWorld : "") + "\n\n【输出】只输出 JSON 数组，按发言先后：[{\"name\":\"角色名\",\"text\":\"这句话\"" + (isVideo ? ",\"action\":\"该角色此刻动作神态(视频可见,可选)\"" : "") + "}]，text 不要带名字前缀，一次 3~7 条，name 必须是在场角色之一。";
         const raw = await callAI(active, sys, hist, { maxTokens: 2400 });
@@ -4979,6 +4999,7 @@ function App() {
     try {
       const L = "ABCD";
       const qText = rec.qs.map((x, i) => (i + 1) + ". " + x.q + "\n" + x.opts.map((o, j) => "   " + L[j] + ". " + o).join("\n")).join("\n");
+      if (typeof primeQueryVec === "function") await primeQueryVec(rec.qs.map(x => x.q).join(" ")); // 向量记忆预热：用题目本身当查询
       const ctx = { ...ctxFor(char), memLib: retrieveMemories(memLibRef.current, char.id, rec.qs.map(x => x.q).join(" "), { limit: 10, touch: false }) };
       const d = await runProbe(active, ctx, {
         instruction: "你们是恋人，正在玩「同频测试」：下面 " + rec.qs.length + " 道关于用户的题，TA 已经自己作答（答案对你保密），现在你以「" + char.name + "」的身份【认真猜】TA 每题选了哪个——凭你对 TA 的了解、记忆和相处细节判断，不是随便蒙。每题配一句你为什么这么猜，口吻自然像在跟 TA 说话，别写分析报告。\n【题目】\n" + qText,

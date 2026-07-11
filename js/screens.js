@@ -3089,13 +3089,26 @@ function EmbedApiConfig({ toast }) {
     try { const r = await testEmbedding({ baseUrl: c.baseUrl, apiKey: c.apiKey, embedModel: c.model }); setTest(r); }
     catch (e) { setTest({ ok: false, msg: String((e && e.message) || e) }); }
   };
+  // 建向量索引：给记忆库里「还没向量/文本改过/换过模型」的条目补嵌（哈希+模型名比对自动识别，天然断点续建）。
+  // 平时不用点——新记忆入库和开机都会自动补嵌；这个按钮是首次开通/换设备导入存档后立刻建全用的
+  const [rebuild, setRebuild] = useState(null); // {busy,done,total,msg}
+  const runRebuild = async () => {
+    if (typeof ensureMemVecs !== "function") { toast && toast("模块没加载"); return; }
+    let lib = []; try { lib = JSON.parse(localStorage.getItem("x_memLib") || "[]"); } catch (e) {}
+    if (!Array.isArray(lib) || !lib.length) { toast && toast("记忆库是空的，没什么可嵌"); return; }
+    setRebuild({ busy: true, done: 0, total: 0 });
+    try {
+      const n = await ensureMemVecs(lib, { onProgress: (done, total) => setRebuild({ busy: true, done, total }) });
+      setRebuild({ busy: false, msg: n > 0 ? ("✅ 建好了：这次新嵌 " + n + " 条，记忆库共 " + lib.length + " 条全部就绪。之后新记忆入库会自动补嵌，不用再点。") : ("✅ 索引已是最新：" + lib.length + " 条记忆全都有向量，不用重建。") });
+    } catch (e) { setRebuild({ busy: false, msg: "❌ 建到一半断了：" + String((e && e.message) || e) + "\n已嵌好的不白费，再点一次会从缺的地方继续。" }); }
+  };
   const inSt = { width: "100%", outline: "none", padding: "9px 12px", borderRadius: 10, fontFamily: F_BODY, fontSize: 13.5, background: t.bg2, color: t.ink, border: "1px solid " + t.line };
   const row = (label, node) => h("div", { className: "mb-3" }, h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, marginBottom: 4 } }, label), node);
   return h("div", { className: "pt-8 mt-6", style: { borderTop: "1px dashed " + t.line } },
     h("div", { className: "flex items-center justify-between py-2" },
       h("div", { style: { paddingRight: 12 } },
         h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, "向量记忆 API · Embedding"),
-        h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, lineHeight: 1.5, color: t.fog, marginTop: 2 } }, "和聊天模型【分开】填。你聊天那家（gemini 中转）没有 embedding 渠道——在这另填一个支持 OpenAI 兼容 /v1/embeddings 的 key，专门跑向量记忆。⚠️ 目前向量检索还在开发中，这里测通=准备就绪，实际更聪明的检索要等下个版本接上；测不通也不影响现有关键词记忆。")),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, lineHeight: 1.5, color: t.fog, marginTop: 2 } }, "和聊天模型【分开】填。你聊天那家（gemini 中转）没有 embedding 渠道——在这另填一个支持 OpenAI 兼容 /v1/embeddings 的 key，专门跑向量记忆。开着它，聊天时挑记忆会按【语义相似度】来——「上次吃的那顿」也能想起「火锅之约」，换了说法照样认得；关了或没网就自动回落关键词检索，聊天绝不受影响。")),
       h(Toggle, { on: c.enabled === true, onChange: v => { set({ enabled: v }); toast && toast(v ? "已开启独立向量 API" : "已关闭"); } })),
     c.enabled ? h("div", { className: "pt-3" },
       row("接口地址 Base URL", h("input", { value: c.baseUrl || "", onChange: e => set({ baseUrl: e.target.value }), placeholder: "如 https://xxx.com（会自动补 /v1/embeddings）", style: inSt })),
@@ -3108,7 +3121,11 @@ function EmbedApiConfig({ toast }) {
         h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 6, lineHeight: 1.5 } }, "填一个【embedding】模型名（名字通常含 embedding / embed / bge）。常见能用的：text-embedding-3-small（便宜够用）、text-embedding-3-large、bge-m3。"))),
       h("button", { onClick: runTest, disabled: test && test.busy, className: "w-full mt-2 active:opacity-80 disabled:opacity-50", style: { fontFamily: F_BODY, fontSize: 13, color: "#fff", background: t.tint, borderRadius: 10, padding: "11px 0" } }, test && test.busy ? "检测中…" : "🔬 测一下这个 embedding 接口"),
       test && !test.busy ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", padding: "10px 12px", borderRadius: 10, marginTop: 10, background: test.ok ? "rgba(90,150,90,0.1)" : "rgba(194,90,74,0.09)", border: "1px solid " + (test.ok ? "#8ab88a55" : "#c25a4a55"), color: test.ok ? "#4a7a4a" : "#b0503f" } },
-        test.ok ? ("✅ 通了！模型「" + test.model + "」，向量维度 " + test.dim + "。向量记忆的接口这边就绪了。") : ("❌ 没测通：\n" + (test.msg || "未知"))) : null) : null);
+        test.ok ? ("✅ 通了！模型「" + test.model + "」，向量维度 " + test.dim + "。向量记忆的接口这边就绪了。") : ("❌ 没测通：\n" + (test.msg || "未知"))) : null,
+      h("button", { onClick: runRebuild, disabled: rebuild && rebuild.busy, className: "w-full mt-3 active:opacity-80 disabled:opacity-50", style: { fontFamily: F_BODY, fontSize: 13, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 10, padding: "11px 0" } },
+        rebuild && rebuild.busy ? ("🔨 建索引中… " + (rebuild.total ? rebuild.done + " / " + rebuild.total : "统计中")) : "🔨 立刻建全向量索引"),
+      h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 6, lineHeight: 1.5 } }, "给记忆库里还没向量的条目补嵌。平时不用管——新记忆入库、每次开机都会自动补；首次开通或换设备导入存档后想立刻生效就点它。向量只存在本机图库（IndexedDB），不进云存档，换设备会自动重建。"),
+      rebuild && !rebuild.busy && rebuild.msg ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", padding: "10px 12px", borderRadius: 10, marginTop: 8, background: rebuild.msg.startsWith("✅") ? "rgba(90,150,90,0.1)" : "rgba(194,90,74,0.09)", border: "1px solid " + (rebuild.msg.startsWith("✅") ? "#8ab88a55" : "#c25a4a55"), color: rebuild.msg.startsWith("✅") ? "#4a7a4a" : "#b0503f" } }, rebuild.msg) : null) : null);
 }
 // 上下文透视（v47.75 借汪汪机的调试页思路）：把「此刻和 TA 聊天会喂给模型的完整 system prompt」
 // 按【段落】拆开展示。角色变笨/OOC/忘事时来这里一眼定位是哪一段的问题。只读、零 API。
