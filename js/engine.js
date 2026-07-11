@@ -769,16 +769,18 @@ async function ttsSpeak(text, voiceId) {
   if (!txt) throw new Error("这条语音没有文字内容");
   // per-voice 沉稳调校（v47.86）：克隆音色若素材本身亢奋（如杨昕燃配的挏马酒），在音色库开「沉稳」——
   // 降语速+降音调+锁 neutral 情绪，把那股端着的兴奋劲压下去；只影响这一个音色
-  // trim 匹配（v47.88）：角色档案手填 voiceId 常多打首尾空格→精确匹配对不上→沉稳失效
+  // trim 匹配（v47.88）：角色档案手填 voiceId 常多打首尾空格→精确匹配对不上
   const vidN = String(vid).trim();
   const ve = (loadVoiceLib() || []).find(x => x && String(x.id).trim() === vidN) || {};
-  const calm = !!ve.calm;
-  // 沉稳靠「锁 neutral 情绪 + 稍降语速」——绝不动 pitch（一压音调就变声=猪八戒）。v47.87 修
-  const emo = calm ? "neutral" : ttsEmotionOf(txt);
-  const spd = calm ? 0.92 : 1.0;
+  // 语速可调（v47.89）：压亢奋只靠语速——绝不动 pitch（一压音调就变声=八戒）。
+  // 老 calm=true 兼容成 0.85；新版直接存 speed（0.6~1.0，越低越稳）
+  let spd = (ve.speed != null && isFinite(ve.speed)) ? Number(ve.speed) : (ve.calm ? 0.85 : 1.0);
+  spd = Math.max(0.5, Math.min(1.0, spd));
+  const slowed = spd < 0.99;
+  const emo = slowed ? "neutral" : ttsEmotionOf(txt);   // 主动压稳时锁平静情绪
   const pit = 0;
-  // 缓存键带 :lb（口音矫正代次）+ 沉稳标记 :cm2（换代作废 v47.86 的猪八戒缓存）
-  const key = ttsCacheKey(vid + ":" + emo + ":lb" + (calm ? ":cm2" : ""), txt);
+  // 缓存键带语速档：不同语速别互相命中（:lb 是口音矫正代次）
+  const key = ttsCacheKey(vid + ":" + emo + ":lb" + (slowed ? ":s" + Math.round(spd * 100) : ""), txt);
   const hit = await idbAudGet(key).catch(() => null);
   if (hit && hit.size > 0) return hit;
   const base = (a.baseUrl || "https://api.minimax.io").trim().replace(/\/+$/, "");

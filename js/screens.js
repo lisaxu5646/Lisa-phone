@@ -2970,14 +2970,24 @@ function TtsApiConfig({ toast, characters, onAssignVoice }) {
               h("button", { onClick: () => setAssignFor(assignFor === v.id ? null : v.id), className: "active:opacity-60 shrink-0", style: { fontFamily: F_BODY, fontSize: 11.5, color: "#fff", background: t.tint, border: "none", borderRadius: 999, padding: "6px 12px" } }, "指派"),
               h("button", { onClick: () => { if (window.confirm("从清单移除这个音色？（不影响 MiniMax 账号）")) saveVlib(vlib.filter(x => x.id !== v.id)); }, className: "active:opacity-60 shrink-0", style: { fontFamily: F_BODY, fontSize: 13, color: t.fog, border: "none", background: "transparent", padding: "2px 4px" } }, "✕")),
             h("input", { value: v.note || "", onChange: e => saveVlib(vlib.map(x => x.id === v.id ? { ...x, note: e.target.value } : x)), placeholder: "备注（谁的声音 / 什么感觉）", style: { width: "100%", outline: "none", marginTop: 8, padding: "7px 10px", borderRadius: 8, fontFamily: F_BODY, fontSize: 12, background: t.bg, color: t.sub, border: "1px solid " + t.line } }),
-            // 沉稳开关：克隆素材本身太亢奋（如杨昕燃配的挏马酒）时打开——降语速+降音调+锁平静情绪，把端着的兴奋压下去
-            h("div", { className: "flex items-center justify-between", style: { marginTop: 8 } },
-              h("div", { style: { paddingRight: 10 } },
-                h("span", { style: { fontFamily: F_BODY, fontSize: 12, color: t.ink } }, "沉稳一点"),
-                h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.fog, marginLeft: 6 } }, "音色太亢奋就开")),
-              h(Toggle, { on: !!v.calm, onChange: on => { saveVlib(vlib.map(x => x.id === v.id ? { ...x, calm: on } : x)); toast && toast(on ? "已压稳这个音色，试听听听" : "恢复原始语气"); } })),
-            // 开了沉稳却没角色在用 → 警告：实际聊天语音不会生效（voiceId 对不上）
-            v.calm && users.length === 0 ? h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: "#c25a4a", marginTop: 6, lineHeight: 1.6, background: "rgba(194,90,74,0.08)", borderRadius: 8, padding: "6px 9px" } }, "⚠️ 沉稳只对试听生效——没有角色在用这个 voice_id。去角色档案把「音色」填成上面这个 id（一字不差、别多空格），实际聊天里 TA 的语音才会跟着变稳。") : null,
+            // 语速调节（v47.89）：压亢奋只靠语速（音调绝不动，防变声成八戒）。老 calm 兼容成 0.85
+            (() => {
+              const sp = (v.speed != null && isFinite(v.speed)) ? Number(v.speed) : (v.calm ? 0.85 : 1.0);
+              const setSp = val => saveVlib(vlib.map(x => x.id === v.id ? { ...x, speed: val, calm: undefined } : x));
+              const lbl = sp >= 0.99 ? "正常" : sp >= 0.9 ? "稍稳" : sp >= 0.8 ? "沉稳" : sp >= 0.7 ? "很稳" : "极稳";
+              return h("div", { style: { marginTop: 10 } },
+                h("div", { className: "flex items-center justify-between", style: { marginBottom: 3 } },
+                  h("div", null,
+                    h("span", { style: { fontFamily: F_BODY, fontSize: 12, color: t.ink } }, "语速 · 压亢奋"),
+                    h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.fog, marginLeft: 6 } }, "音色太亢奋就往左拖，越左越稳")),
+                  h("span", { style: { fontFamily: F_DISPLAY, fontSize: 12.5, color: sp < 0.99 ? t.tint : t.fog } }, lbl + " " + sp.toFixed(2))),
+                h(Slider, { value: sp, min: 0.6, max: 1.0, step: 0.02, onChange: setSp }),
+                h("div", { className: "flex items-center gap-2", style: { marginTop: 6 } },
+                  h("button", { onClick: () => vtp.toggle(v.id + "_prev", "嗯，就这样吧。今天先到这里，你早点休息。", v.id), className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 11, color: t.tint, border: "1px solid " + t.line, borderRadius: 999, padding: "4px 12px" } }, vtp.play && vtp.play.k === (v.id + "_prev") ? (vtp.play.st === "gen" ? "合成中…" : "⏸ 停") : "▶ 试平静句"),
+                  h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.fog } }, "拖动后重听这句对比")));
+            })(),
+            // 语速调过（<1）却没角色在用 → 警告：实际聊天不会变
+            v.speed != null && v.speed < 0.99 && users.length === 0 ? h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: "#c25a4a", marginTop: 6, lineHeight: 1.6, background: "rgba(194,90,74,0.08)", borderRadius: 8, padding: "6px 9px" } }, "⚠️ 语速设置只对试听生效——没有角色在用这个 voice_id。去角色档案把「音色」填成上面这个 id（一字不差、别多空格），实际聊天里 TA 的语音才会跟着变。") : null,
             assignFor === v.id ? h("div", { className: "flex flex-wrap gap-2", style: { marginTop: 8 } },
               (characters || []).length === 0 ? h("span", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog } }, "还没有角色，先去名录建一个。") :
               (characters || []).map(ch => h("button", { key: ch.id, onClick: () => { onAssignVoice && onAssignVoice(ch.id, v.id); setAssignFor(null); }, className: "active:opacity-70",
