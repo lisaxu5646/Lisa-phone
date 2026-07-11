@@ -15,8 +15,13 @@ const BUBBLE_SKIN = {
   charSticker: "",    //TA 的气泡左上角贴纸图 URL；留空=无
   stickerSize: 52,    //贴纸边长(px)
   radius: 20,         //圆角
-  shadow: "0 1px 2px rgba(0,0,0,0.05)" //气泡投影
+  shadow: "0 1px 2px rgba(0,0,0,0.05)", //气泡投影
+  chatBg: ""          //聊天页全局背景（纯色/渐变；每个聊天单独设过图的优先）；留空=主题默认
 };
+// v3（第六课）：皮肤从写死常量升级成可换装——localStorage x_bubbleSkin 覆盖上面的默认值。
+// 设置→主题→气泡皮肤 里改；BUBBLE_SKIN_DEFAULTS 留一份出厂快照给「恢复默认」。
+const BUBBLE_SKIN_DEFAULTS = Object.assign({}, BUBBLE_SKIN);
+try { Object.assign(BUBBLE_SKIN, JSON.parse(localStorage.getItem("x_bubbleSkin") || "{}")); } catch (e) {}
 // 给皮肤底色追加两位透明度（如 "eb"≈92%）：只有六位 #hex 能拼，渐变/rgba 原样返回
 function skinAlpha(c, a) { return (typeof c === "string" && c[0] === "#" && c.length === 7) ? c + a : c; }
 // 气泡角落贴纸：绝对定位悬在气泡外沿（我的在右上、TA 的在左上并水平翻转），不挡点击
@@ -2951,7 +2956,7 @@ function ChatThread({
       backgroundPosition: "center",
       backgroundRepeat: "no-repeat"
     } : {
-      background: t.bg
+      background: BUBBLE_SKIN.chatBg || t.bg // 皮肤的全局聊天背景；单聊自己设过图的优先
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "shrink-0 px-4 pt-5 pb-3 flex items-center gap-3",
@@ -5845,7 +5850,7 @@ function GroupThread({
       backgroundPosition: "center",
       backgroundRepeat: "no-repeat"
     } : {
-      background: t.bg
+      background: BUBBLE_SKIN.chatBg || t.bg // 群聊也吃皮肤的全局聊天背景
     }
   }, h("div", {
     className: "shrink-0 px-4 pt-5 pb-3 flex items-center gap-3",

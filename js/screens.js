@@ -3258,12 +3258,14 @@ function Config({
     custom: coupleQACustom,
     onSave: onSaveCustomQA,
     toast: toast
-  }), tab === "theme" && /*#__PURE__*/React.createElement(ThemeConfig, {
+  }), tab === "theme" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(ThemeConfig, {
     theme: theme,
     onSave: onSaveTheme,
     wallpaper: wallpaper,
     onSaveWallpaper: onSaveWallpaper
-  }), tab === "data" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DataConfig, {
+  }), /*#__PURE__*/React.createElement(BubbleSkinConfig, {
+    toast: toast
+  })), tab === "data" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DataConfig, {
     onExport: onExport,
     onImport: onImport,
     onOffloadChats: onOffloadChats,
@@ -3607,6 +3609,49 @@ function SenseConfig({
       marginTop: 8
     }
   }, "定位失败：", geo.error));
+}
+// 气泡皮肤设置（v48.25 第六课·和 Lisa 一起建）：把 components.js 顶部的 BUBBLE_SKIN 做成可视化换装。
+// 原理：这里改的是一份草稿 s（useState），「保存」时 Object.assign 进 BUBBLE_SKIN + 存 x_bubbleSkin，
+// 开机由 components.js 顶部把存档 merge 回来——所以保存一次，永久生效。
+function BubbleSkinConfig({ toast }) {
+  const t = useTheme();
+  const [s, setS] = useState(() => Object.assign({}, BUBBLE_SKIN)); // 草稿：从当前皮肤复制一份
+  const set = patch => setS(p => Object.assign({}, p, patch));
+  const save = () => { Object.assign(BUBBLE_SKIN, s); try { localStorage.setItem("x_bubbleSkin", JSON.stringify(s)); } catch (e) {} toast && toast("皮肤已保存，聊天页立即生效"); };
+  const reset = () => { const d = Object.assign({}, BUBBLE_SKIN_DEFAULTS); setS(d); Object.assign(BUBBLE_SKIN, d); try { localStorage.removeItem("x_bubbleSkin"); } catch (e) {} toast && toast("已恢复出厂皮肤"); };
+  const inSt = { width: "100%", outline: "none", padding: "8px 11px", borderRadius: 9, fontFamily: F_BODY, fontSize: 12.5, background: t.bg2, color: t.ink, border: "1px solid " + t.line };
+  // 一行一个字段：row("标签", "字段名", "占位提示")——加新字段就抄一行
+  const row = (label, key, ph) => h("div", { className: "mb-2.5" },
+    h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 3 } }, label),
+    h("input", { value: s[key] == null ? "" : String(s[key]), onChange: e => set({ [key]: e.target.value }), placeholder: ph || "", style: inSt }));
+  const numRow = (label, key, min, max) => h("div", { className: "mb-2.5" },
+    h("div", { className: "flex items-baseline justify-between", style: { marginBottom: 3 } },
+      h("span", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog } }, label),
+      h("span", { style: { fontFamily: F_DISPLAY, fontSize: 13, color: t.tint } }, String(s[key]))),
+    h("input", { type: "range", min: min, max: max, step: 1, value: Number(s[key]) || 0, onChange: e => set({ [key]: Number(e.target.value) }), style: { width: "100%" } }));
+  // 试衣镜：两只气泡实时读草稿 s——还没保存就能看效果
+  const bub = (mine, text) => h("div", { className: "flex " + (mine ? "justify-end" : "justify-start"), style: { margin: "8px 0" } },
+    h("div", { style: { position: "relative", maxWidth: "78%", padding: "9px 13px", fontFamily: F_BODY, fontSize: 13.5, lineHeight: 1.5,
+      background: mine ? s.myBg : s.charBg, color: mine ? s.myText : (s.charText || t.ink),
+      border: (mine ? s.myBorder : s.charBorder) || "none", borderRadius: Number(s.radius) || 0, boxShadow: s.shadow || "none" } },
+      (mine ? s.mySticker : s.charSticker) ? h("img", { src: mine ? s.mySticker : s.charSticker, alt: "", style: { position: "absolute", top: -(Number(s.stickerSize) || 52) / 2, right: mine ? -10 : "auto", left: mine ? "auto" : -10, width: Number(s.stickerSize) || 52, height: Number(s.stickerSize) || 52, objectFit: "contain", pointerEvents: "none", transform: mine ? "none" : "scaleX(-1)" } }) : null,
+      text));
+  return h("div", { className: "pt-8 mt-6", style: { borderTop: "1px dashed " + t.line } },
+    h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, "气泡皮肤 · Bubble Skin"),
+    h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, lineHeight: 1.5, marginTop: 2, marginBottom: 10 } }, "颜色填 #hex 或一整段渐变 linear-gradient(...)；贴纸填图片地址（assets/xx.png 或 https）；描边/贴纸留空=不启用。试衣镜实时预览，保存后全 app 生效。"),
+    h("div", { style: { padding: "14px 14px 10px", borderRadius: 12, background: s.chatBg || t.bg, border: "1px solid " + t.line, marginBottom: 12, overflow: "hidden" } },
+      bub(false, "试衣镜：TA 的气泡"),
+      bub(true, "试衣镜：我的气泡")),
+    row("我的气泡底色（可渐变）", "myBg", "#f7b6c2"),
+    row("TA 的气泡底色（可渐变）", "charBg", "#a8c8e8"),
+    numRow("圆角", "radius", 0, 30),
+    // 🎓Lisa 的作业区：照上面 row / numRow 的格式把剩下的字段补上——
+    // myText（我的文字色）、myBorder（我的描边）、mySticker（我的贴纸）、
+    // charText（TA文字色）、charBorder（TA描边）、charSticker（TA贴纸）、
+    // shadow（投影）、chatBg（聊天页背景，可渐变）；stickerSize 用 numRow，范围建议 32~72
+    h("div", { className: "flex gap-2", style: { marginTop: 8 } },
+      h("button", { onClick: save, className: "flex-1 active:opacity-80", style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.bg2, background: t.ink, borderRadius: 10, padding: "11px 0" } }, "保存皮肤"),
+      h("button", { onClick: reset, className: "active:opacity-70", style: { fontFamily: F_BODY, fontSize: 12.5, color: t.accent, border: "1px solid " + t.line, borderRadius: 10, padding: "0 16px" } }, "恢复默认")));
 }
 function ThemeConfig({
   theme,
