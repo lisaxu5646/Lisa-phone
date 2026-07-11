@@ -1182,6 +1182,26 @@ function Home({
         p.forEach(function (key) { if (!seen[key]) { if (!out[dp]) out[dp] = []; out[dp].push(key); seen[key] = true; } });
       });
     }
+    // ⭐安全网（防「排序时把 app 拖进文件夹、文件夹又从页面掉了」这类导致 app 凭空消失）：
+    // 任何 REG 里的 app，只要既不在任何页、也不在【当前真的摆在某页上的】文件夹里，就强制补回它的默认页（不知道默认页就补末页）。
+    // 保证任何 app 都不可能从主屏彻底消失、找不回来。
+    (function () {
+      var placedFolders = {};
+      out.forEach(function (arr) { (arr || []).forEach(function (k) { if (k && k.slice(0, 2) === "f_" && F[k]) placedFolders[k] = 1; }); });
+      var reach = {};
+      out.forEach(function (arr) { (arr || []).forEach(function (k) { reach[k] = 1; }); });
+      Object.keys(placedFolders).forEach(function (fid) { (F[fid].keys || []).forEach(function (k) { reach[k] = 1; }); });
+      var defPage = {};
+      DEFAULT_LAYOUT.forEach(function (p, dp) { p.forEach(function (k) { defPage[k] = dp; }); });
+      Object.keys(REG).forEach(function (key) {
+        if (REG[key] && REG[key].kind === "app" && !reach[key]) {
+          var dp = defPage[key] != null ? defPage[key] : (out.length - 1);
+          if (!out[dp]) out[dp] = [];
+          out[dp].push(key);
+          reach[key] = 1;
+        }
+      });
+    })();
     // 页容量界限（一页最多 24 格 ≈ 6 行）：她自定义过布局后，新 app 补到满页末尾会渲染到屏幕外拿不到——
     // 超出容量的项按原顺序整体溢到下一页开头（连锁下去，最后一页放不下就自动开新页）；空格不搬、下一页会重新补
     var CAP = 24;
