@@ -760,6 +760,15 @@ function ttsEmotionOf(text) {
   if (/(居然|竟然|不会吧|真的假的|？！|!？)/.test(s)) return "surprised";
   return "neutral";
 }
+// 按台词自动选发音矫正 language_boost（v47.92）：治「日语角色被中文矫正带偏口音」。
+// 假名(ひらがな/カタカナ)是日语铁证、中文里不会出现→有假名走 Japanese，谚文走 Korean，纯 ASCII 走 English，其余默认 Chinese
+function ttsLangBoost(text) {
+  const s = String(text || "");
+  if (/[぀-ヿ]/.test(s)) return "Japanese";
+  if (/[가-힣]/.test(s)) return "Korean";
+  if (s.trim() && !/[一-鿿぀-ヿ가-힣]/.test(s) && /[a-zA-Z]/.test(s)) return "English";
+  return "Chinese";
+}
 // 合成一段语音：先查缓存，没有才真调 MiniMax（t2a_v2，hex 音频 → mp3 blob）
 async function ttsSpeak(text, voiceId) {
   const a = loadTtsApi();
@@ -779,8 +788,9 @@ async function ttsSpeak(text, voiceId) {
   const slowed = spd < 0.99;
   const emo = slowed ? "neutral" : ttsEmotionOf(txt);   // 主动压稳时锁平静情绪
   const pit = 0;
-  // 缓存键带语速档：不同语速别互相命中（:lb 是口音矫正代次）
-  const key = ttsCacheKey(vid + ":" + emo + ":lb" + (slowed ? ":s" + Math.round(spd * 100) : ""), txt);
+  const boost = ttsLangBoost(txt);   // 按句子语言选发音矫正（日语句走 Japanese，别被中文带偏口音）
+  // 缓存键带语速档 + 语言矫正：不同参数别互相命中
+  const key = ttsCacheKey(vid + ":" + emo + ":lb:" + boost + (slowed ? ":s" + Math.round(spd * 100) : ""), txt);
   const hit = await idbAudGet(key).catch(() => null);
   if (hit && hit.size > 0) return hit;
   const base = (a.baseUrl || "https://api.minimax.io").trim().replace(/\/+$/, "");
@@ -791,8 +801,8 @@ async function ttsSpeak(text, voiceId) {
     r = await fetch(base + "/v1/t2a_v2?GroupId=" + encodeURIComponent(a.groupId), {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + a.apiKey },
-      // language_boost:"Chinese"（v47.79）：把发音往标准普通话拉——外语素材克隆的音色（如日本声优）说中文带口音，这是官方唯一的矫正旋钮
-      body: JSON.stringify({ model: a.model || "speech-02-hd", text: txt, stream: false, language_boost: "Chinese", voice_setting: { voice_id: vid, speed: spd, vol: 1.0, pitch: pit, emotion: emo }, audio_setting: { sample_rate: 32000, bitrate: 128000, format: "mp3", channel: 1 } }),
+      // language_boost 按句子语言自动选（v47.92）：中文句→Chinese矫正、日语句→Japanese，治日语角色被中文带偏
+      body: JSON.stringify({ model: a.model || "speech-02-hd", text: txt, stream: false, language_boost: boost, voice_setting: { voice_id: vid, speed: spd, vol: 1.0, pitch: pit, emotion: emo }, audio_setting: { sample_rate: 32000, bitrate: 128000, format: "mp3", channel: 1 } }),
       signal: ctrl.signal
     });
   } finally { clearTimeout(to); }
