@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v47.96";
+const APP_VERSION = "v47.97";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -837,7 +837,7 @@ function App() {
     const s = (list || []).find(x => x && !x.endTs && (x.msgs || []).length > 0);
     if (s) {
       const narr = (s.msgs.find(m => m.role === "narration") || {}).content || "";
-      return "【线下进行中】你和" + (profile.name || "用户") + "此刻有一场线下相处【正在进行、还没散场】" + (narr ? "（场景：" + String(narr).replace(/\s+/g, " ").slice(0, 50) + "）" : "") + "。聊天时别把它当成还没开始或已经结束——**绝不许问「怎么还不开始」或催 Ta 去做你们正在做的事**；此刻的消息更像同处一地的间隙里随手发的短讯（比如 Ta 去洗手间/你去买单的空档）。";
+      return "【线下进行中】你和" + (profile.name || "用户") + "此刻有一场线下相处【正在进行、还没散场】" + (narr ? "（场景：" + String(narr).replace(/\s+/g, " ").slice(0, 50) + "）" : "") + "。聊天时别把它当成还没开始或已经结束——**绝不许说「怎么还不来」「还没到吗」「在哪呢」「等你好久了」，也绝不许问「怎么还不开始」或催 Ta 去做你们正在做的事**（你俩此刻就在一起、面对面，人已经到了）；此刻的线上消息更像同处一地的间隙里随手发的短讯（比如 Ta 去洗手间/你去买单的空档），而不是在等 Ta 赴约。";
     }
     // 72h 内刚结束的线下：硬提示（不依赖聊天窗口里那条 offlinelog 沉没在多少楼）
     const done = (list || []).filter(x => x && x.endTs && Date.now() - x.endTs < 72 * 3600000).sort((a, b) => b.endTs - a.endTs)[0];
@@ -1064,6 +1064,8 @@ function App() {
     const cid = activeChar.id;
     const timer = setInterval(() => {
       if (laneBusy("c:" + cid)) return;
+      // 线下进行中：角色此刻正跟你面对面相处，绝不能在线上主动催「怎么还不来」——直接掐掉这轮主动（浮层开着时 screen 仍是 thread，定时器还在转）
+      if ((offlinesRef.current[cid] || []).some(s => s && !s.endTs && (s.msgs || []).length > 0)) return;
       const msgs = (chatsRef.current[cid] || []).filter(m => !m.recalled && m.kind !== "ooc" && m.kind !== "system");
       if (!msgs.length) return;
       const lastTs = msgs[msgs.length - 1].ts || 0;
