@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.23";
+const APP_VERSION = "v48.24";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -543,6 +543,9 @@ function App() {
     sumThresh: 150,
     sumBuffer: 20
   };
+  // 按角色选 API 线路（v48.24）：聊天设置里给这个角色指定了配置就用那条，没指定跟随全局。
+  // 覆盖「这个角色开口说话」的场合：单聊回复/1:1通话/线下/OOC/撤回反应/拉黑反应——群聊多人同台仍走全局。
+  const apiFor = id => { const s = chatSettings[id] || {}; return (s.apiId && apiProfiles.find(p => p.id === s.apiId)) || active; };
   const unreadTotal = Object.values(unreadMap).reduce((a, b) => a + b, 0);
   const pC = u => setCharacters(p => {
     const n = typeof u === "function" ? u(p) : u;
@@ -1398,7 +1401,7 @@ function App() {
       // 向量记忆：预热线下这段的查询向量，让下面的同步检索走语义相似度（失败自动纯关键词）
       if (typeof primeQueryVec === "function" && (oMemN == null || oMemN > 0)) await primeQueryVec((workSess.msgs || []).slice(-6).map(m => m.content || "").join("\n"));
       if (oMemN != null) oCtx.memLib = oMemN <= 0 ? [] : retrieveMemories(memLibRef.current, charId, (workSess.msgs || []).slice(-6).map(m => m.content || "").join("\n"), { limit: oMemN });
-      const res = await generateOffline(active, oCtx, { ...workSess, narr: osNarr(charId), maxTokens: osFor(charId).maxTokens, minWords: osFor(charId).minWords });
+      const res = await generateOffline(apiFor(charId), oCtx, { ...workSess, narr: osNarr(charId), maxTokens: osFor(charId).maxTokens, minWords: osFor(charId).minWords });
       pushOffMsg(charId, {
         id: "c_" + Date.now(),
         role: "char",
@@ -1467,7 +1470,7 @@ function App() {
       const uName = (profile && profile.name) || "我";
       const offText = (sess.msgs || []).filter(m => m.kind !== "ooc").slice(-10).map(m => (m.role === "char" ? char.name : m.role === "narration" ? "【场景】" : uName) + "：" + (m.content || "")).join("\n");
       const q = text.trim() + (offText ? "\n\n【背景：我们此刻正在线下面对面相处，最近这几段经过】\n" + offText : "");
-      const res = await oocAsk(active, ctxFor(char), q);
+      const res = await oocAsk(apiFor(charId), ctxFor(char), q);
       if (res.directive && !res.refused) addDirective(charId, res.directive);
       pushOffMsg(charId, { id: "o_" + Date.now(), role: "char", kind: "ooc", content: res.reply + (res.directive && !res.refused ? "\n\n〔已记为长期准则：" + res.directive + "〕" : "") + (res.refused ? "\n\n〔这条我没照做——会破坏 " + char.name + " 的人设〕" : ""), ts: Date.now() });
     } catch (e) {
@@ -1949,7 +1952,7 @@ function App() {
       if ((opts.proactive || contMode) && (!g.length || g[g.length - 1].role === "assistant")) {
         g.push({ role: "user", content: "（我还没回你新消息，请顺着你刚才自己的话自然接着说、追问或催我一句，主动发 1~2 条，别重复已经说过的）" });
       }
-      const raw = await callAI(active, system, g.map(({
+      const raw = await callAI(apiFor(charId), system, g.map(({
         role,
         content
       }) => ({
@@ -2198,7 +2201,7 @@ function App() {
       const oocLines = (chatsRef.current[charId] || []).filter(m => !m.recalled && isOocMsg(m)).slice(-8)
         .map(m => (m.role === "user" ? "用户(OOC)" : "助手(OOC)") + "：" + String(m.content || "").slice(0, 300)).join("\n");
       if (oocLines) oocCtx.recentChat = (oocCtx.recentChat ? oocCtx.recentChat + "\n\n" : "") + "【最近的 OOC 幕后对话（用户越过角色和你这个助手聊的——角色本人不知道这些，别当成他俩的对话）】\n" + oocLines;
-      const res = await oocAsk(active, oocCtx, text.trim());
+      const res = await oocAsk(apiFor(charId), oocCtx, text.trim());
       // 合理的调整要求 → 存成长期准则（refused 时不存）
       if (res.directive && !res.refused) addDirective(charId, res.directive);
       pChat(charId, p => [...p, {
@@ -2221,7 +2224,7 @@ function App() {
     const char = characters.find(c => c.id === charId); if (!char) return;
     startLane("c:" + charId);
     try {
-      const raw = await callAI(active, buildBundle(ctxFor(char)) + "\n\n【场景】用户刚刚撤回了一条发给你的消息，那条原本的内容是：「" + text + "」。完全代入「" + char.name + "」，按你的人设、注意力和此刻心情，决定：你有没有『看到』那条被撤回的消息（saw）；看到了的话会不会追问/调侃/在意。有人眼疾手快都看到了、会追问「你刚撤回了啥」；有人根本没注意、就当没发生。用即时通讯口吻，短句。\n【输出】只输出 JSON：{\"saw\":true或false,\"say\":[\"气泡1\"]}（没看到或不在意时 say 给空数组）", [{ role: "user", content: "（用户撤回了一条消息）" }], { maxTokens: 700 });
+      const raw = await callAI(apiFor(charId), buildBundle(ctxFor(char)) + "\n\n【场景】用户刚刚撤回了一条发给你的消息，那条原本的内容是：「" + text + "」。完全代入「" + char.name + "」，按你的人设、注意力和此刻心情，决定：你有没有『看到』那条被撤回的消息（saw）；看到了的话会不会追问/调侃/在意。有人眼疾手快都看到了、会追问「你刚撤回了啥」；有人根本没注意、就当没发生。用即时通讯口吻，短句。\n【输出】只输出 JSON：{\"saw\":true或false,\"say\":[\"气泡1\"]}（没看到或不在意时 say 给空数组）", [{ role: "user", content: "（用户撤回了一条消息）" }], { maxTokens: 700 });
       const d = extractJSON(raw) || {};
       const says = Array.isArray(d.say) ? d.say : (d.say ? [d.say] : []);
       says.forEach((w, i) => setTimeout(() => pChat(charId, p => [...p, { role: "assistant", content: w, ts: Date.now(), read: false }]), 500 + i * 650));
@@ -2889,7 +2892,7 @@ function App() {
     const char = characters.find(c => c.id === charId); if (!char) return;
     startLane("c:" + charId);
     try {
-      const raw = await callAI(active, buildBundle(ctxFor(char)) + "\n\n【场景】用户把你拉黑了——你发的消息 Ta 暂时收不到，而你知道自己被拉黑了。完全代入「" + char.name + "」，按人设、此刻心情、对用户的好感，选一种反应：mutter=自言自语碎碎念(委屈/不在乎/嘴硬)；angry=生气骂几句；appeal=想和好、发一条『解除拉黑申请』并给理由。短句多气泡。\n【输出】只输出 JSON：{\"mode\":\"mutter|angry|appeal\",\"say\":[\"气泡1\",\"气泡2\"],\"reason\":\"appeal 时的申请理由，否则 null\"}", [{ role: "user", content: "（你被拉黑了）" }], { maxTokens: 500 });
+      const raw = await callAI(apiFor(charId), buildBundle(ctxFor(char)) + "\n\n【场景】用户把你拉黑了——你发的消息 Ta 暂时收不到，而你知道自己被拉黑了。完全代入「" + char.name + "」，按人设、此刻心情、对用户的好感，选一种反应：mutter=自言自语碎碎念(委屈/不在乎/嘴硬)；angry=生气骂几句；appeal=想和好、发一条『解除拉黑申请』并给理由。短句多气泡。\n【输出】只输出 JSON：{\"mode\":\"mutter|angry|appeal\",\"say\":[\"气泡1\",\"气泡2\"],\"reason\":\"appeal 时的申请理由，否则 null\"}", [{ role: "user", content: "（你被拉黑了）" }], { maxTokens: 500 });
       const d = extractJSON(raw) || {};
       const says = Array.isArray(d.say) ? d.say : (d.say ? [d.say] : []);
       const tag = d.mode === "angry" ? char.name + "（气愤）：" : char.name + "（自言自语）：";
@@ -2911,7 +2914,7 @@ function App() {
     pChat(charId, p => [...p, { role: "user", kind: "unblock_req", from: "me", cid, status: "pending", content: "[解除拉黑申请] " + (pleaText || ""), plea: pleaText || "", ts: Date.now(), read: true }]);
     startLane("c:" + charId);
     try {
-      const raw = await callAI(active, buildBundle(ctxFor(char)) + "\n\n【场景】你之前把用户拉黑了。现在用户发来一条『解除拉黑申请』，诉说内容：「" + (pleaText || "（没说什么）") + "」。完全代入「" + char.name + "」，依据人设、你当初为何拉黑、以及这段诉说是否打动你，决定接不接受。气量大/被说动就 accept；还在气头上/理由不够就拒绝。用即时通讯口吻回几句。\n【输出】只输出 JSON：{\"accept\":true或false,\"say\":[\"气泡1\",\"气泡2\"]}", [{ role: "user", content: pleaText || "（申请解除拉黑）" }], { maxTokens: 800 });
+      const raw = await callAI(apiFor(char.id), buildBundle(ctxFor(char)) + "\n\n【场景】你之前把用户拉黑了。现在用户发来一条『解除拉黑申请』，诉说内容：「" + (pleaText || "（没说什么）") + "」。完全代入「" + char.name + "」，依据人设、你当初为何拉黑、以及这段诉说是否打动你，决定接不接受。气量大/被说动就 accept；还在气头上/理由不够就拒绝。用即时通讯口吻回几句。\n【输出】只输出 JSON：{\"accept\":true或false,\"say\":[\"气泡1\",\"气泡2\"]}", [{ role: "user", content: pleaText || "（申请解除拉黑）" }], { maxTokens: 800 });
       const d = extractJSON(raw) || {};
       pChat(charId, p => p.map(m => m.cid === cid ? { ...m, status: d.accept ? "accepted" : "declined" } : m));
       const says = Array.isArray(d.say) ? d.say : (d.say ? [d.say] : []);
@@ -3904,7 +3907,7 @@ function App() {
         const whoCalled = callerIsChar ? "【谁打的这通电话】是【你】主动拨给 " + uName + " 的、Ta 接起来了——是你想找 Ta，别搞反成 Ta 打给你、更别问 Ta『不是你打给我的吗』。" : "【谁打的这通电话】是 " + uName + " 打给你的、你接了。";
         if (typeof primeQueryVec === "function") await primeQueryVec(recentChatText(char)); // 向量记忆预热（ctxFor 的检索用的是聊天文本）
         const sys = buildBundle(ctxFor(char)) + "\n\n【当前场景：" + modeZh + "中】你正和" + uName + "打电话。" + whoCalled + "用口语化短句自然对话，像真的在通话。**你可以一次说好几句（多个气泡），把想说的一次说完，别说一半。**" + (isVideo ? " 因为是视频通话对方能看到你，**每次都必须额外给一句此刻的动作/神态描写 action**（如 靠在沙发上笑、把镜头凑近、揉眼睛），不能省略。" : "") + "\n【输出】只输出 JSON：{\"say\":[\"气泡1\",\"气泡2\"]" + (isVideo ? ",\"action\":\"此刻动作神态一句(必填)\"" : "") + "}。say 里只放你说出口的话，不要加名字前缀、不要旁白、不要括号。";
-        const raw = await callAI(active, sys, hist, { maxTokens: 2400 });
+        const raw = await callAI(apiFor(char.id), sys, hist, { maxTokens: 2400 });
         const d = extractJSON(raw) || {};
         let says = Array.isArray(d.say) ? d.say : (d.say ? [d.say] : []);
         says = says.map(stripName).filter(Boolean);
@@ -7131,6 +7134,7 @@ function App() {
   }), chatSettingsOpen && activeChar && /*#__PURE__*/React.createElement(ChatSettings, {
     character: activeChar,
     settings: settingsFor(activeChar.id),
+    apiProfiles: apiProfiles,
     memory: memories[activeChar.id],
     onSave: s => {
       saveRemark(activeChar.id, s.remark);
@@ -7156,7 +7160,8 @@ function App() {
             selfP: s.selfP,
             userP: s.userP,
             describeMe: s.describeMe,
-            chatBg: s.chatBg
+            chatBg: s.chatBg,
+            apiId: s.apiId || null
           }
         };
         saveJSON("x_chatSettings", n);

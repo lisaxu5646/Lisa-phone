@@ -6974,6 +6974,7 @@ function ChatSettings({
   character,
   settings,
   memory,
+  apiProfiles,
   onSave,
   onClose,
   onClearMemory,
@@ -7003,6 +7004,7 @@ function ChatSettings({
   const [userP, setUserP] = useState(settings.userP || "second");
   const [describeMe, setDescribeMe] = useState(!!settings.describeMe);
   const [chatBg, setChatBg] = useState(settings.chatBg || "");
+  const [apiId, setApiId] = useState(settings.apiId || null); // 这个角色专属的 API 线路；null=跟随全局
   const bgFileRef = useRef(null);
   const cNm = character.remark || character.name;
   const dispRow = (label, val, set, sub) => h("div", { className: "flex items-center justify-between " + (sub ? "pt-3 pl-4" : "pt-4") },
@@ -7039,12 +7041,20 @@ function ChatSettings({
       selfP,
       userP,
       describeMe,
-      chatBg
+      chatBg,
+      apiId
     })
   }, /*#__PURE__*/React.createElement(ICheck, {
     size: 19,
     color: t.ink
-  }))), h("div", { className: "pt-2" },
+  }))), (apiProfiles && apiProfiles.length > 1) ? h("div", { className: "pt-2" },
+    h(Eyebrow, { style: { marginBottom: 2 } }, "API 线路"),
+    h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, lineHeight: 1.5, marginTop: 4 } }, cNm + " 开口的场合（单聊/1:1通话/线下/OOC）用哪条线路。可以给特别的人配特别的模型；群聊多人同台仍走全局。"),
+    h("div", { className: "flex flex-wrap", style: { gap: 6, marginTop: 8 } },
+      [{ v: null, t: "跟随全局" }].concat(apiProfiles.map(p => ({ v: p.id, t: p.name || p.model || "未命名" }))).map(o =>
+        h("button", { key: String(o.v), onClick: () => setApiId(o.v), className: "active:opacity-70",
+          style: { fontFamily: F_BODY, fontSize: 12, padding: "6px 12px", borderRadius: 999, background: apiId === o.v ? t.ink : "transparent", color: apiId === o.v ? t.bg2 : t.fog, border: "1px solid " + (apiId === o.v ? t.ink : t.line) } }, o.t)))) : null,
+  h("div", { className: "pt-2" },
     h(Eyebrow, { style: { marginBottom: 2 } }, "气泡显示"),
     dispRow("显示我的头像", showMyAvatar, setShowMyAvatar),
     dispRow("显示时间戳", showTime, setShowTime),
