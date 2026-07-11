@@ -764,10 +764,13 @@ function ttsCacheKey(voiceId, text) { let hsh = 5381; const s = voiceId + "|" + 
 function extractSpeech(text) {
   const s = String(text || "");
   const out = [];
-  const re = /「([^」]*)」|『([^』]*)』|“([^”]*)”|"([^"]*)"/g;
+  // 只认成对的中文/全角引号（开≠合，落单的引号自然配不上）。不收直角双引号 " ——它开合同字，
+  // 遇到落单的（如 5" 英寸标记）会跨段错配、把旁白当台词念（v47.99 审查）；中文角色扮演基本用「」/“”。
+  const re = /「([^」]*)」|『([^』]*)』|“([^”]*)”/g;
   let m;
   while ((m = re.exec(s))) {
-    const seg = (m[1] || m[2] || m[3] || m[4] || "").trim();
+    // 剥掉嵌套残留的引号字符（如「他喊『快跑』」外层会连内层『』一起吃进来），别念出括号
+    const seg = (m[1] || m[2] || m[3] || "").replace(/[「」『』“”]/g, "").trim();
     if (seg) out.push(seg);
   }
   return out.join("\n");

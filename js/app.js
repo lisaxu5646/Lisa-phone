@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v47.99";
+const APP_VERSION = "v48.00";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -1064,16 +1064,17 @@ function App() {
     const cid = activeChar.id;
     const timer = setInterval(() => {
       if (laneBusy("c:" + cid)) return;
-      // 线下进行中：角色此刻正跟你面对面相处，绝不能在线上主动催「怎么还不来」——直接掐掉这轮主动（浮层开着时 screen 仍是 thread，定时器还在转）
-      // 内存 ref 没加载就从本地兜底（上次没结束线下就关 app、这次直接进线上的情况）
-      if ((offlinesRef.current[cid] || loadJSON("x_offline:" + cid, [])).some(s => s && !s.endTs && (s.msgs || []).length > 0)) return;
+      // 线下浮层此刻正开着这个角色＝你俩面对面，绝不能在线上主动催「怎么还不来」——掐掉这轮（浮层开着时 screen 仍是 thread，定时器还在转）。
+      // ⚠️只认「浮层当下开着」这个信号，不认「有没散场的 session」——因为「离开」按钮只关浮层不设 endTs，
+      //    若靠 session 判断，离开后该角色会永远不再主动（v47.99 审查抓到的过度压制）。散场后的措辞兜底由 offlineActiveFor 的 prompt 提示负责。
+      if (offlineChar && offlineChar.id === cid) return;
       const msgs = (chatsRef.current[cid] || []).filter(m => !m.recalled && m.kind !== "ooc" && m.kind !== "system");
       if (!msgs.length) return;
       const lastTs = msgs[msgs.length - 1].ts || 0;
       if (Date.now() - lastTs >= mins * 60000) replyNow(cid, "", null, { proactive: true });
     }, 20000);
     return () => clearInterval(timer);
-  }, [screen, activeChar, chatSettings, sending]);
+  }, [screen, activeChar, chatSettings, sending, offlineChar]);
   // ---- 角色主动早晚安：扫所有【在聊的】角色，到各自作息的早/晚，主动发一句问候，落成未读红点，你随缘回 ----
   // 只在 app 打开时跑（静态站无后台推送）；一次只发一个错峰；一天早/晚各一次；刚聊完/正在看的不打扰。
   // 角色当地"此刻几点几分"（分钟数）——按 tz 偏移，无 tz 用设备本地
