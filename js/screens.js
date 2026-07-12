@@ -3955,6 +3955,10 @@ function CloudSync({ toast }) {
     } finally { setBusy(""); }
   };
   const doPush = async () => {
+    // 空壳防呆（v48.31）：本机连一个角色都没有还要覆盖云端备份，十有八九是站错设备了——拦一道确认
+    if (window.Cloud && typeof window.Cloud.localMeaningful === "function" && !window.Cloud.localMeaningful()) {
+      if (!window.confirm("⚠️ 本机现在没有任何角色（看起来是空存档）。\n确定要用这份空数据覆盖云端备份吗？\n（若你是想把云端数据拿回来，请点下面的「从云端恢复」）")) return;
+    }
     setBusy("push");
     try {
       await window.Cloud.push();

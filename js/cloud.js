@@ -165,9 +165,17 @@
       pushTimer = setTimeout(() => this.autoPush(), 2500);
     },
 
+    // 本地是不是「有意义的存档」：至少建过一个角色才算。空壳（新设备/新标签页开机自动写的几个默认键）
+    // 永远没有自动上云的资格——防「空壳以本地权威身份盖掉云端真存档」（2026-07-12 事故：
+    // Mac 上近乎空白的 github.io 标签页 bootHadLocal=true 触发 autoPush，清掉了手机刚备份的云档）
+    localMeaningful() {
+      try { return JSON.parse(localStorage.getItem("x_characters") || "[]").length > 0; } catch (e) { return false; }
+    },
+
     // 静默把本地存档推到云端（未登录=访客则不做；离线报错则忽略，下次变动再试）
     async autoPush() {
       if (!client) return;
+      if (!this.localMeaningful()) return; // 空壳绝不自动上云（手动推送在设置里另有确认）
       try {
         const user = await this.getUser();
         if (!user) return; // 访客模式：纯本地
