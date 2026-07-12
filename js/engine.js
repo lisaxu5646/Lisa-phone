@@ -996,17 +996,20 @@ function extractSpeech(text) {
   }
   return out.join("\n");
 }
-// 按台词内容粗判语气 → MiniMax emotion 参数（本地零成本）。治「开朗音色念正经话还是很夸张」：
-// 正经/平静的话显式传 neutral 压住克隆样本自带的亢奋，情绪句才放开。
+// 按台词内容粗判语气 → MiniMax emotion 参数（本地零成本兜底——首选是消息自带的作者标注 m.emo，见 v48.31）。
+// v48.31 扩了词表；仍然只是猜字面，猜不出潜台词，所以只当兜底。
 function ttsEmotionOf(text) {
   const s = String(text || "");
-  if (/(哭|呜呜|难过|想你了|对不起|抱歉|委屈|舍不得|唉)/.test(s)) return "sad";
-  if (/(气死|烦死|滚|闭嘴|凭什么|够了|混蛋)/.test(s)) return "angry";
-  if (/(吓死|好怕|别吓|救命)/.test(s)) return "fearful";
-  if (/(哈哈|嘿嘿|太好了|开心|耶|好棒|！！)/.test(s)) return "happy";
-  if (/(居然|竟然|不会吧|真的假的|？！|!？)/.test(s)) return "surprised";
+  if (/(哭|呜呜|呜…|难过|想你了|对不起|抱歉|委屈|舍不得|心疼|别走|想哭|难受|唉|哎)/.test(s)) return "sad";
+  if (/(气死|烦死|滚|闭嘴|凭什么|够了|混蛋|讨厌|烦不烦|你敢|找打|哼！)/.test(s)) return "angry";
+  if (/(吓死|好怕|别吓|救命|不敢|心慌|发抖)/.test(s)) return "fearful";
+  if (/(哈哈|嘿嘿|嘻嘻|太好了|开心|耶|好棒|好耶|万岁|！！)/.test(s)) return "happy";
+  if (/(居然|竟然|不会吧|真的假的|天哪|我去|等等？|啊？|？！|!？)/.test(s)) return "surprised";
+  if (/(恶心|呕|吐了|离谱|无语|啧)/.test(s)) return "disgusted";
   return "neutral";
 }
+// MiniMax 认的 emotion 值（校验作者标注用）
+const TTS_EMOS = ["happy", "sad", "angry", "fearful", "disgusted", "surprised", "neutral"];
 // 按台词自动选发音矫正 language_boost（v47.92）：治「日语角色被中文矫正带偏口音」。
 // 假名(ひらがな/カタカナ)是日语铁证、中文里不会出现→有假名走 Japanese，谚文走 Korean，纯 ASCII 走 English，其余默认 Chinese
 function ttsLangBoost(text) {
@@ -1039,7 +1042,9 @@ async function jpKanaReading(text) {
   return kana;
 }
 // 合成一段语音：先查缓存，没有才真调 MiniMax（t2a_v2，hex 音频 → mp3 blob）
-async function ttsSpeak(text, voiceId) {
+// v48.31 opts.emo=作者标注的语气（发语音的角色自己标的，最准）；情绪策略见下
+async function ttsSpeak(text, voiceId, opts) {
+  opts = opts || {};
   const a = loadTtsApi();
   if (!ttsReady(a)) throw new Error("没配置语音 API（设置 · 语音 TTS）");
   const vid = voiceId || "female-shaonv";
@@ -1055,13 +1060,28 @@ async function ttsSpeak(text, voiceId) {
   let spd = (ve.speed != null && isFinite(ve.speed)) ? Number(ve.speed) : (ve.calm ? 0.85 : 1.0);
   spd = Math.max(0.5, Math.min(1.0, spd));
   const slowed = spd < 0.99;
-  const emo = slowed ? "neutral" : ttsEmotionOf(txt);   // 主动压稳时锁平静情绪
+  // ⭐情绪策略（v48.31，治「克隆音色不像本音」+「emotion 吃不准」）：
+  // · MiniMax 的 emotion 是把声音往预设情绪模板上掰——显式传（哪怕 neutral）都会让克隆音色偏离本音；
+  //   平台试听页不传 emotion，所以「平台像、导进来不像」。→ 平静句一律【不传】emotion 字段，原声即本音。
+  // · 音色库 per-voice emoMode：auto=跟内容（默认）｜none=原声（永不传，克隆音色最像）｜某个具体情绪=锁定。
+  // · auto 模式的情绪来源优先级：作者标注（opts.emo，角色发语音时自己标的）> 正则猜字面（兜底）。
+  const mode = ve.emoMode || "auto";
+  let emo = null; // null = 请求里不放 emotion 字段
+  if (mode === "none") emo = null;
+  else if (TTS_EMOS.indexOf(mode) >= 0) emo = mode;
+  else if (slowed) emo = "neutral"; // 沉稳档保留 v47.86 行为：主动压稳锁平静
+  else {
+    const tagged = opts.emo && TTS_EMOS.indexOf(String(opts.emo)) >= 0 ? String(opts.emo) : null;
+    emo = tagged || ttsEmotionOf(txt);
+    if (emo === "neutral") emo = null; // 平静不传，别拿 neutral 模板掰本音
+  }
   const pit = 0;
   const boost = ttsLangBoost(txt);   // 按句子语言选发音矫正（日语句走 Japanese，别被中文带偏口音）
   // 日语汉字注音（v47.93）：音色开了 jpKana + 是日语句 + 含汉字 → 先转假名再合成，治「寝→中文qin」
   const wantKana = !!ve.jpKana && boost === "Japanese" && /[一-鿿]/.test(txt);
-  // 缓存键带语速档 + 语言矫正 + 注音标记：不同参数别互相命中
-  const key = ttsCacheKey(vid + ":" + emo + ":lb:" + boost + (slowed ? ":s" + Math.round(spd * 100) : "") + (wantKana ? ":kana" : ""), txt);
+  // 缓存键带情绪(null=raw) + 语速档 + 语言矫正 + 注音标记 + hq44 音质版本：不同参数别互相命中，
+  // hq44 让 v48.31 之前 32k 音质的旧缓存自然失效（同句会用新参数重合成一次，之后照旧缓存免费）
+  const key = ttsCacheKey(vid + ":" + (emo || "raw") + ":hq44:lb:" + boost + (slowed ? ":s" + Math.round(spd * 100) : "") + (wantKana ? ":kana" : ""), txt);
   const hit = await idbAudGet(key).catch(() => null);
   if (hit && hit.size > 0) return hit;
   // 缓存没命中才真去转假名（转换也缓存进最终音频，重听免费）
@@ -1076,7 +1096,8 @@ async function ttsSpeak(text, voiceId) {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + a.apiKey },
       // language_boost 按句子语言自动选（v47.92）；synthTxt 可能是汉字转假名后的文本（v47.93 jpKana）
-      body: JSON.stringify({ model: a.model || "speech-02-hd", text: synthTxt, stream: false, language_boost: boost, voice_setting: { voice_id: vid, speed: spd, vol: 1.0, pitch: pit, emotion: emo }, audio_setting: { sample_rate: 32000, bitrate: 128000, format: "mp3", channel: 1 } }),
+      // v48.31：emotion 只在明确需要时才带（null=不传，克隆音色保本音）；音质拉到 44100/256k 对齐平台试听
+      body: JSON.stringify({ model: a.model || "speech-02-hd", text: synthTxt, stream: false, language_boost: boost, voice_setting: Object.assign({ voice_id: vid, speed: spd, vol: 1.0, pitch: pit }, emo ? { emotion: emo } : {}), audio_setting: { sample_rate: 44100, bitrate: 256000, format: "mp3", channel: 1 } }),
       signal: ctrl.signal
     });
   } finally { clearTimeout(to); }

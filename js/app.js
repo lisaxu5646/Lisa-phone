@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.30";
+const APP_VERSION = "v48.31";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -1966,7 +1966,7 @@ function App() {
       const selfieHint = canSelfie
         ? "\n【selfie 发自拍】你可以给 " + uName + " 发自拍，别太拘谨——Ta 让你拍、你想给 Ta 看看此刻的自己、撒娇卖萌、报备在哪在干嘛、心情好想分享、氛围正好、或话题聊到你的样子/穿着/所在时，都可以自然发一张（比以前放开点，但也别每一轮都发、别刷屏，一段对话里几次就够）。想发就把 selfie 填成一句【这张自拍拍到了什么】的画面描述（你在哪、在干嘛、表情、光线氛围，一句话；别描写你的长相——长相已知）；**这是自拍，画面里一定有你的脸**。不发就 null。你只发自拍，不发别的图。**极其重要：真正的照片由系统看 selfie 字段去生成——所以画面描述【只能写进 selfie 字段】，绝对不许把它写进 word 气泡里、也不许用『[图片]』『*发来一张自拍：…*』『（一张照片：…）』这类文字来假装发图。word 气泡就正常说话（比如『喏，给你看』『刚拍的』），真图交给 selfie 字段。要发图就必须填 selfie，不填 selfie 就等于没发图。**"
         : "";
-      const system = bundle + ("\n\n【任务】完全代入「" + char.name + "」用手机即时通讯和用户聊天。**把话拆成多条短气泡：word 给多个元素，每条一两句、像发微信一句一条连着发，别把一大段塞进一个气泡。**语气自然，不写旁白/动作/括号小动作；按关系网与好感度把握亲密度，不剧透未发生的剧情。开了时间/位置感知可自然回应，别生硬报数据。聊天历史每条开头的〔今天14:32〕〔昨天20:11〕是系统加的时间标注，供你感知每句话是什么时候说的——标着「今天」的就是今天说的，别把几小时前的事说成昨天；【你自己的回复里绝对不要带这种〔〕标注】。偶尔像真人打字不完美：可以先发了后半句再补前半句、或打个无伤大雅的错字紧接着补一条「*正字」纠正、累/忙/敷衍时回复明显变短——【低频】，几十轮里偶尔一次，别刻意扎堆。" + callHint + proactiveHint + gapHint + wearHint + actHint + eyesHint + desireHint + ambientHint + listenHint + inviteHint + selfieHint + "\n【silent 沉默权】极偶尔你可以选择这轮【不回复】（silent 填 true、word 和 voice 留空）：仅当 Ta 连续几条都是敷衍的单字（哦/嗯/啊）你实在没话接、或你正在气头上不想理 Ta、或你的人设本就高冷惜字如金时——已读不回本身就是你的态度，你的心情照常写进 mood。绝大多数回合 silent 都是 false、正常回复，别拿沉默当偷懒。" + "\n【quote 引用】多数填 null；仅当用户连发数条、你要指明在回其中较早某句时，才把那句原文放 quote，别每条都引用。\n【transfer 转账】想给用户转钱（还钱/心意/打赏）填 {\"amount\":数字,\"note\":\"附言\"}，否则 null。【location 位置】想把自己所在地发给 Ta 填 {\"name\":\"地点名\"}，否则 null——Ta 问你在哪/在干嘛、约见面碰头、报备行踪、或你到了个想让 Ta 知道的地方时，大方发个定位卡（别频繁）。\n【gift 送东西/外卖】只要你这轮【说了】要给用户买东西/点外卖奶茶咖啡/送吃的花礼物惊喜——**必须**填 gift:{\"name\":\"具体东西，如 一杯生椰拿铁／麻辣烫外卖／一束花\"}（只嘴上说不填就不会真送到、Ta 收不到）；没有就 null，别频繁乱送。会像外卖一样过会儿送到。" + kinHint + emoteHint + "\n【voice 语音】想发语音（懒得打字/唱一句/情绪重/想让 Ta 听见）就把话放 voice 数组，每个元素是一条语音的转文字；平时仍以文字 word 为主，voice 偶尔用，不发给 []。\n【call 通话】很想直接通话（想听声音/急事/撒娇/煲电话粥）时主动发起：call 填 \"voice\" 或 \"video\"，会给对方弹来电卡；否则 null，别频繁。" + blockHint + "\n【recall 撤回】发出后后悔/说漏嘴/不想让 Ta 看到，可撤回那句：填 recall:{\"text\":\"要撤回的原句（和 word 里某句一致或另说）\",\"reason\":\"撤回的心里原因\"}，否则 null，别频繁。\n【momentComment 朋友圈】聊到 Ta 朋友圈、或你此刻想去补条评论/点赞（尤其之前没评现在说要评），填 momentComment（会真发到 Ta 最新那条下），否则 null。\n【输出】只输出一个 JSON，不要代码块：\n{\"word\":[\"气泡1\",\"气泡2\"],\"silent\":false,\"quote\":\"你在回应的用户那句话原文或null\",\"transfer\":null,\"location\":null,\"gift\":null,\"kinshipcard\":null,\"block\":false,\"blockreason\":null,\"recall\":null,\"momentComment\":null,\"whisper\":null,\"thought\":" + JSON.stringify(thoughtSpec) + ",\"moment\":\"想发的动态或null（别和自己最近发过的朋友圈复读同一件事/同一心情，没新东西就填null）\",\"affinityDelta\":整数(-5到5通常0),\"mood\":{\"label\":\"此刻心情词\",\"baseline\":\"平复后的心情词\",\"softened\":\"半衰后的心情词\"},\"wearing\":\"此刻穿着一句\",\"action\":\"此刻正在做的动作，一句短的，【每轮都更新】反映你此刻真在做什么、别照抄上一轮（相当于简单RP动作，只写在这里别写进气泡）；情境需要时可两三句更具体\",\"emote\":\"想发的表情关键词或null\",\"voice\":[],\"call\":null,\"songSwitch\":null,\"listenInvite\":null,\"selfie\":null}").replace(/用户/g, uName);
+      const system = bundle + ("\n\n【任务】完全代入「" + char.name + "」用手机即时通讯和用户聊天。**把话拆成多条短气泡：word 给多个元素，每条一两句、像发微信一句一条连着发，别把一大段塞进一个气泡。**语气自然，不写旁白/动作/括号小动作；按关系网与好感度把握亲密度，不剧透未发生的剧情。开了时间/位置感知可自然回应，别生硬报数据。聊天历史每条开头的〔今天14:32〕〔昨天20:11〕是系统加的时间标注，供你感知每句话是什么时候说的——标着「今天」的就是今天说的，别把几小时前的事说成昨天；【你自己的回复里绝对不要带这种〔〕标注】。偶尔像真人打字不完美：可以先发了后半句再补前半句、或打个无伤大雅的错字紧接着补一条「*正字」纠正、累/忙/敷衍时回复明显变短——【低频】，几十轮里偶尔一次，别刻意扎堆。" + callHint + proactiveHint + gapHint + wearHint + actHint + eyesHint + desireHint + ambientHint + listenHint + inviteHint + selfieHint + "\n【silent 沉默权】极偶尔你可以选择这轮【不回复】（silent 填 true、word 和 voice 留空）：仅当 Ta 连续几条都是敷衍的单字（哦/嗯/啊）你实在没话接、或你正在气头上不想理 Ta、或你的人设本就高冷惜字如金时——已读不回本身就是你的态度，你的心情照常写进 mood。绝大多数回合 silent 都是 false、正常回复，别拿沉默当偷懒。" + "\n【quote 引用】多数填 null；仅当用户连发数条、你要指明在回其中较早某句时，才把那句原文放 quote，别每条都引用。\n【transfer 转账】想给用户转钱（还钱/心意/打赏）填 {\"amount\":数字,\"note\":\"附言\"}，否则 null。【location 位置】想把自己所在地发给 Ta 填 {\"name\":\"地点名\"}，否则 null——Ta 问你在哪/在干嘛、约见面碰头、报备行踪、或你到了个想让 Ta 知道的地方时，大方发个定位卡（别频繁）。\n【gift 送东西/外卖】只要你这轮【说了】要给用户买东西/点外卖奶茶咖啡/送吃的花礼物惊喜——**必须**填 gift:{\"name\":\"具体东西，如 一杯生椰拿铁／麻辣烫外卖／一束花\"}（只嘴上说不填就不会真送到、Ta 收不到）；没有就 null，别频繁乱送。会像外卖一样过会儿送到。" + kinHint + emoteHint + "\n【voice 语音】想发语音（懒得打字/唱一句/情绪重/想让 Ta 听见）就把话放 voice 数组；每个元素写成 {\"t\":\"这条语音的转文字\",\"emo\":\"你说这句时的真实语气，从 happy/sad/angry/fearful/disgusted/surprised/neutral 里选一个（按你此刻真实的情绪选，别看字面——嘴上说没事心里委屈就是 sad）\"}；平时仍以文字 word 为主，voice 偶尔用，不发给 []。\n【call 通话】很想直接通话（想听声音/急事/撒娇/煲电话粥）时主动发起：call 填 \"voice\" 或 \"video\"，会给对方弹来电卡；否则 null，别频繁。" + blockHint + "\n【recall 撤回】发出后后悔/说漏嘴/不想让 Ta 看到，可撤回那句：填 recall:{\"text\":\"要撤回的原句（和 word 里某句一致或另说）\",\"reason\":\"撤回的心里原因\"}，否则 null，别频繁。\n【momentComment 朋友圈】聊到 Ta 朋友圈、或你此刻想去补条评论/点赞（尤其之前没评现在说要评），填 momentComment（会真发到 Ta 最新那条下），否则 null。\n【输出】只输出一个 JSON，不要代码块：\n{\"word\":[\"气泡1\",\"气泡2\"],\"silent\":false,\"quote\":\"你在回应的用户那句话原文或null\",\"transfer\":null,\"location\":null,\"gift\":null,\"kinshipcard\":null,\"block\":false,\"blockreason\":null,\"recall\":null,\"momentComment\":null,\"whisper\":null,\"thought\":" + JSON.stringify(thoughtSpec) + ",\"moment\":\"想发的动态或null（别和自己最近发过的朋友圈复读同一件事/同一心情，没新东西就填null）\",\"affinityDelta\":整数(-5到5通常0),\"mood\":{\"label\":\"此刻心情词\",\"baseline\":\"平复后的心情词\",\"softened\":\"半衰后的心情词\"},\"wearing\":\"此刻穿着一句\",\"action\":\"此刻正在做的动作，一句短的，【每轮都更新】反映你此刻真在做什么、别照抄上一轮（相当于简单RP动作，只写在这里别写进气泡）；情境需要时可两三句更具体\",\"emote\":\"想发的表情关键词或null\",\"voice\":[],\"call\":null,\"songSwitch\":null,\"listenInvite\":null,\"selfie\":null}").replace(/用户/g, uName);
       const g = [];
       for (const m of history) {
         // 每条历史带时间标注〔今天14:32〕（v47.83 她点名单聊也要）：裸消息模型会把几小时前的事说成昨天
@@ -2102,12 +2102,15 @@ function App() {
           pChat(charId, p => [...p, { role: "assistant", kind: "emote", url: match.url, keyword: match.keyword, content: "[表情] " + match.keyword, ts: Date.now(), turnId }]);
         }
       }
-      // TA 发语音消息（显示成语音气泡+转文字）
-      const vArr = Array.isArray(parsed.voice) ? parsed.voice.filter(x => x && String(x).toLowerCase() !== "null") : [];
+      // TA 发语音消息（显示成语音气泡+转文字）。v48.31：元素兼容两代形态——"转文字" 或 {t, emo}（emo=作者标的语气，TTS 优先用它）
+      const vArr = Array.isArray(parsed.voice) ? parsed.voice.filter(x => x && String(typeof x === "object" ? x.t : x).toLowerCase() !== "null") : [];
       for (let i = 0; i < vArr.length; i++) {
         await new Promise(r => setTimeout(r, 420));
-        const vt = String(vArr[i]);
-        pChat(charId, p => [...p, { role: "assistant", kind: "voice", content: vt, dur: Math.max(1, Math.min(60, Math.round(vt.replace(/\s/g, "").length / 3))), ts: Date.now(), turnId, read: false }]);
+        const raw = vArr[i];
+        const vt = String(typeof raw === "object" && raw ? (raw.t || raw.text || "") : raw).trim();
+        if (!vt) continue;
+        const vEmo = typeof raw === "object" && raw && raw.emo && ["happy","sad","angry","fearful","disgusted","surprised","neutral"].includes(String(raw.emo)) ? String(raw.emo) : undefined;
+        pChat(charId, p => [...p, { role: "assistant", kind: "voice", content: vt, emo: vEmo, dur: Math.max(1, Math.min(60, Math.round(vt.replace(/\s/g, "").length / 3))), ts: Date.now(), turnId, read: false }]);
       }
       // TA 发来一张自拍（接了图像 API + 该角色填了外貌/参考照才有）：先占位「拍照中」，异步生成后替换成真图
       const selfieDesc = parsed.selfie && String(parsed.selfie).toLowerCase() !== "null" ? String(parsed.selfie).trim() : null;
@@ -2465,7 +2468,7 @@ function App() {
       const gDirs = (directives[groupId] || []).map(d => (typeof d === "string" ? d : d && d.text) || "").filter(s => s.trim());
       const gDirHint = gDirs.length ? "\n\n【⚠️群规矩·最高优先级，压过下面的对话惯性】这些是用户之前（场外）跟你们立好、你们已经答应了的长期约定，每一条【现在就生效、永久有效】：\n" + gDirs.map((s, i) => (i + 1) + ". " + s).join("\n") + "\n——就算上面的聊天记录里大家还在聊相关话题，也从这一轮起严格照约定来（惯性不是理由）；用户若问「是不是说好了」，大方承认记得并已经在做，绝不许一脸茫然装不知道。" : "";
       // 群聊里有旁白/围观（spectate）等长段描写时也吃八股压制器（线上短对话不需要，但群聊会写到叙事）
-      const system = ANTI_CLICHE + "\n\n" + NARRATIVE_ANTI_CLICHE + (gWorld && gWorld.trim() ? "\n\n" + WORLDBOOK_RULE : "") + "\n\n" + CHARCARD_RULE + "\n\n" + dir + common + gTimeHint + gDirHint + gEmoteHint + gSelfieHint + thoughtHint + "\n\n【成员】\n" + memberDesc + "\n\n【成员间关系】\n" + relLines + (gWorld ? "\n\n【世界书】\n" + gWorld : "") + interop + preJoin + "\n\n【近期群聊】\n" + hist + "\n\n【输出】只输出 JSON 数组，按发言先后顺序。普通发言 {\"name\":\"成员名\",\"text\":\"内容\",\"quote\":\"（可选）你正在回应的那句话原文，不回应特定某句就省略此字段\",\"emote\":\"（可选）想发的表情关键词\",\"voice\":\"（可选）填 true 表示这条作为语音消息发（会显示成语音气泡+转文字，偶尔用）\",\"call\":\"（可选）填 voice 或 video，表示这个成员此刻想跟用户发起语音/视频通话邀请，别频繁\"" + thoughtField + "}；若某成员说完某句又后悔、想撤回，那条加 \"recall\":true 和 \"recallReason\":\"撤回原因\"（会先显示一秒再变成已撤回，别频繁）；发红包 {\"name\":\"成员名\",\"redpacket\":{\"total\":金额数字,\"count\":份数,\"message\":\"祝福语\"}}。name 必须是成员之一。";
+      const system = ANTI_CLICHE + "\n\n" + NARRATIVE_ANTI_CLICHE + (gWorld && gWorld.trim() ? "\n\n" + WORLDBOOK_RULE : "") + "\n\n" + CHARCARD_RULE + "\n\n" + dir + common + gTimeHint + gDirHint + gEmoteHint + gSelfieHint + thoughtHint + "\n\n【成员】\n" + memberDesc + "\n\n【成员间关系】\n" + relLines + (gWorld ? "\n\n【世界书】\n" + gWorld : "") + interop + preJoin + "\n\n【近期群聊】\n" + hist + "\n\n【输出】只输出 JSON 数组，按发言先后顺序。普通发言 {\"name\":\"成员名\",\"text\":\"内容\",\"quote\":\"（可选）你正在回应的那句话原文，不回应特定某句就省略此字段\",\"emote\":\"（可选）想发的表情关键词\",\"voice\":\"（可选）填 true 表示这条作为语音消息发（会显示成语音气泡+转文字，偶尔用）\",\"voiceEmo\":\"（可选，voice=true 时）这条语音的真实语气：happy/sad/angry/fearful/disgusted/surprised/neutral 之一，按说话人此刻真实情绪选、别看字面\",\"call\":\"（可选）填 voice 或 video，表示这个成员此刻想跟用户发起语音/视频通话邀请，别频繁\"" + thoughtField + "}；若某成员说完某句又后悔、想撤回，那条加 \"recall\":true 和 \"recallReason\":\"撤回原因\"（会先显示一秒再变成已撤回，别频繁）；发红包 {\"name\":\"成员名\",\"redpacket\":{\"total\":金额数字,\"count\":份数,\"message\":\"祝福语\"}}。name 必须是成员之一。";
       // 触发用户内容：自上一条角色发言以来我说的话/旁白
       let tail = [];
       for (let i = gchat.length - 1; i >= 0; i--) {
@@ -2497,7 +2500,8 @@ function App() {
             setTimeout(() => pGChat(groupId, p => p.map(m => m.mid === mid ? { ...m, recalled: true, origText: arr[i].text, reason: arr[i].recallReason || "" } : m)), 1100);
           } else if (arr[i].voice === true && arr[i].text) {
             const vt = String(arr[i].text);
-            pGChat(groupId, p => [...p, { role: "assistant", senderId: spk.id, senderName: spk.name, kind: "voice", content: vt, dur: Math.max(1, Math.min(60, Math.round(vt.replace(/\s/g, "").length / 3))), replyTo: arr[i].quote || null, ts: Date.now() }]);
+            const gEmo = arr[i].voiceEmo && ["happy","sad","angry","fearful","disgusted","surprised","neutral"].includes(String(arr[i].voiceEmo)) ? String(arr[i].voiceEmo) : undefined;
+            pGChat(groupId, p => [...p, { role: "assistant", senderId: spk.id, senderName: spk.name, kind: "voice", content: vt, emo: gEmo, dur: Math.max(1, Math.min(60, Math.round(vt.replace(/\s/g, "").length / 3))), replyTo: arr[i].quote || null, ts: Date.now() }]);
           } else {
             // 按换行把一坨拆成多条气泡（首条带引用），避免整段挤在一个气泡里
             const gLines = String(arr[i].text || "").split(/\n+/).map(x => x.trim()).filter(Boolean);

@@ -4118,7 +4118,7 @@ function VoiceMsg({ m, isU, speaker }) {
     aud.play().catch(() => {}); // 在用户手势里先解锁 iOS 音频，真数据到了才播
     setPErr(null); setPSt("gen");
     try {
-      const blob = await ttsSpeak(m.content, speaker.voiceId);
+      const blob = await ttsSpeak(m.content, speaker.voiceId, { emo: m.emo }); // v48.31 作者标注的语气优先
       const url = URL.createObjectURL(blob);
       aud.src = url;
       aud.onended = () => { setPSt("idle"); URL.revokeObjectURL(url); };

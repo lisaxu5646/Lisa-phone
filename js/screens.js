@@ -3042,6 +3042,19 @@ function TtsApiConfig({ toast, characters, onAssignVoice }) {
             })(),
             // 语速调过（<1）却没角色在用 → 警告：实际聊天不会变
             v.speed != null && v.speed < 0.99 && users.length === 0 ? h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: "#c25a4a", marginTop: 6, lineHeight: 1.6, background: "rgba(194,90,74,0.08)", borderRadius: 8, padding: "6px 9px" } }, "⚠️ 语速设置只对试听生效——没有角色在用这个 voice_id。去角色档案把「音色」填成上面这个 id（一字不差、别多空格），实际聊天里 TA 的语音才会跟着变。") : null,
+            // 情绪模式（v48.31）：MiniMax 的 emotion 参数会把声音往预设情绪模板上掰——克隆音色被掰就不像本人了。
+            // 原声=永不传 emotion（平台试听就是这样，克隆音最像）；跟内容=角色标的语气优先、平静句不传；锁平静=强制 neutral 模板
+            h("div", { style: { marginTop: 10, paddingTop: 8, borderTop: "1px dashed " + t.line } },
+              h("div", { style: { marginBottom: 6 } },
+                h("span", { style: { fontFamily: F_BODY, fontSize: 12, color: t.ink } }, "情绪模式"),
+                h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.fog, marginLeft: 6 } }, "克隆音色听着不像本人 → 选「原声」")),
+              h("div", { className: "flex flex-wrap items-center gap-2" },
+                [["auto", "跟内容"], ["none", "原声·最像"], ["neutral", "锁平静"]].map(pair => h("button", {
+                  key: pair[0],
+                  onClick: () => { saveVlib(vlib.map(x => x.id === v.id ? { ...x, emoMode: pair[0] } : x)); toast && toast(pair[0] === "none" ? "原声：合成时完全不带情绪参数——克隆音色最像本人（角色标的语气会被忽略）" : pair[0] === "auto" ? "跟内容：角色发语音时自己标的语气优先；平静句不带参数、保本音" : "锁平静：所有句子都压成平静语气"); },
+                  className: "active:opacity-70",
+                  style: { fontFamily: F_BODY, fontSize: 12, padding: "5px 12px", borderRadius: 999, background: (v.emoMode || "auto") === pair[0] ? t.ink : "transparent", color: (v.emoMode || "auto") === pair[0] ? t.bg2 : t.fog, border: "1px solid " + ((v.emoMode || "auto") === pair[0] ? t.ink : t.line) } }, pair[1])),
+                h("button", { onClick: () => vtp.toggle(v.id + "_emoprev_" + (v.emoMode || "auto"), "你怎么才回我呀，我都等急了！算了，你来了就好。", v.id), className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 11, color: t.tint, border: "1px solid " + t.line, borderRadius: 999, padding: "4px 12px" } }, vtp.play && String(vtp.play.k).indexOf(v.id + "_emoprev") === 0 ? (vtp.play.st === "gen" ? "合成中…" : "⏸ 停") : "▶ 试情绪句"))),
             // 日语·汉字注音（v47.93）：日语角色专用。治「寝→中文qin」——合成前把汉字转成假名读音
             h("div", { className: "flex items-center justify-between", style: { marginTop: 10, paddingTop: 8, borderTop: "1px dashed " + t.line } },
               h("div", { style: { paddingRight: 10 } },
