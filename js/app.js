@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.31";
+const APP_VERSION = "v48.32";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -633,6 +633,38 @@ function App() {
     if (!(window.Cloud && window.Cloud.ready())) return null;
     try { return await window.Cloud.chatArchiveGet(charId); } catch (e) { toast("拉取云端归档失败：" + (e.message || e)); return null; }
   };
+  // 服务器信箱收信口（v48.32 第八课下半场）：云端定时任务（night-watch）替角色写的信 → 投进聊天当主动消息。
+  // 原则：①先送信后盖戳——宁可极端情况下重复一封，绝不静默丢信（内容查重兜底）
+  // ②握手：服务器投过早安的角色，app 自己的早安闸门（x_greetLog）当天让位，两套问候不打架
+  const inboxInflightRef = useRef(false);
+  const inboxSeenRef = useRef(new Set()); // 本次会话已投递过的信 id：防「连续触发抢在状态落盘前」的重复投递
+  const deliverServerInbox = async () => {
+    if (inboxInflightRef.current) return;
+    if (!(window.Cloud && window.Cloud.ready() && typeof window.Cloud.inboxFetch === "function")) return;
+    inboxInflightRef.current = true;
+    try {
+      const letters = await window.Cloud.inboxFetch();
+      if (!letters.length) return;
+      const done = [];
+      for (const L of letters) {
+        if (inboxSeenRef.current.has(L.id)) { done.push(L.id); continue; }
+        inboxSeenRef.current.add(L.id);
+        const char = characters.find(c => c.id === L.char_id);
+        if (!char) { done.push(L.id); continue; } // 角色已删，信作废
+        const msgs = chatsRef.current[char.id] || [];
+        if (!msgs.slice(-12).some(m => m && m.content === L.content)) {
+          const ts = new Date(L.created_at).getTime() || Date.now();
+          pChat(char.id, p => [...p, { role: "assistant", content: L.content, ts, read: false, serverNight: true }]);
+          if (L.kind === "morning") markGreet(char.id, "m", schedDayKey(new Date()));
+        }
+        done.push(L.id);
+      }
+      await window.Cloud.inboxConsume(done);
+    } catch (e) {/* 离线/未登录：信还在云端，下次再取 */}
+    finally { inboxInflightRef.current = false; }
+  };
+  // 调试钩子：控制台随时 window.__pokeInbox() 手动收一次信（排查云端投递时用）
+  useEffect(() => { window.__pokeInbox = deliverServerInbox; return () => { delete window.__pokeInbox; }; });
   const pGChat = (id, u) => setGroupChats(p => {
     const pl = p[id] || [];
     const n = typeof u === "function" ? u(pl) : u;
@@ -3543,13 +3575,13 @@ function App() {
   }, [screen]);
   // 打开 app 当天第一次就给所有人生成今日行程（每天一次）；随后看有没有人临时起意改计划
   useEffect(() => {
-    if (active && characters.length) schedGenAllToday().then(() => schedMaybeSelfRevise()).then(() => desireMuseAllToday()).then(() => desireTendAllToday());
+    if (active && characters.length) { deliverServerInbox(); schedGenAllToday().then(() => schedMaybeSelfRevise()).then(() => desireMuseAllToday()).then(() => desireTendAllToday()); };
   }, [active, characters.length]);
   // 回到前台 / 重新聚焦：也自动补今日行程。PWA 常驻不重载页面时，光靠上面的首次加载不够——
   // 切回来那一下补一次。schedGenAllToday 只补【缺今天】的角色、已有则空跑，安全省 api。
   useEffect(() => {
     if (!loaded) return;
-    const kick = () => { if (document.visibilityState !== "hidden" && active && characters.length) schedGenAllToday().then(() => schedMaybeSelfRevise()).then(() => desireMuseAllToday()).then(() => desireTendAllToday()); };
+    const kick = () => { if (document.visibilityState !== "hidden" && active && characters.length) { deliverServerInbox(); schedGenAllToday().then(() => schedMaybeSelfRevise()).then(() => desireMuseAllToday()).then(() => desireTendAllToday()); }; };
     document.addEventListener("visibilitychange", kick);
     window.addEventListener("focus", kick);
     return () => { document.removeEventListener("visibilitychange", kick); window.removeEventListener("focus", kick); };
@@ -3558,7 +3590,7 @@ function App() {
   const schedDayRef = useRef(schedDayKey(new Date()));
   useEffect(() => {
     const k = schedDayKey(new Date());
-    if (k !== schedDayRef.current) { schedDayRef.current = k; if (active && characters.length) schedGenAllToday().then(() => schedMaybeSelfRevise()).then(() => desireMuseAllToday()).then(() => desireTendAllToday()); }
+    if (k !== schedDayRef.current) { schedDayRef.current = k; if (active && characters.length) { deliverServerInbox(); schedGenAllToday().then(() => schedMaybeSelfRevise()).then(() => desireMuseAllToday()).then(() => desireTendAllToday()); }; }
   }, [now]);
 
   // ---- 查手机：每个 app 独立生成/刷新 ----

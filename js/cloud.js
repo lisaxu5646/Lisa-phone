@@ -156,6 +156,28 @@
       return merged.length;
     },
 
+    // ---- 服务器信箱（server_inbox 表，v48.32 第八课）：云端定时任务替角色写的信，app 开机取走投进聊天 ----
+    // 取未消费的信（RLS 保证只取到自己的）；未登录/未就绪安静返回空
+    async inboxFetch() {
+      if (!client) return [];
+      const user = await this.getUser();
+      if (!user) return [];
+      const { data, error } = await client
+        .from("server_inbox")
+        .select("id, char_id, kind, content, created_at")
+        .is("consumed_at", null)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data || [];
+    },
+    // 给取走的信盖戳（consumed_at），防下次重复投递
+    async inboxConsume(ids) {
+      if (!client || !ids || !ids.length) return;
+      const user = await this.getUser();
+      if (!user) return;
+      await client.from("server_inbox").update({ consumed_at: new Date().toISOString() }).in("id", ids);
+    },
+
     // ---- 自动同步 ----------------------------------------------------
 
     // 本地 x_ 数据有变动时调用：登录状态下防抖后自动 push
