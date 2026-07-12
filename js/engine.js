@@ -678,10 +678,13 @@ function retrieveMemories(lib, charId, queryText, opts = {}) {
   const qTokens = memTokens(queryText);
   // 向量：只有发送前 primeQueryVec 预热过、缓存命中才拿得到；没有就 null=纯关键词，行为同旧版
   const qVec = opts.vec === false ? null : getQueryVec(queryText);
-  const scored = list.map(e => ({ e, s: scoreMemEntry(e, qTokens, Date.now(), qVec) }));
+  // ⭐置顶=always-in，【另开一路、不占 topK 相关召回名额】（v48.41 修：原来置顶和普通条挤同一个 topK，
+  //   置顶超过 topK 就把相关记忆全饿死了，且不相关的置顶也白占坑）。置顶全进 + 相关的再补 topK 条。
+  const pinned = list.filter(e => e.pinned);
+  const scored = list.filter(e => !e.pinned).map(e => ({ e, s: scoreMemEntry(e, qTokens, Date.now(), qVec) }));
   scored.sort((a, b) => b.s - a.s);
-  // 置顶条目一定进；其余按分数，忽略几乎无关联（分数过低且非置顶）的
-  const picked = scored.filter(x => x.e.pinned || x.s > 0.9).slice(0, limit).map(x => x.e);
+  const relevant = scored.filter(x => x.s > 0.9).slice(0, limit).map(x => x.e);
+  const picked = pinned.concat(relevant);
   // ⭐检索即复习：被想起的条目刷新 lastHit、hits+1（就地改 entry 对象——lib 就是 memLibRef.current 那份）。
   // 节流持久化：只有当有条目超过 6 小时没被摸过时才写盘，防每轮聊天都重写整个记忆库
   if (opts.touch !== false && picked.length) {
@@ -749,7 +752,7 @@ async function extractMemories(p, ctx, msgs, opts = {}) {
     "· 同一件事【只记一条】，别把一件事拆成好几条重复的；忽略寒暄和没信息量的闲聊。为每条配 1~3 个中文标签。" + avoid + "\n" +
     "· 每条再标注情绪与状态：**v**=这件事的情绪愉悦度（整数 -5~5，负=难过/生气/难堪/委屈，0=中性事实，正=开心/温暖/心动）；**a**=情绪强度（整数 0~5，0=平淡的事实，5=强烈动情/激烈冲突/刻骨铭心）；**open**=是不是【还没了结的开环】（true=没兑现的约定/没和好的争执/悬着的心事/在等的结果这类还惦记着、还没画句号的；false=已了结的、或本来就是静态事实/偏好/背景）。\n" +
     (Array.isArray(opts.openList) && opts.openList.length
-      ? "\n\n【当前还没了结的约定/心事（下面每条前有编号）】若下面对话显示某条【已经完成/兑现/做过了/解决/明确不了了之】，就在输出数组里加一个 {\"resolveOpen\":编号} 元素（**填那条的数字编号**，不是原文；能确定哪几条完成就各加一个，没完成的别加）：\n" + opts.openList.slice(0, 12).map((s, i) => (i + 1) + ". " + s).join("\n")
+      ? "\n\n【当前还没了结的约定/心事（下面每条前有编号）】若下面对话显示某条【已经完成/兑现/做过了/解决/明确不了了之】，就在输出数组里加一个 {\"resolveOpen\":编号} 元素（**填那条的数字编号**，不是原文；能确定哪几条完成就各加一个，没完成的别加）：\n" + opts.openList.slice(0, 30).map((s, i) => (i + 1) + ". " + s).join("\n")
       : "") +
     "【输出】只输出合法 JSON 数组，无 markdown：\n[{\"text\":\"一句话事实（开头带主语真名）\",\"tags\":[\"标签1\"],\"v\":0,\"a\":1,\"open\":false}]\n没有值得记的、或全都已记过，就输出 []。";
   const raw = await callAI(p, system, [{ role: "user", content: "【对话】\n" + text }], { maxTokens: 3500 });

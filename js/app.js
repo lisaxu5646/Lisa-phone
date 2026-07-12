@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.40";
+const APP_VERSION = "v48.41";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -812,16 +812,27 @@ function App() {
   const uniqMemId = (now, i) => "m_" + now + "_" + i + "_" + Math.floor(Math.random() * 1e4);
   const normMemText = s => String(s || "").replace(/[\s，。、；：,.;:!！?？「」『』"'“”‘’（）()【】\-—]/g, "").toLowerCase();
   const memShareChar = (aIds, bIds) => { const a = aIds || [], b = bIds || []; if (!a.length || !b.length) return true; return a.some(x => b.includes(x)); };
+  // 是否重复（跳过新的）：v48.41 改成【不对称】——只有「新文本没添新信息」才算重复，即新的 ⊆ 已有（被已有包含）或完全相同。
+  // 若新的更长、反而包含了旧的（是更详细版），不算重复：放它进来，交给 pruneSubsumed 淘汰旧的含糊版，别再丢细节。
   const isDupMem = (text, charIds, pool) => {
     const n = normMemText(text); if (n.length < 4) return false;
     return (pool || memLibRef.current).some(e => {
       if (!memShareChar(charIds, e.charIds)) return false;
       const en = normMemText(e.text); if (!en) return false;
       if (en === n) return true;
-      const s = en.length < n.length ? en : n, l = en.length < n.length ? n : en;
-      return s.length >= 6 && l.indexOf(s) >= 0 && s.length / l.length > 0.72;
+      // 已有 en 更长且完全包含新的 n（n ⊆ en）→ 新的没添信息 → 重复
+      return n.length >= 6 && en.length > n.length && en.indexOf(n) >= 0 && n.length / en.length > 0.72;
     });
   };
+  // 升级替换（v48.41）：新的更详细条目进库时，淘汰被它「完全包含」的旧含糊版——但【置顶、开环、太短的一律保留】（尤其别误删她的未了约定）
+  const pruneSubsumed = (existing, newEntries) => existing.filter(old => {
+    const on = normMemText(old.text); if (on.length < 6 || old.pinned || old.open) return true;
+    return !newEntries.some(ne => {
+      if (!ne || !ne.text || !memShareChar(ne.charIds, old.charIds)) return false;
+      const nn = normMemText(ne.text);
+      return nn.length > on.length && nn.indexOf(on) >= 0 && on.length / nn.length > 0.72;
+    });
+  });
   const clampInt = (x, lo, hi, dflt) => typeof x === "number" && !isNaN(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : dflt;
   const addMemEntry = e => {
     const entry = {
@@ -839,13 +850,23 @@ function App() {
     if (!entry.text) return;
     // 自动来源（抽取/总结）去重，别把同一件事塞好几条；手动记的放行（用户自己要加就加）
     if (entry.source !== "manual" && isDupMem(entry.text, entry.charIds)) return;
-    saveMemLib([entry, ...memLibRef.current]);
+    saveMemLib([entry, ...pruneSubsumed(memLibRef.current, [entry])]);
   };
   const updateMemEntry = (id, patch) => saveMemLib(memLibRef.current.map(x => x.id === id ? {
     ...x,
     ...patch
   } : x));
   const deleteMemEntry = id => saveMemLib(memLibRef.current.filter(x => x.id !== id));
+  // 枯萎记忆一键清理（v48.41 #4）：久无人问津的低情绪静态旧事——非置顶、非开环、情绪弱(a≤1)、120 天没被想起、几乎没被召回过(hits<2)。
+  // ⚠️她的未了约定(open)和置顶的绝不清。判定逻辑同步给 MemoryLib 组件算数量（memWithered）。
+  const purgeWithered = () => {
+    const now = Date.now();
+    const keep = memLibRef.current.filter(e => !(e && !e.pinned && !e.open && (e.a || 0) <= 1 && (e.hits || 0) < 2 && now - (Math.max(e.ts || 0, e.lastHit || 0) || now) >= 120 * 86400000));
+    const removed = memLibRef.current.length - keep.length;
+    if (!removed) { toast("没有可清理的落灰记忆"); return; }
+    saveMemLib(keep);
+    toast("已清理 " + removed + " 条落灰记忆（约定/心事/置顶都留着）");
+  };
   // 给还没情绪数据的旧记忆一次性补评估（一批一次便宜调用，点亮情绪色点/未了标记）
   const backfillMemEmotion = async () => {
     if (!active) { toast("请先到设置配置 API"); return; }
@@ -886,7 +907,7 @@ function App() {
     try {
       const existing = memLibRef.current.filter(e => memShareChar([charId], e.charIds)).slice(0, 40).map(e => e.text).filter(Boolean);
       // openEntries 保序，编号即下标+1；喂给模型的是带编号的文本
-      const openEntries = memLibRef.current.filter(e => e.open && memShareChar([charId], e.charIds)).slice(0, 12);
+      const openEntries = memLibRef.current.filter(e => e.open && memShareChar([charId], e.charIds)).slice(0, 30); // v48.41：她开环多，12→30，让更多约定能被自动闭环
       const openList = openEntries.map(e => e.text).filter(Boolean);
       const items = await extractMemories(bgActive, ctxFor(char), msgs, { existing: existing, openList: openList });
       // 自动了结开环：模型返回已完成开环的【编号】(1-based) → 按下标直接闭环。
@@ -912,7 +933,7 @@ function App() {
         if (isDupMem(x.text, [charId], batchSeen)) return false; // 和本批已收的重复
         batchSeen.push(x); return true;
       });
-      if (entries.length) saveMemLib([...entries, ...memLibRef.current]);
+      if (entries.length) saveMemLib([...entries, ...pruneSubsumed(memLibRef.current, entries)]);
       return entries.length;
     } finally {
       memExtractInflightRef.current[charId] = false;
@@ -956,7 +977,7 @@ function App() {
         if (isDupMem(x.text, [charId], batchSeen)) return false;
         batchSeen.push(x); return true;
       });
-      if (entries.length) saveMemLib([...entries, ...memLibRef.current]);
+      if (entries.length) saveMemLib([...entries, ...pruneSubsumed(memLibRef.current, entries)]);
       toast(entries.length ? "已从旧记忆导入 " + entries.length + " 条" : "旧记忆里的事都已经在库里了");
     } catch (e) { toast("导入失败：" + (e.message || "重试")); }
     finally { endLane("c:" + charId); }
@@ -1635,8 +1656,15 @@ function App() {
     timeAware: prefs.timeAware,
     // 群 OOC 立的长期规矩（directives[groupId]）线下也要遵守——线上 replyGroup 早就注入了，线下之前漏了
     directives: directives[group.id] || [],
-    // 记忆分区：不互通的群是封闭空间，线下也不读全局记忆库（不让外部记忆流入）
-    memLib: gsFor(group.id).memoryInterop ? memLibRef.current : null
+    // 记忆分区：不互通的群是封闭空间，线下也不读全局记忆库（不让外部记忆流入）。
+    // 互通群也【只召回相关 topK】，绝不把整个记忆库全量灌进 prompt（v48.41 修：预算炸弹 + 和 v48.20 同类的线上筛/线下裸灌触审不对称，对齐线上 replyGroup 的 retrieveMemories）。
+    memLib: (() => {
+      if (!gsFor(group.id).memoryInterop) return null;
+      const sess = (groupOfflinesRef.current[group.id] || []).find(s => !s.endTs);
+      const qtext = sess && Array.isArray(sess.msgs) ? sess.msgs.slice(-6).map(m => m.content || "").join("\n") : "";
+      const anchor = (group.memberIds || [])[0];
+      return anchor ? retrieveMemories(memLibRef.current, anchor, qtext, { limit: 6, touch: false }) : [];
+    })()
   });
   const pGOffline = (groupId, updater) => setGroupOfflines(prev => {
     const next = updater(prev[groupId] || []);
@@ -7121,6 +7149,7 @@ function App() {
     onSaveCfg: saveMemCfg,
     onImportOld: importOldMemoryToLib,
     onBackfillEmotion: backfillMemEmotion,
+    onPurgeWithered: purgeWithered,
     emoBusy: emoBusy
   });else if (screen === "diary") body = h(Diary, {
     characters: characters,

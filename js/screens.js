@@ -4281,9 +4281,12 @@ function MemoryLib({
   onSaveCfg,
   onImportOld,
   onBackfillEmotion,
+  onPurgeWithered,
   emoBusy
 }) {
   const t = useTheme();
+  // 落灰记忆数量（和 app.js purgeWithered 同判定）：非置顶/非开环/情绪弱(a≤1)/120天没被想起/几乎没被召回(hits<2)
+  const witheredCount = (entries || []).filter(e => { const now = Date.now(); return e && !e.pinned && !e.open && (e.a || 0) <= 1 && (e.hits || 0) < 2 && now - (Math.max(e.ts || 0, e.lastHit || 0) || now) >= 120 * 86400000; }).length;
   const [filter, setFilter] = useState(focusChar ? focusChar.id : "all");
   const [editing, setEditing] = useState(null); // "new" | entry
   const [cfgOpen, setCfgOpen] = useState(false); // 召回设置弹层
@@ -4407,6 +4410,8 @@ function MemoryLib({
       color: t.line
     }
   }, "· " + new Date(e.ts || Date.now()).toLocaleDateString("zh-CN"), (e.source === "import" ? " · 导入" : e.source === "manual" ? " · 手动" : (e.tags || []).includes("群聊") ? " · 群聊" : (e.tags || []).includes("线下") ? " · 线下" : e.source === "auto" ? " · 自动" : "")))))), cfgOpen && onSaveCfg && h(MemCfgSheet, {
+    onPurgeWithered: onPurgeWithered,
+    witheredCount: witheredCount,
     cfg: cfg || {}, onSave: onSaveCfg, onClose: () => setCfgOpen(false)
   }), editing && h(MemEntrySheet, {
     entry: editing === "new" ? null : editing,
@@ -4424,9 +4429,10 @@ function MemoryLib({
   }));
 }
 // 召回设置：自动抽取开关 + top-k + 抽取间隔 + 短期窗天数（消死区）
-function MemCfgSheet({ cfg, onSave, onClose }) {
+function MemCfgSheet({ cfg, onSave, onClose, onPurgeWithered, witheredCount }) {
   const t = useTheme();
   const [c, setC] = useState(Object.assign({ topK: 5, autoExtract: true, extractInterval: 1, recentDays: 3, recentBudget: 8000 }, cfg || {}));
+  const [confirmPurge, setConfirmPurge] = useState(false);
   const set = patch => setC(p => Object.assign({}, p, patch));
   const toggle = (label, sub, val, onT) => h("div", { className: "flex items-center justify-between", style: { padding: "12px 0", borderTop: "1px solid " + t.line } },
     h("div", { style: { flex: 1, paddingRight: 12 } },
@@ -4448,7 +4454,18 @@ function MemCfgSheet({ cfg, onSave, onClose }) {
     slider("自动抽取间隔", c.extractInterval || 1, 1, 5, 1, " 轮", v => set({ extractInterval: v }), (c.extractInterval || 1) > 1 ? "每 " + c.extractInterval + " 轮抽一次，省抽取 API。" : "每轮都抽，记得最全、最费 API。日常设 2~3 轮够用。"),
     slider("短期窗覆盖天数", c.recentDays || 3, 1, 7, 1, " 天", v => set({ recentDays: v }), "最近这些天说的话一定带进上下文（消死区，不忘最近几天）。"),
     slider("短期窗字符预算", c.recentBudget || 8000, 3000, 16000, 1000, " 字", v => set({ recentBudget: v }), "上面那些原文最多带这么多字进上下文——长消息少带几条、短消息多带几条，token 有上限。调大记得更全、更费；调小更省。超出的老内容由自动抽取+摘要兜底。"),
-    h("button", { onClick: () => { onSave(c); onClose(); }, className: "w-full active:opacity-80", style: { marginTop: 18, fontFamily: F_BODY, fontSize: 14.5, fontWeight: 700, color: t.bg2, background: t.ink, borderRadius: 12, padding: "12px" } }, "保存"));
+    h("button", { onClick: () => { onSave(c); onClose(); }, className: "w-full active:opacity-80", style: { marginTop: 18, fontFamily: F_BODY, fontSize: 14.5, fontWeight: 700, color: t.bg2, background: t.ink, borderRadius: 12, padding: "12px" } }, "保存"),
+    // 清理落灰记忆（v48.41 #4）：库越攒越大，一键删掉久无人问津的低情绪旧事——约定/心事/置顶都留着
+    onPurgeWithered ? h("div", { style: { marginTop: 16, paddingTop: 14, borderTop: "1px dashed " + t.line } },
+      h(Eyebrow, { style: { marginBottom: 4 } }, "清理落灰记忆"),
+      h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, lineHeight: 1.5, marginBottom: 8 } }, "删掉 120 天没被想起、几乎没被召回过、也没什么情绪的静态旧事。你的未了约定/心事、置顶的、有情绪的都【不会】被清。"),
+      witheredCount > 0
+        ? (confirmPurge
+            ? h("div", { className: "flex gap-2" },
+                h("button", { onClick: () => setConfirmPurge(false), className: "flex-1 active:opacity-70", style: { fontFamily: F_BODY, fontSize: 13, color: t.sub, border: "1px solid " + t.line, borderRadius: 10, padding: "10px 0" } }, "取消"),
+                h("button", { onClick: () => { onPurgeWithered(); setConfirmPurge(false); onClose(); }, className: "flex-1 active:opacity-70", style: { fontFamily: F_DISPLAY, fontSize: 14, color: "#fff", background: t.accent, borderRadius: 10, padding: "10px 0" } }, "确认清理 " + witheredCount + " 条"))
+            : h("button", { onClick: () => setConfirmPurge(true), className: "w-full active:opacity-70", style: { fontFamily: F_BODY, fontSize: 13.5, color: t.accent, border: "1px solid " + t.line, borderRadius: 10, padding: "11px 0" } }, "🧹 清理落灰记忆（约 " + witheredCount + " 条）"))
+        : h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, textAlign: "center", padding: "8px 0" } }, "暂时没有落灰记忆，很干净 ✨")) : null);
 }
 function MemEntrySheet({
   entry,
