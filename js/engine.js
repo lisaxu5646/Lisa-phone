@@ -565,8 +565,11 @@ function buildBundle(ctx, opts) {
   if (dirs.length) parts.push("【用户对你说话/行为方式的长期要求（高优先·务必长期保持）】\n这些是用户明确要求你保持的准则，优先级高于一般演绎习惯；在不违背核心人设的前提下务必遵守：\n" + dirs.map((s, i) => (i + 1) + ". " + s.trim()).join("\n"));
   if (timeAware !== false) {
     const fmt = { year: "numeric", month: "long", day: "numeric", weekday: "long", hour: "2-digit", minute: "2-digit" };
-    parts.push("【当前真实时间】" + now.toLocaleString("zh-CN", fmt));
-    // 角色若设了时区（UTC 偏移），额外给出 Ta 所在地的当地时间（异地恋用）
+    const uNm = (profile && profile.name) ? profile.name : "对方";
+    // ⚠️【当前真实时间】= 用户设备的当地时间，也就是【对方那边此刻的真实时间】。点破这一点，
+    //   否则设了时区的角色会脑补一个不存在的大时差（如日本角色在你早上发「你那边是晚上了吧」）。
+    parts.push("【当前真实时间】" + now.toLocaleString("zh-CN", fmt) + "——这【就是 " + uNm + "（对方）此刻所在地的当地时间】。Ta 那边现在几点、是清晨还是深夜，直接照这个，绝不许自己臆测 Ta 的时间。");
+    // 角色若设了时区（UTC 偏移），额外给出 Ta 自己所在地的当地时间（异地恋用）
     const tzRaw = char && char.tz;
     if (tzRaw !== undefined && tzRaw !== null && String(tzRaw).trim() !== "") {
       const off = parseFloat(tzRaw);
@@ -574,7 +577,7 @@ function buildBundle(ctx, opts) {
         // getTime() 是 UTC 纪元毫秒；加上目标偏移后按 UTC 字段读，即得该时区的墙钟时间
         const charLocal = new Date(now.getTime() + off * 3600000);
         const cf = { year: "numeric", month: "long", day: "numeric", weekday: "long", hour: "2-digit", minute: "2-digit", timeZone: "UTC" };
-        parts.push("【" + char.name + " 所在地当前时间（UTC" + (off >= 0 ? "+" + off : off) + "）】" + charLocal.toLocaleString("zh-CN", cf) + "（你和对方处在不同时区，请按你这边的当地时间和作息说话——比如你这儿是深夜就别当白天，可自然提到时差）");
+        parts.push("【你（" + char.name + "）自己所在地的当前时间（UTC" + (off >= 0 ? "+" + off : off) + "）】" + charLocal.toLocaleString("zh-CN", cf) + "——这是【你自己】那边的时间，你按自己这边的时间与作息说话。**你和 " + uNm + " 的时差 = 上面这两个时间的差，仅此而已**：可能几乎同步、也可能差几个小时，一切以这两个给定时间为准；**绝不要凭『我在某国』就脑补出昼夜颠倒的大时差**——比如你这边是早上、看到 " + uNm + " 那边（当前真实时间）也才刚过早上，就别说『你那边是深夜吧』。");
       }
     }
   }

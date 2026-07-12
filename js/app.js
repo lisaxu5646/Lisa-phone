@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.37";
+const APP_VERSION = "v48.39";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -1396,6 +1396,24 @@ function App() {
             genExDiaryReply(pg.characterId, pg.id);
             break;                                            // 一次一页
           }
+        }
+      } catch (e) {}
+      // —— 主动发消息·主屏也能收到（v48.39，她报：原来只有点进聊天框才触发）——
+      // 设了「允许 Ta 主动发消息」的角色，闲置超过设定间隔 → 在主屏/任意页也主动发一条，落成未读红点，你随缘点进去看。
+      // viewRef 命中「正在看这个聊天/线下浮层开着这个角色」时跳过（那种由前台 20s 定时器即时负责，避免双发）；
+      // 按角色当地作息只在 8~23 点发，别半夜 ping。一次一个错峰。
+      try {
+        for (const c of characters) {
+          const cid = c.id;
+          const s = settingsFor(cid);
+          if (!s.proactive) continue;
+          if (laneBusy("c:" + cid) || viewRef.current.charId === cid) continue;
+          const ms = (chatsRef.current[cid] || []).filter(m => !m.recalled && m.kind !== "ooc" && m.kind !== "system");
+          if (!ms.length) continue;
+          if (Date.now() - (ms[ms.length - 1].ts || 0) < Math.max(1, s.proactiveMin || 120) * 60000) continue;
+          const hr = Math.floor(charLocalMin(c) / 60); if (hr < 8 || hr > 23) continue;
+          replyNow(cid, "", null, { proactive: true });
+          return; // 一次一个，错峰（本轮不再顺带问候，下一轮 tick 再说）
         }
       } catch (e) {}
       // 池 = 真在聊的角色（≥2条历史）；每个时段最多问候 ceil(池/2) 个，别全员打卡把你淹了
