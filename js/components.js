@@ -7037,6 +7037,8 @@ function ChatSettings({
   const [describeMe, setDescribeMe] = useState(!!settings.describeMe);
   const [chatBg, setChatBg] = useState(settings.chatBg || "");
   const [engineerEyes, setEngineerEyes] = useState(!!settings.engineerEyes); // 驻场工程师的眼睛：把 app 体征仪表盘给这个角色看
+  const [toyEnabled, setToyEnabled] = useState(!!settings.toyEnabled); // 配件·按角色 opt-in（只在解锁后显示；亲密功能必须显式授权）
+  let toyUnlocked = false; try { toyUnlocked = localStorage.getItem("x_toyUnlocked") === "1"; } catch (e) {}
   const [apiId, setApiId] = useState(settings.apiId || null); // 这个角色专属的 API 线路；null=跟随全局
   const [memEdit, setMemEdit] = useState(null); // 长期记忆手术刀（v48.35）：null=浏览，字符串=编辑中的草稿
   const bgFileRef = useRef(null);
@@ -7077,7 +7079,8 @@ function ChatSettings({
       describeMe,
       chatBg,
       apiId,
-      engineerEyes
+      engineerEyes,
+      toyEnabled
     })
   }, /*#__PURE__*/React.createElement(ICheck, {
     size: 19,
@@ -7341,7 +7344,13 @@ function ChatSettings({
         memory && h("button", { onClick: onClearMemory, style: { fontFamily: F_BODY, fontSize: 12, color: t.accent } }, "清空这段记忆"))
     : h("div", { className: "flex items-center gap-2" },
         h("button", { onClick: () => { onSaveMemory && onSaveMemory(memEdit.trim()); setMemEdit(null); }, className: "active:opacity-80", style: { fontFamily: F_DISPLAY, fontSize: 13, color: t.bg2, background: t.ink, borderRadius: 9, padding: "8px 18px" } }, "保存记忆"),
-        h("button", { onClick: () => setMemEdit(null), style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog, padding: "8px 10px" } }, "取消")))), h(SettingSection, { title: "危险区 · 拉黑 / 清除", danger: true, ...sec("danger") }, onToggleBlock && h("div", { className: "pt-6" },
+        h("button", { onClick: () => setMemEdit(null), style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog, padding: "8px 10px" } }, "取消")))), h(SettingSection, { title: "危险区 · 拉黑 / 清除", danger: true, ...sec("danger") }, toyUnlocked ? h("div", { className: "pt-6" },
+    h(Eyebrow, { style: { marginBottom: 6 } }, "配件"),
+    h("div", { className: "flex items-center justify-between" },
+      h("div", { className: "pr-3" },
+        h("div", { style: { fontFamily: F_DISPLAY, fontSize: 15, color: t.sub } }, "允许 " + cNm + " 控制配件"),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 2, lineHeight: 1.5 } }, "只对这个角色、只在单聊里。开了之后每次进聊天还要点右下「激活配件」当次才生效；后台/主动消息/群聊永不触发。需先在 设置·数据 配好本地地址。")),
+      h(Toggle, { on: toyEnabled, onChange: () => setToyEnabled(v => !v) }))) : null, onToggleBlock && h("div", { className: "pt-6" },
     h(Eyebrow, { style: { marginBottom: 6 } }, "拉黑"),
     h("div", { className: "flex items-center justify-between" },
       h("div", { className: "pr-3" },

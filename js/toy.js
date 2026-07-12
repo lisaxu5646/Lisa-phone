@@ -5,9 +5,10 @@
 // UI 隐身：默认不出现，设置·数据 tab 连点「数据」7 下解锁（x_toyUnlocked）。配置只存本机、不进云同步。
 // ============================================================
 function loadToyCfg() {
-  try { const c = JSON.parse(localStorage.getItem("x_toy") || "null"); if (c && typeof c === "object") return Object.assign({ url: "", platform: "LisaPhone", enabled: false }, c); } catch (e) {}
-  return { url: "", platform: "LisaPhone", enabled: false };
+  try { const c = JSON.parse(localStorage.getItem("x_toy") || "null"); if (c && typeof c === "object") return Object.assign({ url: "", platform: "LisaPhone", enabled: false, cap: 12 }, c); } catch (e) {}
+  return { url: "", platform: "LisaPhone", enabled: false, cap: 12 };
 }
+function toyCap() { const c = loadToyCfg(); const n = Math.round(c.cap); return isNaN(n) ? 12 : Math.max(1, Math.min(20, n)); }
 function saveToyCfg(c) { const clean = Object.assign(loadToyCfg(), c || {}); try { localStorage.setItem("x_toy", JSON.stringify(clean)); } catch (e) {} return clean; }
 function toyReady(c) { c = c || loadToyCfg(); return !!(c.enabled && c.url); }
 // 归一本地地址：削尾 /command、去尾斜杠。用户从 Lovense Remote 的 Game Mode 页面抄「域名:端口」。
@@ -50,6 +51,30 @@ function toyVibrate(strength, timeSec) {
 function toyStop() { return toyCommand({ command: "Function", action: "Stop", timeSec: 0, apiVer: 1 }); }
 function toyGetToys() { return toyCommand({ command: "GetToys" }); }
 
+// ── 波形预设（语义绑定：台词跟着节奏走，别只发恒定值）──
+// 每个预设吃「峰值强度 I(1~20)」，吐一串强度序列；Pattern 命令按 interval 逐格播放、循环填满 timeSec。
+const TOY_STRENGTH = {
+  teasing: I => [2, 2, Math.round(I * 0.5), 2, I, 2, 2],        // 若即若离，偶尔一下
+  steady: I => [I],                                             // 恒定（实际走 Function）
+  wave: I => [1, Math.round(I * 0.4), Math.round(I * 0.7), I, Math.round(I * 0.7), Math.round(I * 0.4), 1], // 起伏
+  pulse: I => [I, 0, I, 0],                                     // 一下一下点名
+  edge: I => [Math.round(I * 0.4), Math.round(I * 0.6), Math.round(I * 0.85), I, I, 1] // 推到顶再骤降（吊着）
+};
+const TOY_INTERVAL = { teasing: 800, steady: 1000, wave: 600, pulse: 400, edge: 700 };
+const TOY_PATTERNS = ["teasing", "steady", "wave", "pulse", "edge"];
+// 按语义规格播放。强度【一律封顶 toyCap()】，角色越不过；时长封顶 30s。返回 promise。
+function toyPlay(spec) {
+  spec = spec || {};
+  const cap = toyCap();
+  const I = Math.max(1, Math.min(cap, Math.round(spec.intensity || 0) || 1));   // ⚠️用户上限封顶，角色不可越
+  const D = Math.max(1, Math.min(30, Math.round(spec.duration || 3) || 3));
+  const pat = TOY_PATTERNS.includes(String(spec.pattern || "").toLowerCase()) ? String(spec.pattern).toLowerCase() : "steady";
+  if (pat === "steady") return toyVibrate(I, D);
+  const seq = TOY_STRENGTH[pat](I).map(x => Math.max(0, Math.min(cap, Math.round(x)))).join(";");
+  const interval = TOY_INTERVAL[pat] || 600;
+  return toyCommand({ command: "Pattern", rule: "V:1;F:v;S:" + interval + "#", strength: seq, timeSec: D, apiVer: 1 });
+}
+
 // ── 设置 UI（只在解锁后渲染；藏在 设置·数据 tab）──
 function ToyConfig({ toast }) {
   const t = useTheme();
@@ -77,6 +102,12 @@ function ToyConfig({ toast }) {
       h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, color: t.ink } }, "启用"),
       h("button", { onClick: () => set({ enabled: !c.enabled }), style: { width: 50, height: 29, borderRadius: 999, background: c.enabled ? t.ink : t.line, position: "relative" } },
         h("span", { style: { position: "absolute", top: 3, left: c.enabled ? 24 : 3, width: 23, height: 23, borderRadius: 999, background: "#fff", transition: "left .2s" } }))),
+    // 强度上限（角色越不过这个值）——安全铁律②
+    h("div", { style: { padding: "6px 0" } },
+      h("div", { className: "flex items-center justify-between", style: { marginBottom: 4 } },
+        h("span", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog } }, "强度上限（TA 越不过）"),
+        h("span", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, (c.cap == null ? 12 : c.cap))),
+      h("input", { type: "range", min: 1, max: 20, step: 1, value: c.cap == null ? 12 : c.cap, onChange: e => set({ cap: +e.target.value }), style: { width: "100%" } })),
     // 测试面板
     h("div", { style: { marginTop: 8, paddingTop: 12, borderTop: "1px solid " + t.line } },
       h("div", { className: "flex items-center justify-between", style: { marginBottom: 6 } },
@@ -91,4 +122,4 @@ function ToyConfig({ toast }) {
     h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 12, lineHeight: 1.5 } },
       "地址会随网络变，重连后回来重抄一次即可。人不在同一 WiFi 时本地直连用不了（那要走 Lovense 云端 API，得先搭一小截后端）。"));
 }
-if (typeof window !== "undefined") { window.ToyConfig = ToyConfig; window.toyVibrate = toyVibrate; window.toyStop = toyStop; window.toyReady = toyReady; window.toyCommand = toyCommand; }
+if (typeof window !== "undefined") { window.ToyConfig = ToyConfig; window.toyVibrate = toyVibrate; window.toyStop = toyStop; window.toyReady = toyReady; window.toyCommand = toyCommand; window.toyPlay = toyPlay; window.toyCap = toyCap; window.TOY_PATTERNS = TOY_PATTERNS; }
