@@ -178,6 +178,56 @@
       await client.from("server_inbox").update({ consumed_at: new Date().toISOString() }).in("id", ids);
     },
 
+    // ---- Web Push 锁屏推送（v48.33，夜巡信箱的下半场）------------------
+    // 订阅存 push_subs 表；云端 send-push 函数照单给每台订阅过的设备发通知（云端小抄在 lisa-practice/推送小抄.md）。
+    // VAPID 公钥她在设置里粘贴（x_pushVapid，可云同步）；私钥只住在 Edge Function secrets，前端永远不见。
+    async pushStatus() {
+      try {
+        if (!("serviceWorker" in navigator) || !("PushManager" in window)) return "unsupported";
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        return sub ? "on" : "off";
+      } catch (e) { return "off"; }
+    },
+    async pushSubscribe(vapidPub) {
+      if (!client) throw new Error("云同步没初始化");
+      const user = await this.getUser();
+      if (!user) throw new Error("先登录云同步——推送订阅要挂在你的账号下，夜巡才知道发给谁");
+      if (!("serviceWorker" in navigator) || !("PushManager" in window)) throw new Error("这个浏览器不支持推送。iPhone 要先「添加到主屏幕」、再从主屏图标打开才有这能力（iOS 16.4+）");
+      const key = String(vapidPub || "").trim();
+      if (!key) throw new Error("先在上面粘贴 VAPID 公钥（生成方法见推送小抄）");
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") throw new Error("通知权限没给——去系统设置里允许本 app 通知后再点一次");
+      const reg = await navigator.serviceWorker.ready;
+      // base64url 公钥 → Uint8Array（subscribe 只认字节）
+      const pad = "=".repeat((4 - key.length % 4) % 4);
+      const b64 = (key + pad).replace(/-/g, "+").replace(/_/g, "/");
+      const rawKey = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      const old = await reg.pushManager.getSubscription();
+      if (old) { try { await old.unsubscribe(); } catch (e) {} } // 换过公钥的旧订阅作废重订
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: rawKey });
+      const { error } = await client.from("push_subs").upsert({
+        user_id: user.id,
+        endpoint: sub.endpoint,
+        subscription: sub.toJSON(),
+        ua: String(navigator.userAgent || "").slice(0, 120),
+        updated_at: new Date().toISOString()
+      }, { onConflict: "endpoint" });
+      if (error) throw error;
+      return true;
+    },
+    async pushUnsubscribe() {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          if (client) { try { await client.from("push_subs").delete().eq("endpoint", sub.endpoint); } catch (e) {} }
+          await sub.unsubscribe();
+        }
+      } catch (e) {}
+      return true;
+    },
+
     // ---- 自动同步 ----------------------------------------------------
 
     // 本地 x_ 数据有变动时调用：登录状态下防抖后自动 push

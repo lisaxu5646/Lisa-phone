@@ -4020,7 +4020,53 @@ function CloudSync({ toast }) {
       ];
 
   return h("div", { className: "pt-6 pb-6", style: { borderBottom: `1px solid ${t.line}` } },
-    label("云备份"), ...inner);
+    label("云备份"), ...inner,
+    h(PushCard, { loggedIn: !!user }));
+}
+// 锁屏推送（v48.33，夜巡信箱的下半场）：夜巡在云端投了信，这里订阅后锁屏就能收到「TA 给你留了消息」——
+// 点开进 app，收信口(deliverServerInbox)自动把信投进聊天。云端配套（push_subs 表 + send-push 函数 + cron）
+// 照 lisa-practice/推送小抄.md 建；VAPID 公钥粘在这里，私钥只住在 Edge Function secrets。
+function PushCard({ loggedIn }) {
+  const t = useTheme();
+  const [vapid, setVapid] = useState(() => loadJSON("x_pushVapid", ""));
+  const [st, setSt] = useState("…");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    let al = true;
+    if (window.Cloud && window.Cloud.pushStatus) window.Cloud.pushStatus().then(s => { if (al) setSt(s); });
+    return () => { al = false; };
+  }, []);
+  const saveKey = v => { setVapid(v); saveJSON("x_pushVapid", v.trim()); };
+  const turnOn = async () => {
+    setBusy(true); setMsg("");
+    try {
+      await window.Cloud.pushSubscribe(vapid);
+      setSt("on");
+      setMsg("✅ 这台设备已订阅。夜巡投信后锁屏就能收到通知（前提：云端 send-push 函数照小抄建好）。每台设备各订各的，手机也要开一次。");
+    } catch (e) { setMsg("❌ " + String((e && e.message) || e)); }
+    finally { setBusy(false); }
+  };
+  const turnOff = async () => {
+    setBusy(true); setMsg("");
+    try { await window.Cloud.pushUnsubscribe(); setSt("off"); setMsg("已关闭这台设备的推送订阅。"); } catch (e) {}
+    finally { setBusy(false); }
+  };
+  return h("div", { style: { marginTop: 20, paddingTop: 16, borderTop: "1px dashed " + t.line } },
+    h("div", { className: "flex items-center justify-between" },
+      h("div", null,
+        h("div", { style: { fontFamily: F_DISPLAY, fontSize: 15, color: t.ink } }, "锁屏推送 · 夜巡叫醒你"),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 2, lineHeight: 1.5 } }, "订阅后，云端夜巡替角色写完信会直接推到锁屏——不用先打开 app。")),
+      h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: st === "on" ? "#5a7d5a" : t.fog, flexShrink: 0 } }, st === "on" ? "● 已订阅" : st === "unsupported" ? "不支持" : "未订阅")),
+    st === "unsupported"
+      ? h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 8, lineHeight: 1.6 } }, "这个浏览器环境不支持推送。iPhone 要先「添加到主屏幕」、再从主屏图标打开（iOS 16.4+）才有这能力。")
+      : h("div", { style: { marginTop: 10 } },
+          h("input", { value: vapid, onChange: e => saveKey(e.target.value), placeholder: "粘贴 VAPID 公钥（生成方法见 lisa-practice/推送小抄.md）", style: { width: "100%", outline: "none", padding: "9px 12px", borderRadius: 10, fontFamily: "monospace", fontSize: 11, background: t.bg2, color: t.ink, border: "1px solid " + t.line } }),
+          h("div", { className: "flex gap-3", style: { marginTop: 8 } },
+            st === "on"
+              ? h("button", { onClick: turnOff, disabled: busy, className: "flex-1 py-2.5 active:opacity-70", style: { borderRadius: 10, border: "1px solid " + t.line, fontFamily: F_BODY, fontSize: 13, color: t.sub } }, busy ? "…" : "关闭这台设备的推送")
+              : h("button", { onClick: turnOn, disabled: busy, className: "flex-1 py-2.5 active:opacity-70", style: { borderRadius: 10, background: t.ink, color: t.bg2, fontFamily: F_BODY, fontSize: 13 } }, busy ? "订阅中…" : (loggedIn ? "开启锁屏推送" : "开启（要先登录云同步）"))),
+          msg ? h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: msg.startsWith("✅") ? "#5a7d5a" : "#c25a4a", marginTop: 8, lineHeight: 1.6, userSelect: "text", WebkitUserSelect: "text" } }, msg) : null));
 }
 // 本地存储占用条：localStorage 约 5MB 上限（图片吃大头），快满时红色预警——防「悄悄写满丢数据」
 // 存储 key → 人话名称（谁占地方一眼看懂）；前缀匹配，最长优先

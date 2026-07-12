@@ -1719,7 +1719,16 @@ function appVitals() {
     const errTxt = errs.length
       ? "最近报错" + (window.__errLog.length > 3 ? "（共攒了 " + window.__errLog.length + " 条，最新 3 条）" : "") + "：" + errs.map(e2 => { const d = new Date(e2.ts); return "[" + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0") + "]" + e2.msg; }).join("；")
       : "本次开机没抓到报错，一切安稳";
-    return ("版本 " + ver + "；本地存储约 " + (bytes / 1024 / 1024).toFixed(2) + "MB（~" + pct + "%，图片是大头）；住着 " + chars.length + " 位角色；今天全屋收发 " + todayMsgs + " 条消息；云端归档共 " + archN + " 条；" + errTxt + "。").slice(0, 400);
+    // 夜巡脉搏（v48.33）：server_inbox 上次来信距今——夜巡 cron 断了，工程师第一个看出来
+    let nightTxt = "";
+    try {
+      const lastIn = Number(localStorage.getItem("x_inboxLastTs") || 0);
+      if (lastIn) {
+        const days = (Date.now() - lastIn) / 86400000;
+        nightTxt = "；夜巡信箱上次来信 " + (days < 1 ? "今天" : Math.floor(days) + " 天前") + (days >= 2 ? "（超过两天没来信，云端夜巡任务可能断了，值得跟 Ta 提一嘴）" : "");
+      }
+    } catch (e2) {}
+    return ("版本 " + ver + "；本地存储约 " + (bytes / 1024 / 1024).toFixed(2) + "MB（~" + pct + "%，图片是大头）；住着 " + chars.length + " 位角色；今天全屋收发 " + todayMsgs + " 条消息；云端归档共 " + archN + " 条；" + errTxt + nightTxt + "。").slice(0, 400);
   } catch (e) { return "（体征采集失败：" + String(e && e.message).slice(0, 60) + "）"; }
 }
 function resizeImageFile(file, maxDim = 400, q = 0.85) {
