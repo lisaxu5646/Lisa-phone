@@ -1699,6 +1699,8 @@ function ProfileSheet({
   const [avatarImage, setAvatarImage] = useState(profile.avatarImage || null);
   const [color, setColor] = useState(profile.color || AV_COLORS[0]);
   const [birthday, setBirthday] = useState(profile.birthday || "");
+  const [appearance, setAppearance] = useState(profile.appearance || "");
+  const [refPhoto, setRefPhoto] = useState(profile.refPhoto || null);
   return /*#__PURE__*/React.createElement(Sheet, {
     onClose: onClose,
     tall: true
@@ -1717,7 +1719,9 @@ function ProfileSheet({
       persona,
       avatarImage,
       color,
-      birthday: birthday.trim()
+      birthday: birthday.trim(),
+      appearance: appearance.trim(),
+      refPhoto: refPhoto
     }))
   }, /*#__PURE__*/React.createElement(ICheck, {
     size: 19,
@@ -1771,7 +1775,12 @@ function ProfileSheet({
     onChange: e => setPersona(e.target.value),
     rows: 5,
     placeholder: "会注入给所有角色：你的身份、性格、处境……"
-  })));
+  })), h(LineField, { zh: "外貌 · 合照用", en: "Appearance" },
+    h("div", null,
+      h("div", { className: "flex items-center gap-3 mb-2" },
+        h(AvatarPicker, { character: { name, avatarImage: refPhoto, color }, size: 56, radius: 12, onPick: setRefPhoto, onClear: () => setRefPhoto(null) }),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, lineHeight: 1.5 } }, "传张你的参考照(可选)锁住长相；接了图像 API 后，角色发『我俩合照』时会照着画你")),
+      h(LineArea, { value: appearance, onChange: e => setAppearance(e.target.value), rows: 4, placeholder: "你的长相/发型/身材/气质/常穿风格……越具体，合照里的你越像本人。填了才开放『合照』。" }))));
 }
 // ============================================================
 // MESSAGES — WeChat-style: 聊天 / 通讯录 / 朋友圈

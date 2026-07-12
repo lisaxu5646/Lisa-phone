@@ -855,19 +855,41 @@ async function idbImgGet(k) { const db = await idbImgOpen(); return new Promise(
 async function idbImgDel(k) { const db = await idbImgOpen(); return new Promise(res => { const tx = db.transaction("img", "readwrite"); tx.objectStore("img").delete(k); tx.oncomplete = () => res(); tx.onerror = () => res(); }); }
 // 自拍整仓遍历（备份 v3 用）：[[key, blob], ...]
 async function idbImgEntries() { const db = await idbImgOpen(); return new Promise(res => { const tx = db.transaction("img", "readonly"); const st = tx.objectStore("img"); let ks = null, vs = null; const done = () => { if (ks && vs) res(ks.map((k, i) => [k, vs[i]])); }; const kq = st.getAllKeys(); const vq = st.getAll(); kq.onsuccess = () => { ks = kq.result || []; done(); }; vq.onsuccess = () => { vs = vq.result || []; done(); }; tx.onerror = () => res([]); }); }
-// 拼自拍的图像 prompt（外貌 + 此刻穿着/情境/神情）
-function buildSelfiePrompt(char, sceneDesc, st) {
-  const parts = ["一张真实的手机自拍照（第一人称自拍视角 selfie，手臂伸出去拍的构图）。"];
-  // 身材硬约束放最前（v47.74 提权）：edits 模式参考照主导身材，文字要顶在最前才有一点话语权；
-  // 参考照本身如果就是极瘦风，靠 prompt 很难扳——根治要换参考照或裁成只含脸部
+// 拼「角色照片」的图像 prompt。opts.kind: self=第一人称自拍 / other=别人给 TA 拍(第三人称,姿势构图多变) / duo=TA 和用户的合照
+// opts.me = { name, appearance, refPhoto } 用户本人（duo 合照时用）
+function buildPhotoPrompt(char, sceneDesc, st, opts) {
+  opts = opts || {};
+  const kind = ["self", "other", "duo"].includes(opts.kind) ? opts.kind : "self";
+  const me = opts.me || null;
+  const uName = (me && me.name) || "对方";
+  const cName = char.name || "TA";
+  const parts = [];
+  // —— 真实感总纲（所有类型通用，v48.43 强化写实）：把「像真人手机拍的照片」顶在最前 ——
+  parts.push("生成一张【真人用手机随手拍的生活照】，要以假乱真的写实照片质感：真实的皮肤纹理（有毛孔、细纹、绒毛、不均匀的肤色和自然瑕疵，绝不能磨皮成塑料般光滑）、真实的环境光和自然投影、手机镜头的浅景深与轻微噪点、抓拍时难免的一点点动态模糊或不完美构图。**必须像真实照片，不是插画、不是动漫、不是 3D/CG 渲染、不是 AI 感很重的精修图、不是影楼摆拍硬照、不是杂志封面。**");
+  // 身材硬约束（v47.74）：edits 模式参考照主导身材，文字要顶在前面才有话语权
   parts.push("【身材硬性要求，凌驾于参考图的身体】healthy body weight, realistic anatomy, not underweight, not emaciated, natural muscle definition——健康体重、真实自然的人体：头身比正常、肩颈躯干四肢比例正确，有自然的肌肉与皮下脂肪，绝不许瘦脱相（不许肋骨锁骨根根凸出、不许胳膊细如柴、不许病态苍白消瘦），也不许肢体拉长扭曲。若参考图中的身体过瘦，按健康匀称的体型重画身体、只保留脸部长相。");
-  parts.push("照片里的人：" + (char.name || "一个人") + "。");
-  if (char.appearance && char.appearance.trim()) parts.push("外貌特征（务必贴合）：" + char.appearance.trim() + "。");
-  if (st && st.wearing) parts.push("此刻穿着：" + st.wearing + "。");
-  if (sceneDesc && String(sceneDesc).trim()) parts.push("此刻的场景/在做什么：" + String(sceneDesc).trim() + "。");
-  if (st && st.mood) parts.push("神情情绪：" + st.mood + "。");
-  parts.push("【必须是能看到人脸的自拍】TA 的脸要清楚出现在画面里（正脸或半侧脸，五官清晰可辨、对着镜头），这是一张自拍人像，不是纯风景/纯物品照——就算在描述某个场景，也要把 TA 本人带脸拍进去。");
-  parts.push("前置摄像头随手拍的生活质感、自然光、真实不摆拍，画面里只有 TA 一个人，不要任何文字/水印/logo/相框。");
+  // —— 主体人物 ——
+  if (kind === "duo") {
+    parts.push("照片里【有两个人同框】：一个是「" + cName + "」，另一个是「" + uName + "」，两人关系亲密、一起合影。");
+    if (char.appearance && char.appearance.trim()) parts.push("「" + cName + "」的外貌（务必贴合）：" + char.appearance.trim() + "。");
+    if (me && me.appearance && String(me.appearance).trim()) parts.push("「" + uName + "」的外貌（务必贴合）：" + String(me.appearance).trim() + "。");
+    parts.push("【两个人的脸都要清楚完整地出现在画面里】，是两个长相不同的人，五官各自清晰可辨——别把两人画成同一张脸、别只画一个人、别缺人、别多出第三个人。");
+  } else {
+    parts.push("照片里只有「" + cName + "」一个人。");
+    if (char.appearance && char.appearance.trim()) parts.push("外貌特征（务必贴合）：" + char.appearance.trim() + "。");
+  }
+  if (st && st.wearing) parts.push((kind === "duo" ? "「" + cName + "」此刻穿着：" : "此刻穿着：") + st.wearing + "。");
+  if (sceneDesc && String(sceneDesc).trim()) parts.push("场景/正在做什么：" + String(sceneDesc).trim() + "。");
+  if (st && st.mood && kind !== "duo") parts.push("神情情绪：" + st.mood + "。");
+  // —— 构图/视角，按类型分流 ——
+  if (kind === "self") {
+    parts.push("【第一人称自拍】手臂伸出去、前置摄像头拍的自拍构图（selfie）；TA 的脸清楚地对着镜头出现在画面里（正脸或半侧脸，五官清晰），画面里只有 TA 一个人。就算在描述某个场景，也要把 TA 本人带脸拍进去，不是纯风景照。");
+  } else if (kind === "other") {
+    parts.push("【这是别人帮 TA 拍的照片，不是自拍】第三人称旁观视角，TA 手里没拿相机/手机自拍。姿势和构图要自然多变——站姿、坐姿、走动、回眸、侧身、半身或全身、带环境的生活人像都可以，别永远是怼脸的正面近照。TA 的样子清晰可见（除非是刻意的背影/侧影氛围照）。");
+  } else {
+    parts.push("【两人合照】可以是两人凑在一起自拍（一条手臂入镜），也可以是路人或支架帮拍的第三人称合影；姿势自然亲密：依偎、勾肩、贴脸、并肩、十指相扣都行，像真实亲密关系的人随手拍的合照。");
+  }
+  parts.push("画面干净真实，不要任何文字/水印/logo/相框/贴纸边框。");
   return parts.join("");
 }
 // 生成一张自拍，返回 { blob, dataUrl } 或 { blob:null, url }。有参考照先走 images/edits(保长相)，
@@ -875,6 +897,8 @@ function buildSelfiePrompt(char, sceneDesc, st) {
 async function generateSelfieImage(prompt, refPhotoDataUrl, opts) {
   const a = loadImgApi();
   if (!imgApiReady(a)) throw new Error("没配置图像 API");
+  // refPhotoDataUrl 可以是单张 base64、也可以是数组（合照时传两张：角色+用户）；归一成数组
+  const refs = (Array.isArray(refPhotoDataUrl) ? refPhotoDataUrl : [refPhotoDataUrl]).filter(x => x && typeof x === "string");
   // 归一 base：用户可能把整段 endpoint(…/v1/images/generations) 都粘进来 → 削回域名根，统一补 /v1
   let base = (a.baseUrl || "").trim().replace(/\/+$/, "");
   base = base.replace(/\/(v1\/)?images\/(generations|edits)\/?$/i, "").replace(/\/chat\/completions\/?$/i, "").replace(/\/+$/, "");
@@ -917,11 +941,13 @@ async function generateSelfieImage(prompt, refPhotoDataUrl, opts) {
     const to = setTimeout(() => ctrl.abort(), 180000);
     let r;
     try {
-      if (useRef && refPhotoDataUrl) {
+      if (useRef && refs.length) {
         const fd = new FormData();
         fd.append("model", a.model || "gpt-image-1"); fd.append("prompt", prompt); fd.append("size", size); fd.append("n", "1"); fd.append("response_format", "b64_json");
         if (a.quality) fd.append("quality", a.quality);
-        fd.append("image", b64ToBlob(refPhotoDataUrl, "image/png"), "ref.png");
+        // 单张走 image（沿用验证过的路径）；多张（合照）走 image[]（gpt-image-1 支持多参考图同框）
+        if (refs.length === 1) fd.append("image", b64ToBlob(refs[0], "image/png"), "ref.png");
+        else refs.forEach((rp, i) => fd.append("image[]", b64ToBlob(rp, "image/png"), "ref" + i + ".png"));
         r = await fetch(root + "/images/edits", { method: "POST", headers: { Authorization: "Bearer " + a.apiKey }, body: fd, signal: ctrl.signal });
       } else {
         // slim = 裸参数重试：有些中转不认 quality/response_format 这类可选参数，只发必填的
@@ -939,7 +965,7 @@ async function generateSelfieImage(prompt, refPhotoDataUrl, opts) {
     return await parseOut(r, rawTxt);
   };
   // 有参考照：先 edits(保长相)，挂了退回 generations；没参考照直接 generations
-  if (refPhotoDataUrl) { try { return await attempt(true); } catch (e) { return await attempt(false); } }
+  if (refs.length) { try { return await attempt(true); } catch (e) { return await attempt(false); } }
   return await attempt(false);
 }
 // ============================================================
