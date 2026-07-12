@@ -400,10 +400,17 @@ function extractJSON(raw) {
 function directedRelationLines(char, rels, chars, profile) {
   const lines = [];
   const me = profile.name || "用户";
+  const fmt = r => r ? (r.label + (r.note ? "（" + r.note + "）" : "")) : null;
   const a = rels[char.id + "->me"],
     b = rels["me->" + char.id];
-  if (a) lines.push("- " + char.name + " 眼中的「" + me + "」：" + a.label + (a.note ? "（" + a.note + "）" : ""));
-  if (b) lines.push("- 「" + me + "」眼中的 " + char.name + "：" + b.label + (b.note ? "（" + b.note + "）" : ""));
+  const ta = fmt(a), tb = fmt(b);
+  // 双向关系文本 trim 后完全一致 → 合并成「彼此：」一行（对称关系不必重复两遍、省 token）；不同则双向各一条
+  if (ta && tb && ta.trim() === tb.trim()) {
+    lines.push("- " + char.name + " 和「" + me + "」彼此：" + ta);
+  } else {
+    if (ta) lines.push("- " + char.name + " 眼中的「" + me + "」：" + ta);
+    if (tb) lines.push("- 「" + me + "」眼中的 " + char.name + "：" + tb);
+  }
   for (const o of chars) {
     if (o.id === char.id) continue;
     const r = rels[char.id + "->" + o.id];

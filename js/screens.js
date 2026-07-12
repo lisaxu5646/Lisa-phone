@@ -3205,6 +3205,7 @@ function CtxDebug({ characters, getBundle }) {
   const [cid, setCid] = useState(null);
   const [text, setText] = useState("");
   const [open, setOpen] = useState({});
+  const [folded, setFolded] = useState(true); // v48.38：调试工具默认折起，点标题展开
   const load = id => { setCid(id); setText(String((getBundle && getBundle(id)) || "（空）")); setOpen({}); };
   const secs = (() => {
     if (!cid || !text) return [];
@@ -3214,7 +3215,10 @@ function CtxDebug({ characters, getBundle }) {
     });
   })();
   return h("div", { style: { marginTop: 28 } },
-    h(Eyebrow, { style: { marginBottom: 8 } }, "上下文透视"),
+    h("button", { onClick: () => setFolded(f => !f), className: "w-full flex items-center justify-between active:opacity-60", style: { padding: "2px 0", marginBottom: 8 } },
+      h(Eyebrow, null, "上下文透视"),
+      h("span", { style: { fontFamily: F_BODY, fontSize: 16, color: t.fog, transition: "transform .2s", transform: folded ? "none" : "rotate(90deg)", display: "inline-block" } }, "›")),
+    folded ? null : h(React.Fragment, null,
     h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, lineHeight: 1.7, marginBottom: 10 } }, "看看此刻和 TA 聊天时，到底喂了什么给模型（人设 / 记忆 / 世界书 / 行程…按段拆开）。角色变笨、OOC、忘事时来这里排查是哪一段出了问题。"),
     h("div", { className: "flex gap-2 flex-wrap", style: { marginBottom: 10 } }, (characters || []).map(c =>
       h("button", { key: c.id, onClick: () => load(c.id), className: "active:opacity-70", style: { fontFamily: F_BODY, fontSize: 12.5, padding: "6px 13px", borderRadius: 999, background: cid === c.id ? t.ink : t.bg2, color: cid === c.id ? t.bg2 : t.ink, border: "1px solid " + (cid === c.id ? t.ink : t.line) } }, c.remark || c.name))),
@@ -3241,7 +3245,7 @@ function CtxDebug({ characters, getBundle }) {
                 h("div", { style: { height: "100%", width: Math.max(2, pct) + "%", borderRadius: 999, background: barColor(pct) } }))),
             open[i] ? h("div", { style: { padding: "10px 12px", fontFamily: "monospace", fontSize: 11, lineHeight: 1.7, color: t.sub, whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 300, overflowY: "auto", background: t.bg } }, s.body) : null);
         }));
-    })() : null);
+    })() : null));
 }
 function Config({
   apiProfiles,
@@ -3687,6 +3691,7 @@ function SenseConfig({
 function BubbleSkinConfig({ toast }) {
   const t = useTheme();
   const [s, setS] = useState(() => Object.assign({}, BUBBLE_SKIN)); // 草稿：从当前皮肤复制一份
+  const [folded, setFolded] = useState(true); // v48.38：默认折起，点标题展开（试衣镜太长）
   const set = patch => setS(p => Object.assign({}, p, patch));
   const save = () => { Object.assign(BUBBLE_SKIN, s); try { localStorage.setItem("x_bubbleSkin", JSON.stringify(s)); } catch (e) {} toast && toast("皮肤已保存，聊天页立即生效"); };
   const reset = () => { const d = Object.assign({}, BUBBLE_SKIN_DEFAULTS); setS(d); Object.assign(BUBBLE_SKIN, d); try { localStorage.removeItem("x_bubbleSkin"); } catch (e) {} toast && toast("已恢复出厂皮肤"); };
@@ -3708,7 +3713,10 @@ function BubbleSkinConfig({ toast }) {
       (mine ? s.mySticker : s.charSticker) ? h("img", { src: mine ? s.mySticker : s.charSticker, alt: "", style: { position: "absolute", top: -(Number(s.stickerSize) || 52) / 2, right: mine ? -10 : "auto", left: mine ? "auto" : -10, width: Number(s.stickerSize) || 52, height: Number(s.stickerSize) || 52, objectFit: "contain", pointerEvents: "none", transform: mine ? "none" : "scaleX(-1)" } }) : null,
       text));
   return h("div", { className: "pt-8 mt-6", style: { borderTop: "1px dashed " + t.line } },
-    h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, "气泡皮肤 · Bubble Skin"),
+    h("button", { onClick: () => setFolded(f => !f), className: "w-full flex items-center justify-between active:opacity-60", style: { padding: "2px 0" } },
+      h("span", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, "气泡皮肤 · Bubble Skin"),
+      h("span", { style: { fontFamily: F_BODY, fontSize: 16, color: t.fog, transition: "transform .2s", transform: folded ? "none" : "rotate(90deg)", display: "inline-block" } }, "›")),
+    folded ? null : h(React.Fragment, null,
     h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, lineHeight: 1.5, marginTop: 2, marginBottom: 10 } }, "颜色填 #hex 或一整段渐变 linear-gradient(...)；贴纸填图片地址（assets/xx.png 或 https）；描边/贴纸留空=不启用。试衣镜实时预览，保存后全 app 生效。"),
     h("div", { style: { padding: "14px 14px 10px", borderRadius: 12, background: s.chatBg || t.bg, border: "1px solid " + t.line, marginBottom: 12, overflow: "hidden" } },
       bub(false, "试衣镜：TA 的气泡"),
@@ -3731,7 +3739,7 @@ function BubbleSkinConfig({ toast }) {
     // shadow（投影）、chatBg（聊天页背景，可渐变）；stickerSize 用 numRow，范围建议 32~72
     h("div", { className: "flex gap-2", style: { marginTop: 8 } },
       h("button", { onClick: save, className: "flex-1 active:opacity-80", style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.bg2, background: t.ink, borderRadius: 10, padding: "11px 0" } }, "保存皮肤"),
-      h("button", { onClick: reset, className: "active:opacity-70", style: { fontFamily: F_BODY, fontSize: 12.5, color: t.accent, border: "1px solid " + t.line, borderRadius: 10, padding: "0 16px" } }, "恢复默认")));
+      h("button", { onClick: reset, className: "active:opacity-70", style: { fontFamily: F_BODY, fontSize: 12.5, color: t.accent, border: "1px solid " + t.line, borderRadius: 10, padding: "0 16px" } }, "恢复默认"))));
 }
 function ThemeConfig({
   theme,
