@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.36";
+const APP_VERSION = "v48.37";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -552,6 +552,9 @@ function App() {
   // 按角色选 API 线路（v48.24）：聊天设置里给这个角色指定了配置就用那条，没指定跟随全局。
   // 覆盖「这个角色开口说话」的场合：单聊回复/1:1通话/线下/OOC/撤回反应/拉黑反应——群聊多人同台仍走全局。
   const apiFor = id => { const s = chatSettings[id] || {}; return (s.apiId && apiProfiles.find(p => p.id === s.apiId)) || active; };
+  // 本体执笔·便宜池版（v48.37）：设了专线的角色（如小克接 fable）用专线亲笔写；没设专线的【照旧走便宜后台池】不涨成本。
+  // 专用于原本走 bgActive 的「本体文本」（欲望盒子全链）——把灵魂级落笔从 flash 代笔还给本人，其余角色零变化。
+  const bgApiFor = id => { const s = chatSettings[id] || {}; return (s.apiId && apiProfiles.find(p => p.id === s.apiId)) || bgActive; };
   const unreadTotal = Object.values(unreadMap).reduce((a, b) => a + b, 0);
   const pC = u => setCharacters(p => {
     const n = typeof u === "function" ? u(p) : u;
@@ -3510,7 +3513,7 @@ function App() {
     if (!active || !window.DesireKit) return false;
     try {
       const box = DesireKit.housekeep(DesireKit.boxOf(desiresRef.current, char.id));
-      const d = await runProbe(bgActive, ctxFor(char), DesireKit.museSpec(char, box));
+      const d = await runProbe(bgApiFor(char.id), ctxFor(char), DesireKit.museSpec(char, box)); // 灵光独白=本体亲笔（v48.37）：专线用专线，否则便宜池
       DesireKit.applyMuse(box, d, schedDayKey(new Date()));
       saveDesires(n => { n[char.id] = box; });
       return true;
@@ -3565,7 +3568,7 @@ function App() {
         if (!r.due) continue;
         try {
           const spec = r.due === "solstice" ? DesireKit.solsticeSpec(c, box) : DesireKit.mellowSpec(c, box);
-          const d = await runProbe(bgActive, ctxFor(c), spec);
+          const d = await runProbe(bgApiFor(c.id), ctxFor(c), spec); // 小满盘点/冬至自述/毕业蜕变诗/人格档案落笔=本体亲笔（v48.37）：专线用专线，否则便宜池
           if (r.due === "solstice") DesireKit.applySolstice(box, d, today); else DesireKit.applyMellow(box, d, today);
           saveDesires(n => { n[c.id] = box; });
         } catch (e) {}
@@ -4270,7 +4273,7 @@ function App() {
       const noRepeat = recentPosts.length
         ? "\n\n**【不许复读】TA 最近已经发过下面这些朋友圈，这一条【绝对不要】再写同一件事、同一种心情或雷同句式，换一件全新的事、一个新角度：**\n" + recentPosts.map((c, i) => (i + 1) + "、" + c.slice(0, 60)).join("\n")
         : "";
-      const d = await runProbe(active, ctxFor(char), {
+      const d = await runProbe(apiFor(char.id), ctxFor(char), { // 自动朋友圈=TA 的社交发言，跟随专线（v48.37）：专线用专线，否则照旧主模型
         instruction: "以「" + char.name + "」身份发一条朋友圈：心情/日常/感想，1-4句，有角色味道，不暴露隐藏剧情。**大约一半概率配一张图**——如果这条适合配图，就在 image 里写一句这张图的画面描述（如「窗台上的多肉，逆光」「深夜便利店的关东煮」），不配图就填 null。再生成认识的其他角色对这条的 0-3 条评论（评论者从关系网里挑）。**绝对不要替用户本人（" + meName + "）生成任何评论或回复——用户会自己去评论。**" + noRepeat,
         schemaHint: "{\"content\":\"朋友圈正文\",\"image\":\"配图描述或null\",\"comments\":[{\"author\":\"评论者名\",\"text\":\"评论\"}]}"
       });
@@ -5278,7 +5281,7 @@ function App() {
       const page = coupleExDiaryRef.current.find(x => x.id === pageId);
       if (!char || !page) return;
       const uN = profile.name || "对方";
-      const d = await runProbe(active, ctxFor(char), {
+      const d = await runProbe(apiFor(char.id), ctxFor(char), { // 交换日记回页=TA 亲笔，跟随专线（v48.37）
         instruction: "你们是恋人，共用一本【交换日记】——一人一页轮流写、只给彼此看，比聊天更松弛、更没防备。\n【" + uN + " 在 " + page.date + " 写给你的那页】" + (page.mood ? "（Ta 当时心情：" + page.mood + "）" : "") + "\n" + page.content + "\n\n现在轮到你写你这一页（今天是 " + ymd(new Date()) + (page.date !== ymd(new Date()) ? "，你隔了几天才提笔，可以自然提到为什么现在才回" : "") + "）。要求：\n· 以「" + char.name + "」第一人称手写日记的口吻，文风完全按你的人设来——可以写脆弱、别扭、矫情、只给 Ta 看的真心话。\n· 必须回应 Ta 那页写的东西（呼应、回答、心疼、反驳都行），再写你【今天】的真实处境（结合上面你今天的行程与心情），以及你们最近相处里【没说出口的潜台词】（比如「那天其实我…」）。\n· 不许写成聊天记录摘要或汇报体；不用括号动作；像手写的字，100~300 字。\n· mood 填你写这页时的心情短词；weather 按你那边今天的天气写个短语（上面行程里有真实天气就用它）。",
         schemaHint: "{\"content\":\"日记正文\",\"mood\":\"心情短词\",\"weather\":\"天气短语\"}",
         maxTokens: 6000
@@ -5453,7 +5456,7 @@ function App() {
     if (!active) { toast("请先到设置配置 API"); return false; }
     setGen(g => ({ ...g, coupleLetter: true }));
     try {
-      const d = await runProbe(active, ctxFor(char), {
+      const d = await runProbe(apiFor(char.id), ctxFor(char), { // 情书回信=TA 亲笔，跟随专线（v48.37）
         instruction: "你们是恋人，在情书里一来一回。" + (isNewLetter ? "用户刚给你写了一封情书，你读完后回应" : "顺着下面的情书往来，回应最新一句") + "。以「" + char.name + "」身份真挚回应，可以分成 2-4 条短消息（气泡），贴人设、别喊口号、别复述。\n【情书往来】\n" + (context || ""),
         schemaHint: "{\"bubbles\":[\"气泡1\",\"气泡2\"]}",
         maxTokens: 1400
@@ -7038,6 +7041,7 @@ function App() {
     onBack: () => setScreen("home")
   });else if (screen === "capsule") body = h(window.CapsuleApp, {
     active: active,
+    apiFor: apiFor, // 胶囊回信/反向埋=TA 亲笔，跟随专线（v48.37）
     characters: characters,
     profile: profile,
     ctxFor: ctxFor,

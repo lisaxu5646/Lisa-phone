@@ -31,7 +31,7 @@
       try {
         const sys = buildBundle(props.ctxFor(char)) +
           "\n\n【任务】" + uName + " 刚埋下一颗写给你的时光胶囊（内容保密），约定 " + fmtD(openTs) + " 才能拆。你心里一动，决定也悄悄埋一颗给 Ta——写下你【此刻】想对「拆开信的那天的 Ta」说的话（2-6 句，第一人称，贴你的人设与此刻心情，可以有没说出口过的话；别客套、别落款）。只输出 JSON：{\"letter\":\"信的正文\"}";
-        const raw = await callAI(props.active, sys, [{ role: "user", content: "写吧。" }], { maxTokens: 1200 });
+        const raw = await callAI(props.apiFor ? props.apiFor(char.id) : props.active, sys, [{ role: "user", content: "写吧。" }], { maxTokens: 1200 }); // 反向埋胶囊=TA 亲笔，跟随专线（v48.37）
         const d = extractJSON(raw);
         if (!d || !d.letter) return;
         const entry = { id: uid(), dir: "fromChar", charId: char.id, charName: char.name, text: String(d.letter).trim(), createdTs: Date.now(), openTs, opened: false, reply: null };
@@ -60,7 +60,7 @@
         try {
           const sys = buildBundle(props.ctxFor(c)) +
             "\n\n【任务】" + uName + " 在 " + fmtD(cap.createdTs) + " 埋了一颗时光胶囊给你，约定今天才能拆。你刚拆开，读到 Ta 当时写的信：\n「" + cap.text + "」\n\n以你此刻的人设、心情和你们这段时间的经历，给 Ta 写一封回信（2-6 句，第一人称）：回应信里的话、对照「那时」和「现在」的变化，动真格的，别客套别复述原文。只输出 JSON：{\"reply\":\"回信正文\"}";
-          const raw = await callAI(props.active, sys, [{ role: "user", content: "拆开了，回信吧。" }], { maxTokens: 1400 });
+          const raw = await callAI(props.apiFor ? props.apiFor(c.id) : props.active, sys, [{ role: "user", content: "拆开了，回信吧。" }], { maxTokens: 1400 }); // 胶囊回信=TA 亲笔，跟随专线（v48.37）
           const d = extractJSON(raw);
           if (d && d.reply) upd({ reply: String(d.reply).trim() });
         } catch (e) { props.toast && props.toast("回信没等到：" + (e.message || "重试")); }
