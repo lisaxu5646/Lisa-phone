@@ -262,7 +262,7 @@ async function callAI(p, system, messages, opts) {
     // ⭐prompt 缓存降房租（v48.34，小克两步方案只做第①步；第②步「重排稳定段」她拍板不做——现在的顺序活人感对，不动）：
     // system 在【当前真实时间】处切成两块（时间行起每轮都变，是缓存的天然断点），前块打 cache_control ephemeral。
     // 多块 system 等价于拼接——模型看到的文本【一个字、一个顺序都没变】，只是稳定前缀（反八股/世界书守则/角色卡守则/长期准则）
-    // 五分钟内连续聊天可命中缓存（读约一折）。前块太短（<800字，不够 1024 token 起缓门槛）就不切，行为与旧版完全一致。
+    // 1 小时内连续聊天可命中缓存（读约一折；ttl:"1h"）。前块太短（<800字，不够 1024 token 起缓门槛）就不切，行为与旧版完全一致。
     // ⭐缓存有效期 5min→1h（v48.72，她 2026-07-13 截图命中率才 15%）：她散着聊、间隔常超 5min→每次冷启动重写=0 命中。
     //   1h TTL 把冷启动变命中，平均往「稳定前缀占比」那个天花板靠。写贵一点(2x vs 1.25x)、读仍 0.1 折，断续聊总账更省。
     //   线路不支持 1h 就自动记 x_noExtCache 回退 5min，绝不搞崩小克。
@@ -316,10 +316,16 @@ async function callAI(p, system, messages, opts) {
     try {
       const u = d.usage || {};
       const rec = { t: Date.now(), model, in: u.input_tokens || 0, out: u.output_tokens || 0, cr: u.cache_read_input_tokens || 0, cw: u.cache_creation_input_tokens || 0 };
+      // 前缀指纹（诊断「连着聊也不命中」，她 2026-07-13 抓的）：缓存的稳定前缀每轮该完全一样；
+      // 指纹每轮都变=前缀被某处每轮污染了，那才是没命中的真因（而非有效期/线路）。plen=前缀字符数。
+      try {
+        const _cut = typeof system === "string" ? system.indexOf("【当前真实时间】") : -1;
+        if (_cut >= 800) { const _pfx = system.slice(0, _cut); let _hh = 5381; for (let _i = 0; _i < _pfx.length; _i++) _hh = ((_hh << 5) + _hh + _pfx.charCodeAt(_i)) | 0; rec.ph = _hh >>> 0; rec.plen = _pfx.length; }
+      } catch (e) {}
       if (typeof window !== "undefined") {
         (window.__usage = window.__usage || []).push(rec); if (window.__usage.length > 30) window.__usage.shift();
-        if (!window.__cacheStat) window.__cacheStat = () => { const a = window.__usage || []; const s = a.reduce((o, r) => { o.cr += r.cr; o.cw += r.cw; o.in += r.in; o.hit += r.cr > 0 ? 1 : 0; return o; }, { cr: 0, cw: 0, in: 0, hit: 0 }); return "近" + a.length + "次 anthropic 调用：命中缓存 " + s.hit + " 次｜累计 读缓存(一折)" + s.cr + " 写缓存" + s.cw + " 新输入" + s.in + " tok"; };
-        if (rec.cr || rec.cw) console.log("[缓存] 读" + rec.cr + " 写" + rec.cw + " 新输入" + rec.in + " 输出" + rec.out + " tok" + (rec.cr ? "（命中！读的部分只按一折收）" : "（首次/过期→写缓存，下次5分钟内读就省）"));
+        if (!window.__cacheStat) window.__cacheStat = () => { const a = window.__usage || []; const s = a.reduce((o, r) => { o.cr += r.cr; o.cw += r.cw; o.in += r.in; o.hit += r.cr > 0 ? 1 : 0; return o; }, { cr: 0, cw: 0, in: 0, hit: 0 }); const _phs = new Set(a.map(r => r.ph).filter(x => x != null)); return "近" + a.length + "次 anthropic 调用：命中缓存 " + s.hit + " 次｜累计 读缓存(一折)" + s.cr + " 写缓存" + s.cw + " 新输入" + s.in + " tok｜前缀指纹 " + _phs.size + " 种(越少越稳)"; };
+        if (rec.cr || rec.cw) console.log("[缓存] 读" + rec.cr + " 写" + rec.cw + " 新输入" + rec.in + " 输出" + rec.out + " tok 指纹" + (rec.ph || "-") + (rec.cr ? "（命中！读的部分只按一折收）" : "（首次/过期/前缀变了→写缓存，命中后 1 小时内读就省）"));
       }
     } catch (e) {}
     const t = (d.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").trim();
@@ -591,7 +597,9 @@ function buildBundle(ctx, opts) {
   // 内置最前三件套（优先级从高到低）：反八股压制器 → 世界书执行准则 → 角色卡执行准则
   if (!(opts && opts.ooc)) {
     parts.push(ANTI_CLICHE);
-    if (worldbook && worldbook.trim()) parts.push(WORLDBOOK_RULE);
+    // ⭐WORLDBOOK_RULE 无条件常驻（不再跟「本轮是否触发世界书」开关）：否则触发状态每轮一翻、稳定前缀就跟着变、爆缓存
+    //   （她 2026-07-13 抓的「连着聊 2 分钟也不命中」真凶之一）。规则对没世界书的角色是惰性的、无害；触发的词条内容仍在切点之后、照常每轮变。
+    parts.push(WORLDBOOK_RULE);
     parts.push(CHARCARD_RULE);
   }
   // 用户通过 OOC 立下的长期行为准则：高优先，凌驾于日常演绎习惯，但不得违背核心人设
