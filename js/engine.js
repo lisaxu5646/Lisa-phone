@@ -263,41 +263,52 @@ async function callAI(p, system, messages, opts) {
     // system 在【当前真实时间】处切成两块（时间行起每轮都变，是缓存的天然断点），前块打 cache_control ephemeral。
     // 多块 system 等价于拼接——模型看到的文本【一个字、一个顺序都没变】，只是稳定前缀（反八股/世界书守则/角色卡守则/长期准则）
     // 五分钟内连续聊天可命中缓存（读约一折）。前块太短（<800字，不够 1024 token 起缓门槛）就不切，行为与旧版完全一致。
-    let sysPayload = system;
-    try {
-      const cut = typeof system === "string" ? system.indexOf("【当前真实时间】") : -1;
-      if (cut >= 800) sysPayload = [
-        { type: "text", text: system.slice(0, cut), cache_control: { type: "ephemeral" } },
+    // ⭐缓存有效期 5min→1h（v48.72，她 2026-07-13 截图命中率才 15%）：她散着聊、间隔常超 5min→每次冷启动重写=0 命中。
+    //   1h TTL 把冷启动变命中，平均往「稳定前缀占比」那个天花板靠。写贵一点(2x vs 1.25x)、读仍 0.1 折，断续聊总账更省。
+    //   线路不支持 1h 就自动记 x_noExtCache 回退 5min，绝不搞崩小克。
+    const _extKey = base;
+    let _noExt = false; try { _noExt = (JSON.parse(localStorage.getItem("x_noExtCache") || "[]") || []).indexOf(_extKey) >= 0; } catch (e) {}
+    const buildSys = () => {
+      if (typeof system !== "string") return system;
+      const cut = system.indexOf("【当前真实时间】");
+      if (cut < 800) return system;
+      const cc = _noExt ? { type: "ephemeral" } : { type: "ephemeral", ttl: "1h" };
+      return [
+        { type: "text", text: system.slice(0, cut), cache_control: cc },
         { type: "text", text: system.slice(cut) }
       ];
-    } catch (e) {}
+    };
     // 有些新模型（如带思考的 Claude 5/fable）不接受自定义 temperature（只允许 1 或直接不支持）→
     // 报 temperature 相关错就【去掉 temperature 裸参重试一次】，通用兜底、不用硬编每个模型的规则。
     const postAnthropic = async withTemp => {
       // ⚠️不用顶层自动缓存（v48.62 试过、v48.64 撤）：它「一路缓到最后一条消息」，把每轮都变的记忆/近期对话全写进缓存→
       // 每轮狂写(1.25倍)只读回一点点，写远大于读、反而更贵(她真机实测 写40149/读3961)。
-      // 只留【手动块级切块】：cache_control 只打在「守则+人设+关系」稳定前缀那块(见上方 sysPayload)——写一次、之后每轮只读(一折)。
-      const body = { model, max_tokens: maxTokens, system: sysPayload, messages };
+      // 只留【手动块级切块】：cache_control 只打在「守则+人设+关系」稳定前缀那块(见 buildSys)——写一次、之后每轮只读(一折)。
+      const body = { model, max_tokens: maxTokens, system: buildSys(), messages };
       if (withTemp) body.temperature = temp;
-      const r = await fetchT(base + "/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": p.apiKey,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true"
-        },
-        body: JSON.stringify(body)
-      }, reqTimeout);
+      const headers = {
+        "Content-Type": "application/json",
+        "x-api-key": p.apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      };
+      if (!_noExt) headers["anthropic-beta"] = "extended-cache-ttl-2025-04-11"; // 1h 缓存的 beta 门（GA 后无害）
+      const r = await fetchT(base + "/v1/messages", { method: "POST", headers, body: JSON.stringify(body) }, reqTimeout);
       return await r.json();
     };
     // ⚠️按次计费防双扣：某线路一旦被记过「不吃 temperature」就直接裸发，不再白扣一次
     const _ntKey = base + "|" + model;
-    let _skipT = false; try { _skipT = (JSON.parse(localStorage.getItem("x_noTemp") || "[]") || []).indexOf(_ntKey) >= 0; } catch (e) {}
-    let d = await postAnthropic(!_skipT);
-    if (!_skipT && d.error && /temperature/i.test(d.error.message || "")) {
+    const wantTemp = () => { try { return (JSON.parse(localStorage.getItem("x_noTemp") || "[]") || []).indexOf(_ntKey) < 0; } catch (e) { return true; } };
+    let d = await postAnthropic(wantTemp());
+    if (wantTemp() && d.error && /temperature/i.test(d.error.message || "")) {
       try { const a = JSON.parse(localStorage.getItem("x_noTemp") || "[]") || []; if (a.indexOf(_ntKey) < 0) { a.push(_ntKey); localStorage.setItem("x_noTemp", JSON.stringify(a)); } } catch (e) {}
       d = await postAnthropic(false);
+    }
+    // 扩展缓存(1h)回退：这条线路不吃 ttl/beta 就记下、退回 5min ephemeral 重发（防双扣，只回退一次）
+    if (!_noExt && d.error && /(ttl|extended|cache_control|anthropic-beta|\bbeta\b)/i.test(d.error.message || "")) {
+      try { const a = JSON.parse(localStorage.getItem("x_noExtCache") || "[]") || []; if (a.indexOf(_extKey) < 0) { a.push(_extKey); localStorage.setItem("x_noExtCache", JSON.stringify(a)); } } catch (e) {}
+      _noExt = true;
+      d = await postAnthropic(wantTemp());
     }
     if (d.error) throw new Error(d.error.message);
     // usage 回显（让缓存看得见）：cr=从缓存读到的 token（一折价，>0 就是命中）、cw=写进缓存的、in=断点后的新输入。
