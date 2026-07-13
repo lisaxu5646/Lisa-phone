@@ -327,8 +327,44 @@
     return { id: uid("iss"), weekOf: { start: win.start, end: win.end }, key: win.key, label: win.label, issueNumber: issueNumber, sections: sections, createdAt: Date.now() };
   }
 
+  // ============================================================
+  // 出刊后台管理（她反馈：出刊必须守在界面、离开回来又得重刷）
+  // 把生成挂在模块级，不随 WeeklyApp 卸载而丢：重进能看进度、完成自动落库并广播。
+  // 同一周 key 去重——离开后回来再点也不会重复出刊。
+  // ============================================================
+  const _gen = { busy: false, key: null, prog: null, promise: null, listeners: [] };
+  function _emit() { _gen.listeners.slice().forEach(function (fn) { try { fn(); } catch (e) {} }); }
+  function genSubscribe(fn) { _gen.listeners.push(fn); return function () { _gen.listeners = _gen.listeners.filter(function (x) { return x !== fn; }); }; }
+  function genState() { return { busy: _gen.busy, key: _gen.key, prog: _gen.prog }; }
+  function startGenerate(opts) {
+    // opts: { active, characters, groups, userName, win, toast }
+    if (_gen.busy && _gen.key === opts.win.key) return _gen.promise; // 已在出这一期 → 不重复触发
+    _gen.busy = true; _gen.key = opts.win.key; _gen.prog = { done: 0, total: 0, label: "整理上周素材" };
+    _emit();
+    _gen.promise = (async function () {
+      try {
+        const existing = loadIssues();
+        const num = existing.reduce(function (m, i) { return Math.max(m, i.issueNumber || 0); }, 0) + 1;
+        const issue = await generateIssue(opts.active, opts.characters || [], opts.groups || [], opts.userName, opts.win, num,
+          function (d, tot, l) { _gen.prog = { done: d, total: tot, label: l }; _emit(); });
+        // 同周旧刊先剔除（重出本期=覆盖，不再留重复号）再落库
+        const list = [issue].concat(loadIssues().filter(function (x) { return x.key !== issue.key; }));
+        saveIssues(list);
+        _gen.busy = false; _gen.prog = null; _gen.promise = null; _emit();
+        if (opts.toast) opts.toast("第 " + issueNo(issue, list) + " 期已出刊");
+        return issue;
+      } catch (e) {
+        _gen.busy = false; _gen.prog = null; _gen.promise = null; _emit();
+        if (opts.toast) opts.toast(String((e && e.message) || e));
+        return null;
+      }
+    })();
+    return _gen.promise;
+  }
+
   window.Weekly = {
     WEEKLY_REFRESH_HOUR: WEEKLY_REFRESH_HOUR, VOICES: VOICES, voiceOf: voiceOf,
+    genState: genState, genSubscribe: genSubscribe, startGenerate: startGenerate,
     loadIssues: loadIssues, saveIssues: saveIssues, reportWindow: reportWindow, nextRefreshTime: nextRefreshTime, issueNo: issueNo,
     weekMaterial: weekMaterial, linesToText: linesToText, personasFor: personasFor,
     genCover: genCover, genInterview: genInterview, genMedia: genMedia, generateIssue: generateIssue
@@ -566,10 +602,16 @@
     const [issues, setIssues] = useState(function () { return loadIssues(); });
     const [view, setView] = useState("cover"); // cover | issue | shelf
     const [openId, setOpenId] = useState(null);
-    const [busy, setBusy] = useState(false);
-    const [prog, setProg] = useState(null);
+    const [, force] = useState(0); // 订阅后台出刊状态用（busy/prog 变化时重渲染）
     const win = window.Weekly.reportWindow();
     const currentIssue = issues.find(function (i) { return i.key === win.key; });
+    // 出刊状态改读模块级——离开界面再回来，进度不丢、完成的刊自动读进来
+    const gen = window.Weekly.genState();
+    const busy = gen.busy && gen.key === win.key;
+    const prog = busy ? gen.prog : null;
+    useEffect(function () {
+      return window.Weekly.genSubscribe(function () { setIssues(loadIssues()); force(function (n) { return n + 1; }); });
+    }, []);
 
     function persist(list) { setIssues(list); saveIssues(list); }
     function patchIssue(id, fn) {
@@ -582,19 +624,12 @@
       if (openId === id) { setOpenId(null); setView("cover"); }
     }
 
-    async function doGenerate() {
+    function doGenerate() {
       if (!props.active) { props.toast("先在设置里配置好模型再出刊"); return; }
-      setBusy(true); setProg({ done: 0, total: 0, label: "整理上周素材" });
-      try {
-        const num = issues.reduce(function (m, i) { return Math.max(m, i.issueNumber || 0); }, 0) + 1;
-        const issue = await window.Weekly.generateIssue(props.active, props.characters || [], props.groups || [], userName, win, num,
-          function (d, tot, l) { setProg({ done: d, total: tot, label: l }); });
-        const list = [issue].concat(loadIssues());
-        persist(list);
-        setOpenId(issue.id); setView("issue");
-        props.toast("第 " + window.Weekly.issueNo(issue, list) + " 期已出刊");
-      } catch (e) { props.toast(String(e.message || e)); }
-      setBusy(false); setProg(null);
+      window.Weekly.startGenerate({
+        active: props.active, characters: props.characters || [], groups: props.groups || [],
+        userName: userName, win: win, toast: props.toast
+      });
     }
 
     if (view === "issue" && openId) {

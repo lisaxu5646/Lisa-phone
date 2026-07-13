@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.65";
+const APP_VERSION = "v48.66";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -4270,6 +4270,18 @@ function App() {
         if (!arr.length) { const t = stripName(txt.replace(/```(?:json)?/gi, "").replace(/["{}\[\]]/g, "").replace(/\bsay\b\s*:?/gi, "").replace(/\baction\b\s*:?/gi, "").trim()); if (t) arr = [t]; }
         return arr;
       };
+      // 视频里模型常把动作糊进说话气泡（一大坨）。把一条 say 拆成有序片段：
+      // （……）括号内=动作，单独成 act 条；括号外=说话，再按换行拆成多条气泡。
+      const splitSayLine = str => {
+        const out = [];
+        const s = String(str || "");
+        const re = /[（(]([^（）()]{1,60})[）)]/g;
+        let last = 0, mm;
+        const pushSpeech = seg => { stripName(seg).split(/\n+/).map(x => x.trim()).filter(Boolean).forEach(x => out.push({ speech: x })); };
+        while ((mm = re.exec(s))) { pushSpeech(s.slice(last, mm.index)); const a = mm[1].trim(); if (a) out.push({ act: a }); last = re.lastIndex; }
+        pushSpeech(s.slice(last));
+        return out;
+      };
       const pushMsg = line => setCall(c => c ? { ...c, msgs: [...c.msgs, { ts: Date.now(), ...line }] } : c);
       const uName = profile.name || "用户";
       const callerIsChar = cur.caller && cur.caller !== "me"; // 角色主动打来、用户接的
@@ -4287,9 +4299,12 @@ function App() {
         says = says.map(stripName).filter(Boolean);
         if (!says.length) says = sayFallback(raw); // 解析失败也别吐生 JSON，正则抠出气泡
         if (isVideo && d.action) pushMsg({ role: "char", act: true, senderId: char.id, senderName: char.name, content: String(d.action).replace(/[（）()]/g, "").trim() });
-        for (let i = 0; i < says.length; i++) {
+        // 把每条 say 里夹带的动作/多句摊平成有序气泡（动作单独居中、说话各自成条）
+        const lines = says.reduce((acc, sy) => acc.concat(splitSayLine(sy)), []);
+        for (let i = 0; i < lines.length; i++) {
           if (i > 0) await new Promise(r => setTimeout(r, 550));
-          pushMsg({ role: "char", senderId: char.id, senderName: char.name, content: says[i] });
+          if (lines[i].act) pushMsg({ role: "char", act: true, senderId: char.id, senderName: char.name, content: lines[i].act });
+          else pushMsg({ role: "char", senderId: char.id, senderName: char.name, content: lines[i].speech });
         }
       } else {
         // 群通话：多角色你一言我一语；视频每条可带 action
@@ -4310,7 +4325,8 @@ function App() {
             const spk = people.find(c => c.name === arr[i].name) || people[0];
             if (i > 0) await new Promise(r => setTimeout(r, 500));
             if (isVideo && arr[i].action) pushMsg({ role: "char", act: true, senderId: spk.id, senderName: spk.name, content: String(arr[i].action).replace(/[（）()]/g, "").trim() });
-            pushMsg({ role: "char", senderId: spk.id, senderName: spk.name, content: stripName(arr[i].text) });
+            const gl = splitSayLine(arr[i].text);
+            for (const ln of gl) pushMsg(ln.act ? { role: "char", act: true, senderId: spk.id, senderName: spk.name, content: ln.act } : { role: "char", senderId: spk.id, senderName: spk.name, content: ln.speech });
           }
         }
       }
