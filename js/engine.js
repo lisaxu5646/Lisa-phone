@@ -338,6 +338,8 @@ async function callAI(p, system, messages, opts) {
         const _cut = typeof system === "string" ? (cacheHist ? system.length : system.indexOf("【当前真实时间】")) : -1;
         if (_cut >= 800) { const _pfx = system.slice(0, _cut); let _hh = 5381; for (let _i = 0; _i < _pfx.length; _i++) _hh = ((_hh << 5) + _hh + _pfx.charCodeAt(_i)) | 0; rec.ph = _hh >>> 0; rec.plen = _pfx.length; }
       } catch (e) {}
+      // 前缀和上一次(同为缓存前缀的)调用比：pfxSame=false 就是这轮前缀变了。一次性变=只 1 处 false；每轮 churn=处处 false。区分「一次性」vs「真churn」
+      if (typeof window !== "undefined" && rec.ph != null) { rec.pfxSame = (window.__ljph != null ? window.__ljph === rec.ph : null); window.__ljph = rec.ph; }
       if (typeof window !== "undefined") {
         (window.__usage = window.__usage || []).push(rec); if (window.__usage.length > 30) window.__usage.shift();
         if (!window.__cacheStat) window.__cacheStat = () => { const a = window.__usage || []; const s = a.reduce((o, r) => { o.cr += r.cr; o.cw += r.cw; o.in += r.in; o.hit += r.cr > 0 ? 1 : 0; return o; }, { cr: 0, cw: 0, in: 0, hit: 0 }); const _phs = new Set(a.map(r => r.ph).filter(x => x != null)); return "近" + a.length + "次 anthropic 调用：命中缓存 " + s.hit + " 次｜累计 读缓存(一折)" + s.cr + " 写缓存" + s.cw + " 新输入" + s.in + " tok｜前缀指纹 " + _phs.size + " 种(越少越稳)"; };

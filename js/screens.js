@@ -3163,7 +3163,9 @@ function CacheStatCard() {
   // 前缀指纹诊断（她 2026-07-13「连着聊也断」）：稳定前缀每轮该一样→指纹种类应该很少。接近调用次数=前缀每轮在变=没命中的真因
   const phList = usage.map(r => r.ph).filter(x => x != null);
   const phKinds = new Set(phList).size;
-  const pfxDrift = phList.length >= 3 && phKinds > Math.max(2, Math.ceil(phList.length * 0.5));
+  // 前缀变动次数（比数「种」更准）：pfxSame===false 就是那轮前缀变了。0~1 次=一次性(改版/偶发)、没事；一直增=每轮 churn=真bug
+  const pfxChanges = usage.filter(r => r.pfxSame === false).length;
+  const pfxDrift = phList.length >= 4 && pfxChanges >= 3;
   return h("div", { style: { marginTop: 22, paddingTop: 16, borderTop: "1px solid " + t.line } },
     h("div", { className: "flex items-center justify-between", style: { marginBottom: 6 } },
       h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, "缓存命中 · 小克(fable)线路"),
@@ -3174,7 +3176,7 @@ function CacheStatCard() {
           "近 " + usage.length + " 次调用｜命中缓存 " + s.hit + " 次｜读缓存(一折价) " + s.cr + " tok｜写缓存 " + s.cw + " tok",
           h("div", { style: { marginTop: 4, color: s.hit > 0 ? "#3c7a4a" : t.fog, fontSize: 11.5 } }, s.hit > 0 ? "✓ 缓存正在替你省钱（读的部分只按一折收）" : (s.cw > 0 ? "已在写缓存——再对小克连发一条(1小时内)就会出现「读取」" : "还没写进缓存，检查小克是不是走 fable 线路")),
           phList.length ? h("div", { style: { marginTop: 4, color: pfxDrift ? "#b4593b" : t.fog, fontSize: 11 } },
-            "前缀指纹：" + phList.length + " 次里 " + phKinds + " 种" + (pfxDrift ? "　⚠️前缀每轮在变→这才是不命中的主因，截图发我" : "（种类少=前缀稳，没命中多半是间隔太久/线路）")) : null));
+            "前缀指纹：" + phList.length + " 次里 " + phKinds + " 种、变动 " + pfxChanges + " 次" + (pfxDrift ? "　⚠️前缀几乎每轮在变→这才是不命中的真因，截图发我" : "（变动 0~1 次=一次性/没事；一直涨=每轮churn发我）")) : null));
 }
 function ImageApiConfig({ toast }) {
   const t = useTheme();
