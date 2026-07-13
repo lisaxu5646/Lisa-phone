@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.58";
+const APP_VERSION = "v48.59";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -2361,8 +2361,7 @@ function App() {
       // TA 甩了一张表情：按关键词匹配可用表情，作为一条 emote 消息
       const emoteKw = parsed.emote && String(parsed.emote).toLowerCase() !== "null" ? String(parsed.emote).trim() : null;
       if (emoteKw && emotes.length) {
-        const low = emoteKw.toLowerCase();
-        const match = emotes.find(e => e.keyword === emoteKw) || emotes.find(e => e.keyword.toLowerCase() === low) || emotes.find(e => low.includes(e.keyword.toLowerCase()) || e.keyword.toLowerCase().includes(low));
+        const match = emoteMatch(emotes, emoteKw);
         if (match) {
           await new Promise(r => setTimeout(r, 420));
           pChat(charId, p => [...p, { role: "assistant", kind: "emote", url: match.url, keyword: match.keyword, content: "[表情] " + match.keyword, ts: Date.now(), turnId }]);
@@ -2873,8 +2872,7 @@ function App() {
           const ekw = arr[i].emote && String(arr[i].emote).toLowerCase() !== "null" ? String(arr[i].emote).trim() : null;
           if (ekw) {
             const av = emotesForChar(spk.id);
-            const low = ekw.toLowerCase();
-            const mt = av.find(e => e.keyword === ekw) || av.find(e => e.keyword.toLowerCase() === low) || av.find(e => low.includes(e.keyword.toLowerCase()) || e.keyword.toLowerCase().includes(low));
+            const mt = emoteMatch(av, ekw);
             if (mt) {
               await new Promise(r => setTimeout(r, 300));
               pGChat(groupId, p => [...p, { role: "assistant", senderId: spk.id, senderName: spk.name, kind: "emote", url: mt.url, keyword: mt.keyword, content: "[表情] " + mt.keyword, ts: Date.now() }]);
@@ -6603,6 +6601,17 @@ function App() {
     const out = [];
     (emotePacksRef.current || []).forEach(pk => { if (pk.global || (pk.charIds || []).includes(charId)) (pk.emotes || []).forEach(e => out.push(e)); });
     return out;
+  };
+  // 表情宽松匹配（小克反馈）：去掉【】[]（）「」等括号/表情前后缀/空格再比，大小写无关；精确→归一相等→互相包含。
+  // 匹配不到就返回 null（调用方不建任何气泡，绝不落文字气泡）。
+  const emoteNorm = s => String(s || "").toLowerCase().replace(/[\s【】\[\]（）()「」『』〔〕<>《》.,。，!！?？~]/g, "");
+  const emoteMatch = (list, kw) => {
+    if (!kw || !list || !list.length) return null;
+    const n = emoteNorm(kw); if (!n) return null;
+    return list.find(e => e.keyword === kw)
+      || list.find(e => emoteNorm(e.keyword) === n)
+      || list.find(e => { const en = emoteNorm(e.keyword); return en && (en.includes(n) || n.includes(en)); })
+      || null;
   };
   // 群聊可用表情：所有成员可用表情的并集（按 id 去重）
   const emotesForGroup = memberIds => {
