@@ -274,9 +274,10 @@ async function callAI(p, system, messages, opts) {
     // 有些新模型（如带思考的 Claude 5/fable）不接受自定义 temperature（只允许 1 或直接不支持）→
     // 报 temperature 相关错就【去掉 temperature 裸参重试一次】，通用兜底、不用硬编每个模型的规则。
     const postAnthropic = async withTemp => {
-      // ⭐顶层自动缓存（v48.62，官网 client.messages.create(cache_control=...) 那套）：Anthropic 自动往回找最长稳定前缀去缓，
-      // 不依赖我们手动切点。和下面的块级切块共存(占4断点槽之1)、双保险；我们最后那块没打 cache_control 故不撞 TTL、不会 400。
-      const body = { model, max_tokens: maxTokens, cache_control: { type: "ephemeral" }, system: sysPayload, messages };
+      // ⚠️不用顶层自动缓存（v48.62 试过、v48.64 撤）：它「一路缓到最后一条消息」，把每轮都变的记忆/近期对话全写进缓存→
+      // 每轮狂写(1.25倍)只读回一点点，写远大于读、反而更贵(她真机实测 写40149/读3961)。
+      // 只留【手动块级切块】：cache_control 只打在「守则+人设+关系」稳定前缀那块(见上方 sysPayload)——写一次、之后每轮只读(一折)。
+      const body = { model, max_tokens: maxTokens, system: sysPayload, messages };
       if (withTemp) body.temperature = temp;
       const r = await fetchT(base + "/v1/messages", {
         method: "POST",
