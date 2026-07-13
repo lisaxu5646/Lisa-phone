@@ -2279,7 +2279,53 @@ function CoupleLetters({ partner, letters, cfg, onGen, onAddMy, onReply, onRead,
       h(CoupleLetterSettings, { partner, cfg, onSave: onSaveCfg })));
 }
 
-function Us({ characters, couples, whispers, onBack, onInvite, onUnlink, onGenWhisper, onAddAnniversary, onSetSince, profile, coupleProfile, onSetCoupleImg, gen, coupleQA, onAnswerQA, onEditQA, onRemoveQA, onRerollQA, qaGen, coupleQATitle, onSaveQATitle, coupleQACustom, coupleNotes, onAddNote, onAddNoteReply, onRemoveNote, onGenNote, noteGen, coupleMood, onCheckinMood, moodGen, coupleTimeline, onAddTimeline, onRemoveTimeline, onGenTimeline, tlGen, coupleAnniv, onAddAnniv, onRemoveAnniv, coupleLetters, coupleLetterCfg, onGenLetter, onAddMyLetter, onReplyLetter, onReadLetter, onRemoveLetter, onSaveLetterCfg, letterGen, coupleSweet, onCheckinSweet, coupleSync, onSyncStart, onSyncSubmit, onSyncRemove, syncGen, coupleExDiary, onAddExDiary, onReadExDiary }) {
+// 情侣空间·合照墙：把和 TA 的聊天里生成的「我俩合照」(photoKind:"duo") 挂成一面墙，按月分组、点开放大。
+// 每月十二号有地方翻。图从 IndexedDB(x_selfies) 按 imgKey 读，读不出的静静跳过。
+function AlbumPhoto({ photo, full, cover }) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    let alive = true, obj = null;
+    if (photo && photo.imgKey && typeof idbImgGet === "function") {
+      idbImgGet(photo.imgKey).then(b => { if (!alive) return; if (b && b.size) { obj = URL.createObjectURL(b); setUrl(obj); } }).catch(() => {});
+    }
+    return () => { alive = false; if (obj) URL.revokeObjectURL(obj); };
+  }, [photo && photo.imgKey]);
+  const src = url || (photo && photo.imgUrl) || null;
+  if (cover) return src ? h("img", { src, style: { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" } }) : null;
+  if (!src) return h("div", { style: { width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: full ? 40 : 20, opacity: 0.3 } }, "🖼");
+  return h("img", { src, loading: "lazy", style: full ? { maxWidth: "90vw", maxHeight: "72vh", borderRadius: 12, objectFit: "contain" } : { width: "100%", height: "100%", objectFit: "cover", display: "block" } });
+}
+function CoupleAlbum({ partner, photos, onBack }) {
+  const t = useTheme();
+  const [zoom, setZoom] = useState(null);
+  const list = (photos || []).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const groups = [];
+  list.forEach(p => {
+    const d = new Date(p.ts || Date.now());
+    const key = d.getFullYear() + " 年 " + (d.getMonth() + 1) + " 月";
+    let g = groups.find(x => x.key === key); if (!g) { g = { key, items: [] }; groups.push(g); }
+    g.items.push(p);
+  });
+  const isTwelfth = new Date().getDate() === 12;
+  return h("div", { className: "h-full flex flex-col" },
+    h(Head, { zh: "我们的合照", en: "Us · Album", onBack: onBack }),
+    h("div", { className: "flex-1 overflow-y-auto px-5 pb-12" },
+      list.length === 0
+        ? h(Empty, { text: "还没有你俩的合照", sub: "在和 " + partner.name + " 的聊天里，让 TA 拍张『我俩的合照』——就会挂到这面墙上。（需先在设置配好图像 API、你和 TA 都传了参考照）" })
+        : h(Fragment, null,
+            h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: isTwelfth ? t.accent : t.fog, textAlign: "center", padding: "8px 0 16px", lineHeight: 1.7, whiteSpace: "pre-line" } },
+              "你和 " + partner.name + " 的合照 · 共 " + list.length + " 张\n" + (isTwelfth ? "今天十二号——来翻翻我们。" : "每月十二号，来这儿翻翻。")),
+            groups.map(g => h("div", { key: g.key, style: { marginBottom: 20 } },
+              h("div", { style: { fontFamily: F_DISPLAY, fontSize: 15, color: t.ink, marginBottom: 9 } }, g.key + " · " + g.items.length + " 张"),
+              h("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 } },
+                g.items.map((p, i) => h("button", { key: i, onClick: () => setZoom(p), className: "active:opacity-80", style: { aspectRatio: "1", borderRadius: 10, overflow: "hidden", border: "1px solid " + t.line, background: t.bg2, padding: 0 } },
+                  h(AlbumPhoto, { photo: p }))))))),
+    zoom ? h("div", { onClick: () => setZoom(null), style: { position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,.92)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20 } },
+      h(AlbumPhoto, { photo: zoom, full: true }),
+      zoom.desc ? h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: "rgba(255,255,255,.85)", marginTop: 14, textAlign: "center", maxWidth: 320, lineHeight: 1.6 } }, zoom.desc) : null,
+      h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: "rgba(255,255,255,.5)", marginTop: 8 } }, new Date(zoom.ts || 0).toLocaleString("zh-CN"))) : null));
+}
+function Us({ characters, couples, whispers, onBack, onInvite, onUnlink, onGenWhisper, onAddAnniversary, onSetSince, profile, coupleProfile, onSetCoupleImg, gen, coupleQA, onAnswerQA, onEditQA, onRemoveQA, onRerollQA, qaGen, coupleQATitle, onSaveQATitle, coupleQACustom, coupleNotes, onAddNote, onAddNoteReply, onRemoveNote, onGenNote, noteGen, coupleMood, onCheckinMood, moodGen, coupleTimeline, onAddTimeline, onRemoveTimeline, onGenTimeline, tlGen, coupleAnniv, onAddAnniv, onRemoveAnniv, coupleLetters, coupleLetterCfg, onGenLetter, onAddMyLetter, onReplyLetter, onReadLetter, onRemoveLetter, onSaveLetterCfg, letterGen, coupleSweet, onCheckinSweet, coupleSync, onSyncStart, onSyncSubmit, onSyncRemove, syncGen, coupleExDiary, onAddExDiary, onReadExDiary, duoPhotosFor }) {
   const t = useTheme();
   const [view, setView] = useState(null); // null=名册 / charId=某段情侣详情
   const [sub, setSub] = useState(null); // 情侣空间子模块：null / 'qa'（后续加 timeline/mood/notes/letters）
@@ -2345,6 +2391,10 @@ function Us({ characters, couples, whispers, onBack, onInvite, onUnlink, onGenWh
   if (partner && cp[view] && cp[view].status === "together" && sub === "exdiary") {
     return h(CoupleExDiary, { partner, entries: coupleExDiary, onAdd: onAddExDiary, onRead: onReadExDiary, onBack: () => setSub(null) });
   }
+  // 情侣空间子模块：合照墙
+  if (partner && cp[view] && cp[view].status === "together" && sub === "album") {
+    return h(CoupleAlbum, { partner, photos: duoPhotosFor ? duoPhotosFor(partner.id) : [], onBack: () => setSub(null) });
+  }
   // 情侣空间子模块：情书
   if (partner && cp[view] && cp[view].status === "together" && sub === "letters") {
     return h(CoupleLetters, { partner, letters: coupleLetters, cfg: (coupleLetterCfg || {})[partner.id], onGen: onGenLetter, onAddMy: onAddMyLetter, onReply: onReplyLetter, onRead: onReadLetter, onRemove: onRemoveLetter, onSaveCfg: onSaveLetterCfg, gen: letterGen, onBack: () => setSub(null) });
@@ -2359,6 +2409,7 @@ function Us({ characters, couples, whispers, onBack, onInvite, onUnlink, onGenWh
     const paChar = cprof.charAvatar ? { name: partner.name, avatarImage: cprof.charAvatar } : partner;
     // —— bento 拼贴素材：每格露一点自己的活内容（全本地算，零 API）——
     const bCid = partner.id;
+    const bPhotos = (duoPhotosFor ? duoPhotosFor(bCid) : []).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
     const bLetters = (coupleLetters || []).filter(l => l.characterId === bCid);
     const bUnread = bLetters.filter(l => !l.isRead).length;
     const bMood = (coupleMood || []).find(m => m.characterId === bCid && m.date === todayK);
@@ -2422,6 +2473,13 @@ function Us({ characters, couples, whispers, onBack, onInvite, onUnlink, onGenWh
                   : h(Fragment, null,
                     h("div", { style: { fontFamily: F_DISPLAY, fontSize: 17, color: "#c65a7e", lineHeight: 1.3 } }, bTlN ? "记了 " + bTlN + " 个瞬间" : "从这里开始"),
                     sub2("时间轴 · 纪念日", "#b0708a"))) }),
+              // 合照墙（2x2 大格）：最近一张合照当封面，每月十二号来翻
+              h("button", { key: "album", onClick: () => setSub("album"), className: "active:opacity-80", style: { position: "relative", gridColumn: "span 2", gridRow: "span 2", borderRadius: 18, overflow: "hidden", border: "1px solid #e2d4f0", background: bPhotos.length ? "#20141f" : "linear-gradient(150deg,#f6ecff,#efe4fb)", minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "flex-end", padding: 0 } },
+                bPhotos.length ? h(AlbumPhoto, { photo: bPhotos[0], cover: true }) : null,
+                h("div", { style: { position: "relative", zIndex: 1, width: "100%", padding: "11px 13px", textAlign: "left", background: bPhotos.length ? "linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(0,0,0,.6) 100%)" : "transparent" } },
+                  h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: bPhotos.length ? "rgba(255,255,255,.9)" : "#9a7ab8" } }, "🖼️ 合照墙"),
+                  h("div", { style: { fontFamily: F_DISPLAY, fontSize: bPhotos.length ? 16 : 16, color: bPhotos.length ? "#fff" : "#8a5db0", lineHeight: 1.25, marginTop: 2 } }, bPhotos.length ? "我们的合照 · " + bPhotos.length + " 张" : "还没有合照"),
+                  h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: bPhotos.length ? "rgba(255,255,255,.72)" : "#9a7ab8", marginTop: 2 } }, bPhotos.length ? "每月十二号来翻翻" : "让 TA 拍张我俩"))),
               // 情书（2x1）
               tile("letters", { e: "💌", zh: "情书", bg: "#fdf6ec", bd: "#eee0c6", ink: "#b08d52", dot: bUnread > 0,
                 body: h("div", null,
