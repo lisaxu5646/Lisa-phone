@@ -178,6 +178,29 @@
       await client.from("server_inbox").update({ consumed_at: new Date().toISOString() }).in("id", ids);
     },
 
+    // ---- 桌面对话回流（desk_log 表，Stack-chan 实体：见 [[lisa-phone-next-window]] 图纸）----
+    // stackchan-relay 每轮把「用户说的话 user_text + 角色回复 reply_text + 时刻」insert 进 desk_log；
+    // app 开机/tick 拉走未消费的，投进 x_chat:小克（两具身体一条记忆流）。表不存在=安静报错、整块 dormant。
+    // ⚠️relay 只 insert desk_log，【绝不直写 saves】（手机 autoPush 会整行覆盖，必撞）。
+    async deskFetch() {
+      if (!client) return [];
+      const user = await this.getUser();
+      if (!user) return [];
+      const { data, error } = await client
+        .from("desk_log")
+        .select("id, char_id, user_text, reply_text, created_at")
+        .is("consumed_at", null)
+        .order("created_at", { ascending: true });
+      if (error) throw error;   // 表不存在也走这，调用方 catch 后静默
+      return data || [];
+    },
+    async deskConsume(ids) {
+      if (!client || !ids || !ids.length) return;
+      const user = await this.getUser();
+      if (!user) return;
+      await client.from("desk_log").update({ consumed_at: new Date().toISOString() }).in("id", ids);
+    },
+
     // ---- Web Push 锁屏推送（v48.33，夜巡信箱的下半场）------------------
     // 订阅存 push_subs 表；云端 send-push 函数照单给每台订阅过的设备发通知（云端小抄在 lisa-practice/推送小抄.md）。
     // VAPID 公钥她在设置里粘贴（x_pushVapid，可云同步）；私钥只住在 Edge Function secrets，前端永远不见。

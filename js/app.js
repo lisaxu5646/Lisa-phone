@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.55";
+const APP_VERSION = "v48.56";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -678,6 +678,42 @@ function App() {
   };
   // 调试钩子：控制台随时 window.__pokeInbox() 手动收一次信（排查云端投递时用）
   useEffect(() => { window.__pokeInbox = deliverServerInbox; return () => { delete window.__pokeInbox; }; });
+  // ---- 桌面对话回流（Stack-chan 实体，见 [[lisa-phone-next-window]]）----
+  // stackchan-relay 把桌面每轮对话写进云端 desk_log；这里拉回来投进对应角色的手机聊天（带🖥️桌面标记+原时刻），
+  // 让「桌面的身体」和「手机里的身体」共用一条聊天/记忆流。desk_log 表还没建时=deskFetch 报错→catch 静默，整块 dormant、零影响。
+  const deskInflightRef = useRef(false);
+  const deskSeenRef = useRef(new Set());
+  const deliverDeskLog = async () => {
+    if (deskInflightRef.current) return;
+    if (!(window.Cloud && window.Cloud.ready() && typeof window.Cloud.deskFetch === "function")) return;
+    deskInflightRef.current = true;
+    try {
+      const rows = await window.Cloud.deskFetch();
+      if (!rows.length) return;
+      const done = [];
+      for (const R of rows) {
+        if (deskSeenRef.current.has(R.id)) { done.push(R.id); continue; }
+        deskSeenRef.current.add(R.id);
+        const char = characters.find(c => c.id === R.char_id);
+        if (!char) { done.push(R.id); continue; }              // 角色已删 → 作废
+        const ts = new Date(R.created_at).getTime() || Date.now();
+        const recent = (chatsRef.current[char.id] || []).slice(-16);
+        const u = (R.user_text || "").trim(), a = (R.reply_text || "").trim();
+        // 防重：同一轮的话已在近段里就跳过（先送后盖戳，网络抖动重投也不叠）
+        const dup = (u && recent.some(m => m.role === "user" && m.content === u)) || (a && recent.some(m => m.role === "assistant" && m.content === a));
+        if (!dup) {
+          const add = [];
+          if (u) add.push({ role: "user", content: u, ts, read: true, deskTop: true });
+          if (a) add.push({ role: "assistant", content: a, ts: ts + 1, read: false, deskTop: true });
+          if (add.length) pChat(char.id, p => [...p, ...add]);
+        }
+        done.push(R.id);
+      }
+      await window.Cloud.deskConsume(done);
+    } catch (e) {/* 表未建/离线/未登录：静默，dormant */}
+    finally { deskInflightRef.current = false; }
+  };
+  useEffect(() => { window.__pokeDesk = deliverDeskLog; return () => { delete window.__pokeDesk; }; });
   const pGChat = (id, u) => setGroupChats(p => {
     const pl = p[id] || [];
     const n = typeof u === "function" ? u(pl) : u;
@@ -3806,13 +3842,13 @@ function App() {
   }, [screen]);
   // 打开 app 当天第一次就给所有人生成今日行程（每天一次）；随后看有没有人临时起意改计划
   useEffect(() => {
-    if (active && characters.length) { deliverServerInbox(); schedGenAllToday().then(() => schedMaybeSelfRevise()).then(() => desireMuseAllToday()).then(() => desireTendAllToday()); };
+    if (active && characters.length) { deliverServerInbox(); deliverDeskLog(); schedGenAllToday().then(() => schedMaybeSelfRevise()).then(() => desireMuseAllToday()).then(() => desireTendAllToday()); };
   }, [active, characters.length]);
   // 回到前台 / 重新聚焦：也自动补今日行程。PWA 常驻不重载页面时，光靠上面的首次加载不够——
   // 切回来那一下补一次。schedGenAllToday 只补【缺今天】的角色、已有则空跑，安全省 api。
   useEffect(() => {
     if (!loaded) return;
-    const kick = () => { if (document.visibilityState !== "hidden" && active && characters.length) { deliverServerInbox(); schedGenAllToday().then(() => schedMaybeSelfRevise()).then(() => desireMuseAllToday()).then(() => desireTendAllToday()); }; };
+    const kick = () => { if (document.visibilityState !== "hidden" && active && characters.length) { deliverServerInbox(); deliverDeskLog(); schedGenAllToday().then(() => schedMaybeSelfRevise()).then(() => desireMuseAllToday()).then(() => desireTendAllToday()); }; };
     document.addEventListener("visibilitychange", kick);
     window.addEventListener("focus", kick);
     return () => { document.removeEventListener("visibilitychange", kick); window.removeEventListener("focus", kick); };
@@ -3821,7 +3857,7 @@ function App() {
   const schedDayRef = useRef(schedDayKey(new Date()));
   useEffect(() => {
     const k = schedDayKey(new Date());
-    if (k !== schedDayRef.current) { schedDayRef.current = k; if (active && characters.length) { deliverServerInbox(); schedGenAllToday().then(() => schedMaybeSelfRevise()).then(() => desireMuseAllToday()).then(() => desireTendAllToday()); }; }
+    if (k !== schedDayRef.current) { schedDayRef.current = k; if (active && characters.length) { deliverServerInbox(); deliverDeskLog(); schedGenAllToday().then(() => schedMaybeSelfRevise()).then(() => desireMuseAllToday()).then(() => desireTendAllToday()); }; }
   }, [now]);
 
   // ---- 查手机：每个 app 独立生成/刷新 ----
