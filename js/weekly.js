@@ -136,6 +136,7 @@
   function weekMaterial(win, characters, groups, userName) {
     const uName = userName || "我";
     const perChar = {}, global = [];
+    const gset = loadJSON("x_groupSettings", {}); // 群设置：判断哪些群是封闭空间（未开记忆互通）
     const pushPC = function (id, ts, line) { (perChar[id] = perChar[id] || []).push({ ts: ts, line: line }); };
     (characters || []).forEach(function (c) {
       loadJSON("x_chat:" + c.id, []).forEach(function (m) {
@@ -148,6 +149,8 @@
       });
     });
     (groups || []).forEach(function (g) {
+      // 封闭群（未开记忆互通）＝记忆不进也不出，绝不喂进周刊的任何版块（她点名）
+      if (!(gset[g.id] && gset[g.id].memoryInterop)) return;
       loadJSON("x_gchat:" + g.id, []).forEach(function (m) {
         if (!inWin(m.ts, win)) return;
         const txt = cleanMsg(m); if (!txt) return;
