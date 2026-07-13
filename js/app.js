@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.83";
+const APP_VERSION = "v48.84";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -2287,8 +2287,8 @@ function App() {
       const listenData = listenRef.current || {};
       const isListenPartner = listenData.partnerId === charId;
       const libSongs = listenData.songs || [];
-      const listenHint = isListenPartner && libSongs.length
-        ? "\n【一起听·切歌】你正和 " + uName + " 一起听歌。若此刻你想换一首放——Ta 让你切歌/点歌，或你自己想放某首——把 songSwitch 填成要放的那首歌名（尽量和下面列出的某首一致）；想跳下一首填「下一首」、回上一首填「上一首」；不换歌就 null，别频繁乱切。你歌单里可放的歌：" + libSongs.slice(0, 30).map(s => s.title).join(" / ") + "。"
+      const listenHint = isListenPartner
+        ? "\n【一起听·切歌】你正和 " + uName + " 一起听歌。Ta 让你切歌/点歌、或你自己想放某首时，把 songSwitch 填成要放的那首歌名；想跳下一首填「下一首」、回上一首填「上一首」；不换歌就 null，别频繁乱切。" + (libSongs.length ? "歌单里可放的歌：" + libSongs.slice(0, 30).map(s => s.title).join(" / ") + "。" : "（歌单里暂时没存别的歌，可以用「下一首/上一首」跳，或直接说出想放的歌名。）")
         : "";
       // 一起听邀请：偶尔主动约对方一起听歌
       const inviteHint = isListenPartner ? "" : "\n【邀你一起听歌】偶尔（想跟 " + uName + " 分享一首歌、此刻在听到好歌、或气氛正好时，很克制、别频繁、绝大多数回合都 null），你可以主动邀请一起听歌：listenInvite 填 {\"song\":\"想一起听的歌名（可留空）\",\"say\":\"邀请的话，一句\"}；不邀请就 null。";
