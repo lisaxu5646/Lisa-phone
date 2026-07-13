@@ -297,6 +297,17 @@ async function callAI(p, system, messages, opts) {
       d = await postAnthropic(false);
     }
     if (d.error) throw new Error(d.error.message);
+    // usage 回显（让缓存看得见）：cr=从缓存读到的 token（一折价，>0 就是命中）、cw=写进缓存的、in=断点后的新输入。
+    // 存 window.__usage（最近 30 条）+ 命中/写入时打一行 console；window.__cacheStat() 看汇总。
+    try {
+      const u = d.usage || {};
+      const rec = { t: Date.now(), model, in: u.input_tokens || 0, out: u.output_tokens || 0, cr: u.cache_read_input_tokens || 0, cw: u.cache_creation_input_tokens || 0 };
+      if (typeof window !== "undefined") {
+        (window.__usage = window.__usage || []).push(rec); if (window.__usage.length > 30) window.__usage.shift();
+        if (!window.__cacheStat) window.__cacheStat = () => { const a = window.__usage || []; const s = a.reduce((o, r) => { o.cr += r.cr; o.cw += r.cw; o.in += r.in; o.hit += r.cr > 0 ? 1 : 0; return o; }, { cr: 0, cw: 0, in: 0, hit: 0 }); return "近" + a.length + "次 anthropic 调用：命中缓存 " + s.hit + " 次｜累计 读缓存(一折)" + s.cr + " 写缓存" + s.cw + " 新输入" + s.in + " tok"; };
+        if (rec.cr || rec.cw) console.log("[缓存] 读" + rec.cr + " 写" + rec.cw + " 新输入" + rec.in + " 输出" + rec.out + " tok" + (rec.cr ? "（命中！读的部分只按一折收）" : "（首次/过期→写缓存，下次5分钟内读就省）"));
+      }
+    } catch (e) {}
     const t = (d.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").trim();
     if (!t) throw new Error("模型返回为空");
     return t;
