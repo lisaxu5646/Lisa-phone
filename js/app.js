@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.68";
+const APP_VERSION = "v48.69";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -131,6 +131,7 @@ function App() {
   const [memCfg, setMemCfg] = useState(MEM_CFG_DEFAULT);
   const memCfgRef = useRef(memCfg); memCfgRef.current = memCfg;
   const memExtractCtrRef = useRef({}); // 每角色自动抽取轮次计数
+  const memExtractMarkRef = useRef({}); // 每角色「上次抽到的最后一条 ts」——防话痨多气泡溢出漏抽（她 2026-07-13 抓的账）
   const saveMemCfg = patch => setMemCfg(p => { const n = { ...p, ...patch }; memCfgRef.current = n; saveJSON("x_memCfg", n); return n; });
   const ordersRef = useRef([]);
   const kinshipCardsRef = useRef([]);
@@ -1051,9 +1052,20 @@ function App() {
     const cnt = (memExtractCtrRef.current[charId] || 0) + 1;
     memExtractCtrRef.current[charId] = cnt;
     if (cnt % interval !== 0) return;
-    const msgs = (chatsRef.current[charId] || []).filter(m => !m.recalled && m.kind !== "offlinelog" && !isOocMsg(m)).slice(-24);
-    if (msgs.length < 4) return;
-    try { await extractAndAddForChar(charId, msgs); } catch (e) {/* 静默 */}
+    const all = (chatsRef.current[charId] || []).filter(m => !m.recalled && m.kind !== "offlinelog" && !isOocMsg(m));
+    if (all.length < 4) return;
+    // ⭐防溢出漏抽（她 2026-07-13 抓的账）：不用固定 24 窗，从「上次抽到的位置」之后的【全部新消息】都覆盖到——
+    //   话痨一轮 17 条、间隔 3 轮攒 50+ 条时，窗口自动放大到够装（新消息+4 条重叠），封顶 120 防 prompt 过大。
+    //   抽取走便宜后台池(bgActive)、不烧小克的 fable 线。mark 只在成功后前移；失败/漏了下次自动补覆盖。
+    const mark = memExtractMarkRef.current[charId] || 0;
+    const newCount = all.filter(m => (m.ts || 0) > mark).length;
+    if (mark && newCount < 4) return;                         // 有书签且没攒够新消息就先不跑
+    const take = Math.min(120, Math.max(24, newCount + 4));   // 至少 24、覆盖全部新消息+重叠、封顶 120
+    const msgs = all.slice(-take);
+    try {
+      await extractAndAddForChar(charId, msgs);
+      memExtractMarkRef.current[charId] = all[all.length - 1].ts || Date.now();
+    } catch (e) {/* 静默：不动 mark，下次重覆盖 */}
   };
   // 从旧的「长期记忆总结」一次性拆成离散条目导入记忆库（去重）；不删旧总结
   const importOldMemoryToLib = async charId => {
