@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.86";
+const APP_VERSION = "v48.87";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -185,6 +185,7 @@ function App() {
   const [player, setPlayer] = useState({ songId: null, playing: false, t: 0, dur: 0, loading: false, err: null });
   const audioElRef = useRef(null);
   const playUrlRef = useRef(null); // 本地歌的 objectURL，切歌时回收
+  const songLyricsRef = useRef({}); // neteaseId -> 纯歌词文本（一起听时让角色知道歌词，v48.87 她要）
   // 情侣空间·甜蜜值：{ [charId]: { value:数字, last:"YYYY-MM-DD" } }，每日打卡 +0.1~1
   const [coupleSweet, setCoupleSweet] = useState({});
   // 情侣空间·详情页自定义：{ [charId]: { bg, myAvatar, charAvatar } }（默认取角色头像/我的头像，不影响原头像）
@@ -1360,7 +1361,12 @@ function App() {
       // 正和这个角色一起听 → 无论开没开自动评论，TA 都「知道」在放什么（被问起能接住）；开了自动评论才额外鼓励主动聊
       if (L.partnerId === char.id && player.songId && player.songId !== KEEPALIVE_ID) {
         const cur = resolveSong(player.songId);
-        if (cur) lines.push("【你正和 " + uName + " 一起听】《" + cur.title + "》" + (cur.artist ? " - " + cur.artist : "") + (player.playing ? "（正放着）" : "（暂停中）") + "。" + (L.autoComment ? "你可以自然聊聊这首歌、跟着哼、说喜不喜欢、想起什么、或想换首歌——别报歌单、别客服腔。" : "如果 " + uName + " 问起你在听什么/这首歌，你清楚就是这首，能自然接住、说说感受，别装不知道。"));
+        if (cur) {
+          lines.push("【你正和 " + uName + " 一起听】《" + cur.title + "》" + (cur.artist ? " - " + cur.artist : "") + (player.playing ? "（正放着）" : "（暂停中）") + "。" + (L.autoComment ? "你可以自然聊聊这首歌、跟着哼、说喜不喜欢、想起什么、或想换首歌——别报歌单、别客服腔。" : "如果 " + uName + " 问起你在听什么/这首歌，你清楚就是这首，能自然接住、说说感受，别装不知道。"));
+          // 歌词注入（v48.87 她要）：抓到的话让你真"听得懂"这首歌，能接歌词、跟唱、被某句戳到；别整段背出来、自然引用一两句就好
+          const lyr = cur.neteaseId && songLyricsRef.current[cur.neteaseId];
+          if (lyr && lyr.trim()) lines.push("【这首歌的歌词（你听得到、记得住，聊到时可自然接一两句/被某句打动，别整首背出来）】\n" + lyr.trim());
+        }
       }
       // 一起听过的歌 → 记忆
       const hist = L.history || [];
@@ -2574,7 +2580,11 @@ function App() {
           const _L = listenRef.current || {};
           const lib = (_L.songs || []).concat((_L.playlists || []).reduce((a, pl) => a.concat(pl.songs || []), [])); // 搜主库+所有歌单
           const hit = lib.find(s => s.title && (s.title === want || s.title.includes(want) || want.includes(s.title))) || null;
-          if (hit) playSong(hit.id); else toast("没找到《" + want + "》这首歌");
+          if (hit) playSong(hit.id);
+          else if (neteaseApi) { // 歌单里没有→去网易云搜来放（她 2026-07-13 想要的"他自己搜歌"，做靠谱）
+            try { const r = await fetch(neteaseApi + "/search?keywords=" + encodeURIComponent(want) + "&limit=1&timestamp=" + Date.now()); const dd = await r.json(); const s = dd && dd.result && dd.result.songs && dd.result.songs[0]; if (s) playSong(resultToSong({ id: s.id, name: s.name, artist: (s.artists || s.ar || []).map(a => a.name).filter(Boolean).join(" / "), cover: (s.album || s.al || {}).picUrl })); else toast("网易云也没搜到《" + want + "》"); } catch (e) { toast("搜歌失败：" + (e.message || "")); }
+          }
+          else toast("没找到《" + want + "》这首歌");
         }
       }
       // TA 主动邀请一起听 → 在聊天里发一张「一起听邀请」卡
@@ -5988,6 +5998,18 @@ function App() {
     }
     return null;
   };
+  // 抓网易云歌词（让一起听的角色知道歌词，v48.87 她要）：只对 netease 歌、缓存进 songLyricsRef、去时间戳与制作信息、封顶。本地/外链歌没歌词
+  const fetchLyrics = async song => {
+    if (!song || song.source !== "netease" || !song.neteaseId || !neteaseApi) return;
+    if (songLyricsRef.current[song.neteaseId] !== undefined) return; // 抓过(含抓到空)就不重抓
+    try {
+      const r = await fetch(neteaseApi + "/lyric?id=" + song.neteaseId + "&timestamp=" + Date.now());
+      const d = await r.json();
+      const raw = (d && d.lrc && d.lrc.lyric) || "";
+      const plain = raw.replace(/\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]/g, "").split("\n").map(s => s.trim()).filter(s => s && !/^(作词|作曲|编曲|制作|出品|监制|录音|混音|母带|吉他|贝斯|鼓|键盘|和声|Producer|Written)\s*[:：]/i.test(s)).join("\n").trim();
+      songLyricsRef.current[song.neteaseId] = plain.slice(0, 1200); // 封顶 1200 字防超长（纯器乐存空串）
+    } catch (e) { songLyricsRef.current[song.neteaseId] = ""; }
+  };
   // 歌曲可能来自：全部库(songs) / 某个歌单(playlists[].songs，各自独立存整份) / 临时正在放的搜索结果(nowSong)。
   // 三处都不互相依赖：从「全部」删歌不影响歌单；「现在播放」搜索结果不塞进「全部」。
   const resolveSong = id => {
@@ -6030,6 +6052,7 @@ function App() {
       if (!inLib && !inPl) patch.nowSong = song; else patch.nowSong = (p.nowSong && p.nowSong.id === songId) ? null : p.nowSong;
       return patch;
     });
+    fetchLyrics(song); // 并行抓歌词(网易云歌)，让一起听的角色知道歌词；不 await、不挡播放
     const url = await resolvePlayUrl(song);
     if (playUrlRef.current) { URL.revokeObjectURL(playUrlRef.current); playUrlRef.current = null; }
     if (!url) { setPlayer(p => ({ ...p, loading: false, playing: false, err: song.source === "netease" ? "拿不到播放地址（多半 VIP/无版权）" : "音频丢了（可能清过缓存）" })); return; }
