@@ -13,6 +13,8 @@
     "- 不要在输出里写用户的台词、想法或动作；轮到用户的部分一律留白，等他真实开口。\n" +
     "- 你无权替用户宣称他“学会了/掌握了/理解了/记住了”。是否掌握，只由用户本人或他手动触发的结算判定。\n" +
     "- 教/讨论时多把球抛回给用户（提问、留练习、请他复述或试answer），而不是自问自答一路讲到底。";
+  const RETEACH_RULE =
+    "【换一种讲法】当用户说没听懂或要求换种讲法，禁止只替换同义词再讲一遍。必须换教学维度：抽象→具体例子、公式→图像/步骤、定义→类比、讲解→一起做、或换成更小的前置知识；并先用一句话确认刚才可能卡在哪里。";
 
   const OUT_FMT =
     "\n【输出格式】只输出 JSON：{\"say\":[\"气泡1\",\"气泡2\"]}。" +
@@ -221,6 +223,7 @@
     if (worldbook && worldbook.trim()) parts.push(WORLDBOOK_RULE);
     parts.push(CHARCARD_RULE);
     parts.push(USER_SLOT_PROTECT);
+    parts.push(RETEACH_RULE);
     parts.push("【角色人设】\n" + (char.persona || "（暂无设定）"));
     if (profile.name || profile.persona)
       parts.push("【和你一起学的人 · " + (profile.name || "用户") + "】\n" + (profile.persona || "（未填写）"));
@@ -480,6 +483,31 @@
     } catch (e) { return ""; }
   }
 
+  async function generateStudyNote(active, session, char, ctx) {
+    const outline = session.outline || {};
+    const progress = session.progress || {};
+    const userName = (ctx.profile && ctx.profile.name) || "用户";
+    const conv = tail(session.transcript, 36).map(function (m) {
+      return (m.role === "user" ? userName : (m.name || "老师")) + "：" + m.content;
+    }).join("\n");
+    const sys = "你是「" + (char && char.name || "老师") + "」，刚教完『" + session.subject + "』这一节。" +
+      "请按你的人设留一张简短、真诚的课后小纸条，但所有学习判断必须依据真实作答证据，不能因为你讲过就夸用户学会，也不要学校成绩单腔。" +
+      "只输出 JSON：{\"achieved\":\"今天真正做到的一件事\",\"strength\":\"有证据的一个优点，没有就坦白写仍在起步\"," +
+      "\"weak\":\"还没稳的具体点，没有则写下一步挑战\",\"next\":\"下次开场先做什么\",\"note\":\"你以角色口吻留的一两句小纸条\"}。";
+    const u = "【角色人设】\n" + (char && char.persona || "（暂无）") + "\n\n" + progressText(outline.units || [], progress) +
+      "\n\n【本节真实对话】\n" + conv;
+    const raw = await callAI(active, sys, [{ role: "user", content: u }], { maxTokens: 800 });
+    const d = extractJSON(raw) || {};
+    return {
+      achieved: String(d.achieved || "完成了这一节的学习与作答").slice(0, 180),
+      strength: String(d.strength || "仍在积累证据").slice(0, 180),
+      weak: String(d.weak || progress.notes || "下次再做一次独立回忆").slice(0, 180),
+      next: String(d.next || "先复习今天的薄弱点").slice(0, 180),
+      note: String(d.note || "今天先到这里，下次接着来。").slice(0, 240),
+      authorId: char && char.id || null, authorName: char && char.name || "老师", ts: Date.now()
+    };
+  }
+
   // ---- checkpoint（§7）：手动触发，单独一次 JSON，对照 can_do 结算（读本节 outline）-------
   async function runCheckpoint(active, session, char, ctx) {
     const outline = session.outline;
@@ -509,7 +537,7 @@
     saveCurricula: saveCurricula, saveCurriculum: saveCurriculum, pushCurriculumSummary: pushCurriculumSummary,
     newProgress: newProgress, initSessionProgress: initSessionProgress, curriculumMemoryText: curriculumMemoryText,
     genTurn: genTurn, inferAbility: inferAbility, draftSessionOutline: draftSessionOutline,
-    summarizeStudySession: summarizeStudySession, runCheckpoint: runCheckpoint, tail: tail,
+    summarizeStudySession: summarizeStudySession, generateStudyNote: generateStudyNote, runCheckpoint: runCheckpoint, tail: tail,
     normalizeQuizAnswer: normalizeQuizAnswer, gradeQuizAnswer: gradeQuizAnswer, parseQuiz: parseQuiz,
     updateCurriculumReview: updateCurriculumReview, dueReviewCards: dueReviewCards, quizMasteryLevel: quizMasteryLevel
   };
@@ -1069,6 +1097,13 @@
       setTimeout(function () { replyNow(); }, 60);
     }
 
+    function reteach() {
+      if (busy) return;
+      pushEntry({ id: "u_" + Date.now(), role: "user", studyAction: "reteach",
+        content: "这样我没听懂，换一种讲法。别只是换几个词：请换成例子、类比、图像化步骤或带我一起做，从你判断我真正卡住的地方重新来。", ts: Date.now() });
+      setTimeout(function () { replyNow(); }, 60);
+    }
+
     // 让角色回复（手动触发）：teach/costudy 单角色回复；nv1 走导演
     async function replyNow() {
       if (busy) return;
@@ -1179,7 +1214,24 @@
         } else {
           props.toast("本节都学完啦 🎉 回课程可以开下一节");
         }
-        commit(Object.assign({}, s, { progress: cp }));
+        const completedSession = Object.assign({}, s, { progress: cp });
+        commit(completedSession);
+        if (!nextU && !cp.closing_note) {
+          try {
+            const note = await generateStudyNote(props.active, completedSession, teacher, ctx);
+            const latest = sessRef.current;
+            const nextProgress = Object.assign({}, latest.progress, { closing_note: note });
+            const summary = "本节做到：" + note.achieved + "；还需：" + note.weak + "；下次：" + note.next;
+            const noteEntry = { id: "study_note_" + note.ts, role: "system", studyNote: note,
+              content: summary, ts: note.ts };
+            commit(Object.assign({}, latest, { progress: nextProgress,
+              transcript: (latest.transcript || []).concat([noteEntry]), summary: summary, summaryTs: Date.now() }));
+            if (latest.curriculum_id) pushCurriculumSummary(latest.curriculum_id, latest.id, summary);
+            props.toast((teacher && teacher.name || "老师") + " 给你留了一张课后小纸条");
+          } catch (e) {
+            props.toast("本节已完成；课后小纸条这次没写出来，不影响进度");
+          }
+        }
       } catch (e) {
         props.toast("出错了：" + (e.message || "重试"));
       } finally { setBusy(false); }
@@ -1282,6 +1334,19 @@
     // 气泡渲染
     const bubbles = sess.transcript.map(function (m) {
       if (m.hidden) return null;
+      if (m.studyNote) {
+        const n = m.studyNote;
+        return h("div", { key: m.id, className: "my-4", style: { background: accent + "0d", border: "1px solid " + accent + "55", borderRadius: 14, padding: 14 } },
+          h("div", { className: "flex items-center justify-between", style: { marginBottom: 9 } },
+            h("span", { style: { fontFamily: F_DISPLAY, fontSize: 15, color: t.ink } }, "课后小纸条"),
+            h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog } }, n.authorName || "老师")),
+          [["今天做到", n.achieved], ["做得好的", n.strength], ["还没稳的", n.weak], ["下次先做", n.next]].map(function (x) {
+            return h("div", { key: x[0], style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink, lineHeight: 1.65, marginTop: 4 } },
+              h("span", { style: { color: t.fog } }, x[0] + "："), x[1]);
+          }),
+          h("div", { style: { marginTop: 10, paddingTop: 9, borderTop: "1px solid " + t.line,
+            fontFamily: F_BODY, fontSize: 13, color: accent, lineHeight: 1.7, whiteSpace: "pre-wrap" } }, n.note));
+      }
       if (m.role === "user") {
         return h("div", { key: m.id, className: "flex justify-end mb-2" },
           h("div", { style: { maxWidth: "76%", background: accent, color: "#fff", borderRadius: "14px 14px 4px 14px", padding: "8px 12px", fontFamily: F_BODY, fontSize: 14, lineHeight: 1.6, whiteSpace: "pre-wrap" } }, m.content));
@@ -1324,8 +1389,10 @@
           : bubbles,
         busy ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, padding: "4px 2px" } }, "…") : null),
       h("div", { className: "shrink-0", style: { borderTop: "1px solid " + t.line, background: t.bg } },
-        bubbles.length ? h("div", { className: "px-4 pt-2" },
-          h("button", { onClick: replyNow, disabled: busy, className: "w-full active:opacity-70", style: { fontFamily: F_BODY, fontSize: 13, background: busy ? t.line : accent, color: "#fff", borderRadius: 10, padding: "8px 0", opacity: busy ? 0.8 : 1 } },
+        bubbles.length ? h("div", { className: "px-4 pt-2 flex gap-2" },
+          sess.mode !== "costudy" ? h("button", { onClick: reteach, disabled: busy, className: "active:opacity-70 disabled:opacity-40",
+            style: { flex: "0 0 auto", fontFamily: F_BODY, fontSize: 12.5, color: accent, border: "1px solid " + accent, borderRadius: 10, padding: "8px 11px" } }, "换种讲法") : null,
+          h("button", { onClick: replyNow, disabled: busy, className: "flex-1 active:opacity-70", style: { fontFamily: F_BODY, fontSize: 13, background: busy ? t.line : accent, color: "#fff", borderRadius: 10, padding: "8px 0", opacity: busy ? 0.8 : 1 } },
             busy ? "生成中…" : (sess.mode === "nv1" ? "让 " + (teacher ? teacher.name : "老师") + " / 同学接话" : "让 " + (chars[0] ? chars[0].name : "对方") + " 回复"))) : null,
         h("div", { className: "px-4 py-3 flex items-end gap-2", style: { paddingBottom: "calc(env(safe-area-inset-bottom) + 4px)" } },
           h("textarea", { value: input, onChange: function (e) { return setInput(e.target.value); }, rows: 1, placeholder: "说点什么…（可连发几条再点上面让 TA 回复）", style: { flex: 1, resize: "none", fontFamily: F_BODY, fontSize: 14, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 18, padding: "9px 14px", maxHeight: 100 },
