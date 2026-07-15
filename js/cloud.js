@@ -265,6 +265,43 @@
       }
       return all;
     },
+    async memoryRowsFetchUpdatedSince(cursor) {
+      if (!client) throw new Error("云服务未就绪");
+      const user = await this.getUser();
+      if (!user) throw new Error("未登录");
+      const parsed = cursor ? Date.parse(cursor) : 0;
+      const since = new Date(Math.max(0, Number.isFinite(parsed) ? parsed - 5000 : 0)).toISOString();
+      const all = [], pageSize = 500;
+      for (let from = 0; ; from += pageSize) {
+        const { data, error } = await client.from("memories")
+          .select("id,text,tags,char_ids,v,a,open,pinned,ts,archived,archived_batch,archived_ts,source,deleted,revision,last_mutation_id,updated_at")
+          .eq("user_id", user.id)
+          .gte("updated_at", since)
+          .order("updated_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        const rows = data || [];
+        all.push(...rows);
+        if (rows.length < pageSize) break;
+      }
+      return all;
+    },
+    async memoryApplyMutation(op) {
+      if (!client) throw new Error("云服务未就绪");
+      const user = await this.getUser();
+      if (!user) throw new Error("未登录");
+      const { data, error } = await client.rpc("apply_memory_mutation", {
+        p_user_id: user.id,
+        p_memory_id: String(op.memoryId),
+        p_operation: op.operation,
+        p_payload: op.payload || {},
+        p_base_revision: op.baseRevision == null ? null : Number(op.baseRevision),
+        p_mutation_id: op.mutationId
+      });
+      if (error) throw error;
+      return data || {};
+    },
 
     // ---- 桌面对话回流（desk_log 表，Stack-chan 实体：见 [[lisa-phone-next-window]] 图纸）----
     // stackchan-relay 每轮把「用户说的话 user_text + 角色回复 reply_text + 时刻」insert 进 desk_log；

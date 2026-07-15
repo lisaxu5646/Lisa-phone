@@ -4410,6 +4410,7 @@ function MemoryLib({
   onAudit,
   onShadowMigrate,
   migrationBusy,
+  onSyncStatus,
   emoBusy
 }) {
   const t = useTheme();
@@ -4463,7 +4464,11 @@ function MemoryLib({
     disabled: migrationBusy,
     className: "w-full rounded-xl py-2.5 mb-2 active:opacity-60 disabled:opacity-40",
     style: { border: "1px dashed " + t.tint, color: t.tint, fontFamily: F_BODY, fontSize: 12.5 }
-  }, migrationBusy ? "正在逐行迁移并核对…" : "🚚 迁移390条到影子表 · 不切读取") : null, h("input", { value: q, onChange: e => setQ(e.target.value), placeholder: "搜索记忆内容 / 标签 / 角色…",
+  }, migrationBusy ? "正在逐行迁移并核对…" : "🚚 迁移390条到影子表 · 不切读取") : null, onSyncStatus ? h("button", {
+    onClick: onSyncStatus,
+    className: "w-full rounded-xl py-2.5 mb-2 active:opacity-60",
+    style: { border: "1px dashed " + t.line, color: t.fog, fontFamily: F_BODY, fontSize: 12.5 }
+  }, "🔄 查看行级影子同步状态") : null, h("input", { value: q, onChange: e => setQ(e.target.value), placeholder: "搜索记忆内容 / 标签 / 角色…",
     className: "w-full outline-none", style: { fontFamily: F_BODY, fontSize: 13, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 999, padding: "8px 14px" } })), h("div", {
     className: "shrink-0 px-6 pb-2 flex gap-2 overflow-x-auto"
   }, h("button", {
