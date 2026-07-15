@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.96";
+const APP_VERSION = "v48.97";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -882,6 +882,35 @@ function App() {
     // 向量增量维护（v48.11）：新增/编辑/删除后台补嵌+清孤儿。防抖 4s——批量逐条入库只嵌一次；没配 embedding API 时内部直接返回
     clearTimeout(memVecTimer.current);
     memVecTimer.current = setTimeout(() => { if (typeof ensureMemVecs === "function") ensureMemVecs(memLibRef.current).catch(() => {}); }, 4000);
+  };
+  // 记忆迁移第2步：只读审计本机镜像与旧云 blob，下载原始备份+逐 ID SHA-256+差异报告。
+  // 不调用 saveMemLib/saveJSON，不碰 memories 表；云端不可读时仍导出本机报告。
+  const exportMemoryAudit = async () => {
+    if (!window.MemoryAudit) { toast("审计器未载入，请刷新后重试"); return; }
+    toast("正在只读核对本机与云端记忆…");
+    const localRaw = localStorage.getItem("x_memLib");
+    let cloudRaw = null, cloudUpdatedAt = null, cloudError = null;
+    try {
+      if (!(window.Cloud && window.Cloud.ready())) throw new Error("云服务未就绪");
+      const row = await window.Cloud.pull();
+      if (!row || !row.data) throw new Error("云端没有旧存档");
+      cloudRaw = row.data.x_memLib == null ? null : String(row.data.x_memLib);
+      cloudUpdatedAt = row.updated_at || null;
+    } catch (e) { cloudError = String((e && e.message) || e || "云端读取失败"); }
+    try {
+      const report = await window.MemoryAudit.build(localRaw, cloudRaw, {
+        appVersion: APP_VERSION,
+        cloudUpdatedAt,
+        cloudError,
+        visibleStateRows: (memLibRef.current || []).length
+      });
+      window.MemoryAudit.download(report);
+      const ls = report.local && report.local.stats, cs = report.cloud && report.cloud.stats, d = report.diff;
+      const summary = "本机 " + (ls ? ls.totalRows : "读取失败") + " 条" +
+        (cs ? " · 旧云 " + cs.totalRows + " 条" : " · 旧云未读到") +
+        (d && d.comparable ? (" · 本机独有 " + d.missingInCloud.length + " · 云端独有 " + d.missingInLocal.length + " · 同ID内容不同 " + d.changedSharedRows.length) : "");
+      toast("审计报告已导出：" + summary);
+    } catch (e) { toast("审计失败（没有改动数据）：" + String((e && e.message) || e)); }
   };
   // 向量记忆开机：把 IDB 里的向量读进内存缓存 → 后台给缺向量的条目补嵌（换设备导入存档后会在这里自动重建索引）
   // v48.29 世界书向量同款开机流程（词条向量也在 IDB 不进云，导入存档后自动重建）
@@ -7619,6 +7648,7 @@ function App() {
     onRefine: refineOldMemories,
     onRestoreArchived: restoreArchived,
     onBulkImport: bulkImportMemories,
+    onAudit: exportMemoryAudit,
     emoBusy: emoBusy
   });else if (screen === "diary") body = h(Diary, {
     characters: characters,
