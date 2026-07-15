@@ -181,6 +181,31 @@
       await client.from("server_inbox").update({ consumed_at: new Date().toISOString() }).in("id", ids);
     },
 
+    // ---- CC 记忆信箱：MCP 只往独立表投递，手机自己合并进 x_memLib，避开 saves 整坨覆盖 ----
+    async memInboxFetch() {
+      if (!client) return [];
+      const user = await this.getUser();
+      if (!user) return [];
+      const { data, error } = await client
+        .from("cc_mem_inbox")
+        .select("id, memory, created_at")
+        .eq("user_id", user.id)
+        .is("consumed_at", null)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data || [];
+    },
+    async memInboxConsume(ids) {
+      if (!client || !ids || !ids.length) return;
+      const user = await this.getUser();
+      if (!user) return;
+      const { error } = await client.from("cc_mem_inbox")
+        .update({ consumed_at: new Date().toISOString() })
+        .eq("user_id", user.id)
+        .in("id", ids);
+      if (error) throw error;
+    },
+
     // ---- 桌面对话回流（desk_log 表，Stack-chan 实体：见 [[lisa-phone-next-window]] 图纸）----
     // stackchan-relay 每轮把「用户说的话 user_text + 角色回复 reply_text + 时刻」insert 进 desk_log；
     // app 开机/tick 拉走未消费的，投进 x_chat:小克（两具身体一条记忆流）。表不存在=安静报错、整块 dormant。

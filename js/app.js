@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.95";
+const APP_VERSION = "v48.96";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -686,6 +686,42 @@ function App() {
   };
   // 调试钩子：控制台随时 window.__pokeInbox() 手动收一次信（排查云端投递时用）
   useEffect(() => { window.__pokeInbox = deliverServerInbox; return () => { delete window.__pokeInbox; }; });
+  // CC/小克家访写记忆的安全入口：CC 只投独立信箱，手机在本地按 id 合并后才盖消费戳。
+  // 这样 app 的 saves 整坨自动同步永远盖不到 CC 刚写的记忆；失败不消费，下次还会再取。
+  const memInboxInflightRef = useRef(false);
+  const memInboxSeenRef = useRef(new Set());
+  const deliverMemoryInbox = async () => {
+    if (memInboxInflightRef.current) return;
+    if (!(window.Cloud && window.Cloud.ready() && typeof window.Cloud.memInboxFetch === "function")) return;
+    memInboxInflightRef.current = true;
+    try {
+      const rows = await window.Cloud.memInboxFetch();
+      if (!rows.length) return;
+      const known = new Set((memLibRef.current || []).map(m => m && m.id).filter(Boolean));
+      const add = [], done = [];
+      for (const row of rows) {
+        if (memInboxSeenRef.current.has(row.id)) { done.push(row.id); continue; }
+        const m = row && row.memory;
+        if (!m || !m.id || !String(m.text || "").trim()) continue; // 坏条目不吞，留在云端可排查
+        memInboxSeenRef.current.add(row.id);
+        if (!known.has(m.id)) { add.push(m); known.add(m.id); }
+        done.push(row.id);
+      }
+      if (add.length) saveMemLib([...add, ...(memLibRef.current || [])]); // 先落本地，才允许消费云端信件
+      if (done.length) await window.Cloud.memInboxConsume(done);
+    } catch (e) {/* 表未建/离线时不影响 app，信件留在云端下次再收 */}
+    finally { memInboxInflightRef.current = false; }
+  };
+  useEffect(() => { window.__pokeMemInbox = deliverMemoryInbox; return () => { delete window.__pokeMemInbox; }; });
+  // 收记忆不依赖 API/角色配置：app 载入或回到前台就扫一次。
+  useEffect(() => {
+    if (!loaded) return;
+    const kickMemInbox = () => { if (document.visibilityState !== "hidden") deliverMemoryInbox(); };
+    kickMemInbox();
+    document.addEventListener("visibilitychange", kickMemInbox);
+    window.addEventListener("focus", kickMemInbox);
+    return () => { document.removeEventListener("visibilitychange", kickMemInbox); window.removeEventListener("focus", kickMemInbox); };
+  }, [loaded]);
   // ---- 桌面对话回流（Stack-chan 实体，见 [[lisa-phone-next-window]]）----
   // stackchan-relay 把桌面每轮对话写进云端 desk_log；这里拉回来投进对应角色的手机聊天（带🖥️桌面标记+原时刻），
   // 让「桌面的身体」和「手机里的身体」共用一条聊天/记忆流。desk_log 表还没建时=deskFetch 报错→catch 静默，整块 dormant、零影响。
