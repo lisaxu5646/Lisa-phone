@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v48.93";
+const APP_VERSION = "v48.94";
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
 function BatteryBadge() {
@@ -3934,7 +3934,7 @@ function App() {
     if (!active || !window.DesireKit) return false;
     try {
       const box = DesireKit.housekeep(DesireKit.boxOf(desiresRef.current, char.id));
-      const d = await runProbe(bgApiFor(char.id), ctxFor(char), DesireKit.museSpec(char, box)); // 灵光独白=本体亲笔（v48.37）：专线用专线，否则便宜池
+      const d = await runProbe(bgApiFor(char.id), leanWriteCtx(ctxFor(char)), DesireKit.museSpec(char, box)); // 灵光独白=本体亲笔（v48.37）：专线用专线，否则便宜池；瘦身省贵线（v48.94）
       DesireKit.applyMuse(box, d, schedDayKey(new Date()));
       saveDesires(n => { n[char.id] = box; });
       return true;
@@ -3980,7 +3980,7 @@ function App() {
           const _lastTs = _msgs.length ? (_msgs[_msgs.length - 1].ts || 0) : 0;
           if (_lastTs && Date.now() - _lastTs < 7 * 86400000) {
             try {
-              const od = await runProbe(bgActive, ctxFor(c), DesireKit.observerSpec(c, box));
+              const od = await runProbe(bgActive, leanWriteCtx(ctxFor(c)), DesireKit.observerSpec(c, box));
               DesireKit.applyObserver(box, od, today);
               saveDesires(n => { n[c.id] = box; });
             } catch (e) {}
@@ -3989,7 +3989,7 @@ function App() {
         if (!r.due) continue;
         try {
           const spec = r.due === "solstice" ? DesireKit.solsticeSpec(c, box) : DesireKit.mellowSpec(c, box);
-          const d = await runProbe(bgApiFor(c.id), ctxFor(c), spec); // 小满盘点/冬至自述/毕业蜕变诗/人格档案落笔=本体亲笔（v48.37）：专线用专线，否则便宜池
+          const d = await runProbe(bgApiFor(c.id), leanWriteCtx(ctxFor(c)), spec); // 小满盘点/冬至自述/毕业蜕变诗/人格档案落笔=本体亲笔（v48.37）：专线用专线，否则便宜池；瘦身省贵线（v48.94）
           if (r.due === "solstice") DesireKit.applySolstice(box, d, today); else DesireKit.applyMellow(box, d, today);
           saveDesires(n => { n[c.id] = box; });
         } catch (e) {}
