@@ -18,10 +18,11 @@
     "\n【输出格式】只输出 JSON：{\"say\":[\"气泡1\",\"气泡2\"]}。" +
     "say 里放你这一轮说出口的话，可拆成 1~4 个气泡（像即时通讯那样分条），" +
     "不要加名字前缀、不要旁白括号、不要 markdown、不要把 JSON 以外的东西吐出来。";
-  // 教学进度信号（只给 teach / nv1-teacher）：让进度条随对话自然前进，不必用户手动点
+  // 学习证据信号（只给 teach / nv1-teacher）：老师只能报告用户刚才真实作答的表现，不能自行宣布学会/推进。
   const STUDY_PROGRESS_FMT =
-    "\n【进度信号（可选，接在同一个 JSON 里）】当你判断【当前小节】的要点这一轮已经讲清、且用户表现出基本跟上时，加 \"done\":true —— 进度条会自动推进到下一小节；还没到位就别加（或 false）。" +
-    "可另加 \"mastery\":{\"要点id\":0-3}（0新学/1待复习/2基本会/3稳）标注用户对当前小节各要点的掌握。别为了推进硬给 done：没讲到位、用户没跟上、才刚开头，就老老实实留着继续教。";
+    "\n【学习证据（可选，接在同一个 JSON 里）】只有当用户刚刚真的回答了一道题、完成了练习或亲口复述时，才可加 " +
+    "\"evidence\":{\"point_id\":\"当前要点id\",\"result\":\"correct|partial|incorrect\",\"support\":\"none|hinted|guided\",\"note\":\"一句具体依据\"}。" +
+    "用户只是说懂了、提问、闲聊，或你刚讲完，都不算学习证据，不要输出 evidence。你无权输出 done，也无权自行推进小节。";
 
   function sceneFor(mode, subject, extra) {
     if (mode === "teach")
@@ -73,7 +74,7 @@
 
   function newProgress(mode) {
     if (mode === "costudy") return { running_summary: "", loose_vocab: [] };
-    return { current_unit: null, completed: [], mastery: {}, review_queue: [], notes: "" };
+    return { current_unit: null, completed: [], mastery: {}, review_queue: [], notes: "", evidence: [], mistakes: [], exit_ticket: null };
   }
   // 从本节 outline 起一份 session 进度（第一小节起步）
   function initSessionProgress(outline) {
@@ -186,6 +187,10 @@
       if (weak.length) lines.push("【开场先复习】这些点用户还不稳，这节开头先自然带 Ta 过一遍（提问/造句/小翻译均可，别照本宣科），确认接住了再进新内容：" + weak.join("、"));
     }
     if (progress.notes) lines.push("备注：" + progress.notes);
+    const unresolved = (progress.mistakes || []).filter(function (x) { return x && !x.resolved; }).slice(-5);
+    if (unresolved.length) lines.push("【真实作答暴露的薄弱点】" + unresolved.map(function (x) {
+      return (x.pointId || "要点") + "：" + (x.note || "需要再练");
+    }).join("；"));
     return lines.join("\n");
   }
 
@@ -271,16 +276,15 @@
   }
 
   // ---- 一次生成 = 一个角色一个回合（§5）------------------------------
-  // 返回 { says:[...], done:bool, mastery:{}|null }——done/mastery 是老师回合可选的进度信号
+  // 返回 { says:[...], evidence:null|{} }——老师只能报告刚刚真实发生的作答证据，不能自行推进。
   async function genTurn(active, session, char, ctx, role) {
     const sys = buildStudyPrompt(session, char, ctx, role);
     const msgs = toMessages(session.transcript, char.id, (ctx.profile && ctx.profile.name) || "用户");
     const raw = await callAI(active, sys, msgs, { maxTokens: 3200 });
     const says = parseSay(raw);
     const d = extractJSON(raw) || {};
-    const done = d.done === true || String(d.done).toLowerCase() === "true";
-    const mastery = d.mastery && typeof d.mastery === "object" ? d.mastery : null;
-    return { says: says, done: done, mastery: mastery };
+    const evidence = d.evidence && typeof d.evidence === "object" ? d.evidence : null;
+    return { says: says, evidence: evidence };
   }
 
   // ---- nv1 轮次导演（§8）：模型决定这一轮谁开口、按什么顺序 -----------------
@@ -360,7 +364,8 @@
     const covered = (outline.units || []).map(function (u) { return u.title; }).join("、");
     const sys = "把这一节『" + session.subject + "』的学习，浓缩成 1~2 句给下次上课的备忘：这次讲/练了什么、" + userName + "掌握得怎样、哪里还卡着/下次该接着做什么。具体、可复用。只输出正文。";
     try {
-      return (await callAI(active, sys, [{ role: "user", content: "【本节安排】" + covered + "\n【对话】\n" + conv }], { maxTokens: 400 })).trim();
+      const progress = progressText(outline.units || [], session.progress || {});
+      return (await callAI(active, sys, [{ role: "user", content: "【本节安排】" + covered + "\n" + progress + "\n【对话】\n" + conv }], { maxTokens: 400 })).trim();
     } catch (e) { return ""; }
   }
 
@@ -375,14 +380,15 @@
     const conv = tail(session.transcript, 30).map(function (m) {
       return (m.role === "user" ? (ctx.profile && ctx.profile.name || "用户") : m.name) + "：" + m.content;
     }).join("\n");
-    const sys = "你在给一堂课做结算。当前单元「" + unit.title + "」，要点(用 id)：" + gram + "。" +
+    const sys = "你在给一堂课的【结课小测】做证据式结算。当前单元「" + unit.title + "」，要点(用 id)：" + gram + "。" +
       "能做到清单：" + (unit.can_do || []).join("；") + "。" +
-      "根据下面真实发生的教学对话，判断用户对每个要点的掌握程度，并判断本单元是否可视为完成。" +
-      "mastery 的 key 必须是要点 id（不是中文标签），值 0~3（0新学/1待复习/2基本会/3稳）。" +
-      "只输出扁平 JSON：{\"completed\":true或false,\"mastery\":{\"<id>\":0-3},\"notes\":\"给下次的一句提醒\"}。";
+      "只依据最近一次标有【结课小测】的题目和它后面用户亲自给出的答案来判断，老师自己的讲解、用户说『懂了』都不能当证据。" +
+      "mastery 的 key 必须是要点 id（不是中文标签），值 0~2：0答错、1需提示/部分正确、2独立答对；3只能留给未来隔时复习再次独立答对。" +
+      "若没有看到小测后的真实用户答案，completed 必须 false。mistakes 只列本次暴露的薄弱点。" +
+      "只输出扁平 JSON：{\"completed\":true或false,\"mastery\":{\"<id>\":0-2},\"mistakes\":[{\"point_id\":\"<id>\",\"note\":\"具体错因\"}],\"notes\":\"给下次的一句提醒\"}。";
     const raw = await callAI(active, sys, [{ role: "user", content: "【教学对话】\n" + conv }], { maxTokens: 1400 });
     const d = extractJSON(raw) || {};
-    return { completed: !!d.completed, mastery: d.mastery && typeof d.mastery === "object" ? d.mastery : {}, notes: d.notes || "" };
+    return { completed: !!d.completed, mastery: d.mastery && typeof d.mastery === "object" ? d.mastery : {}, mistakes: Array.isArray(d.mistakes) ? d.mistakes : [], notes: d.notes || "" };
   }
 
   // ---- 暴露给 UI 层 --------------------------------------------------
@@ -783,30 +789,48 @@
     }
 
     async function runChar(char, role) {
+      const before = sessRef.current;
+      const answerEntry = (before.transcript || []).length && before.transcript[before.transcript.length - 1].role === "user"
+        ? before.transcript[before.transcript.length - 1] : null;
       const res = await genTurn(props.active, sessRef.current, char, ctx, role);
       const says = (res && res.says) || [];
       for (let i = 0; i < says.length; i++) {
         if (i > 0) await new Promise(function (r) { return setTimeout(r, 400); });
         pushEntry({ id: "c_" + Date.now() + "_" + i, role: "char", speakerId: char.id, name: char.name, content: says[i], ts: Date.now() });
       }
-      // 对话式推进：老师这轮判定当前小节讲透（done）→ 进度条自动前进一格；也顺手记 mastery
-      if (units.length && (role === "teach" || role === "nv1-teacher")) autoAdvance(res);
+      // 老师只能把用户刚刚真实作答的表现记成证据；任何模型信号都不能自动推进小节。
+      if (units.length && (role === "teach" || role === "nv1-teacher")) recordEvidence(res && res.evidence, answerEntry);
     }
 
-    // 随对话前进（与手动「这节学完」并存，都写 session.progress）
-    function autoAdvance(res) {
-      if (!res || (!res.done && !res.mastery)) return;
+    function recordEvidence(raw, answerEntry) {
+      if (!raw || !answerEntry || answerEntry.studyAction) return;
       const s = sessRef.current;
-      const cp = Object.assign({ completed: [], mastery: {} }, s.progress);
-      if (res.mastery) cp.mastery = Object.assign({}, cp.mastery, res.mastery);
-      if (res.done) {
-        const idx = units.findIndex(function (u) { return u.id === cp.current_unit; });
-        if (idx >= 0) {
-          if (!cp.completed.includes(cp.current_unit)) cp.completed = cp.completed.concat([cp.current_unit]);
-          const nextU = units[idx + 1];
-          if (nextU) { cp.current_unit = nextU.id; props.toast("小节推进：" + nextU.title); }
-          else props.toast("本节都学完啦 🎉 回课程可开下一节");
-        }
+      const cp = Object.assign({ completed: [], mastery: {}, evidence: [], mistakes: [] }, s.progress);
+      const cu = units.find(function (u) { return u.id === cp.current_unit; });
+      const pointIds = (cu && cu.grammar || []).map(function (g) { return g.id; });
+      const pointId = String(raw.point_id || "");
+      const result = ["correct", "partial", "incorrect"].includes(raw.result) ? raw.result : "";
+      const support = ["none", "hinted", "guided"].includes(raw.support) ? raw.support : "";
+      if (!pointId || !pointIds.includes(pointId) || !result || !support) return;
+      const key = answerEntry.id + ":" + pointId;
+      if ((cp.evidence || []).some(function (e) { return e.key === key; })) return;
+      const level = result === "correct" ? (support === "none" ? 2 : 1) : (result === "partial" ? 1 : 0);
+      // 掌握度以最近一次真实表现为准；答错可以降级，不能被历史高分永久遮住。
+      cp.mastery = Object.assign({}, cp.mastery, { [pointId]: level });
+      cp.evidence = (cp.evidence || []).concat([{
+        key: key, pointId: pointId, userEntryId: answerEntry.id,
+        result: result, support: support, level: level,
+        note: String(raw.note || "").slice(0, 180), ts: Date.now()
+      }]).slice(-80);
+      if (level <= 1) {
+        cp.mistakes = (cp.mistakes || []).concat([{
+          id: "mist_" + Date.now(), pointId: pointId, userEntryId: answerEntry.id,
+          note: String(raw.note || "还需要再练").slice(0, 180), resolved: false, ts: Date.now()
+        }]).slice(-50);
+      } else {
+        cp.mistakes = (cp.mistakes || []).map(function (m) {
+          return m.pointId === pointId && !m.resolved ? Object.assign({}, m, { resolved: true, resolvedTs: Date.now() }) : m;
+        });
       }
       cp.review_queue = Object.keys(cp.mastery).filter(function (k) { return cp.mastery[k] <= 1; });
       commit(Object.assign({}, s, { progress: cp }));
@@ -854,9 +878,41 @@
       } finally { setBusy(false); }
     }
 
+    function hasExitAnswer(s, ticket) {
+      return !!ticket && (s.transcript || []).some(function (m) {
+        return m.role === "user" && !m.studyAction && (m.ts || 0) > (ticket.askedAt || 0);
+      });
+    }
+
+    async function startExitTicket() {
+      const s = sessRef.current;
+      const cp = Object.assign({ completed: [], mastery: {}, evidence: [], mistakes: [] }, s.progress);
+      const cu = units.find(function (u) { return u.id === cp.current_unit; });
+      if (!cu) return;
+      const askedAt = Date.now();
+      cp.exit_ticket = { status: "awaiting_answer", unitId: cu.id, askedAt: askedAt };
+      commit(Object.assign({}, s, { progress: cp }));
+      pushEntry({
+        id: "u_" + Date.now(), role: "user", studyAction: "exit_request",
+        content: "（【结课小测】请针对当前小节最核心、最好也是我还不稳的点，只出 1 道需要我亲自作答的小题。先不要公布答案，也不要替我回答。）", ts: askedAt
+      });
+      await replyNow();
+      props.toast("先答完这道小测，再点“提交结课”");
+    }
+
     async function checkpoint() {
       if (busy || !props.active) return;
       if (sess.mode === "costudy" || !units.length) return;
+      const initial = sessRef.current;
+      const initialTicket = initial.progress && initial.progress.exit_ticket;
+      if (!initialTicket || initialTicket.status !== "awaiting_answer") {
+        await startExitTicket();
+        return;
+      }
+      if (!hasExitAnswer(initial, initialTicket)) {
+        props.toast("先亲自回答老师刚出的结课小测");
+        return;
+      }
       setBusy(true);
       try {
         const s = sessRef.current;
@@ -864,16 +920,42 @@
         const cp = Object.assign({ completed: [], mastery: {} }, s.progress);
         try {
           const res = await runCheckpoint(props.active, s, teacher, ctx);
-          cp.mastery = Object.assign({}, cp.mastery, res.mastery);
+          const cu = units.find(function (u) { return u.id === cp.current_unit; });
+          const allowed = (cu && cu.grammar || []).map(function (g) { return g.id; });
+          const checkedMastery = {};
+          Object.keys(res.mastery || {}).forEach(function (id) {
+            const level = Math.max(0, Math.min(2, Math.round(Number(res.mastery[id]))));
+            if (allowed.includes(id) && Number.isFinite(level)) checkedMastery[id] = level;
+          });
+          cp.mastery = Object.assign({}, cp.mastery, checkedMastery);
           cp.notes = res.notes || cp.notes;
+          cp.evidence = (cp.evidence || []).slice();
+          cp.mistakes = (cp.mistakes || []).slice();
+          (res.mistakes || []).forEach(function (m) {
+            const pointId = String(m.point_id || "");
+            if (!allowed.includes(pointId)) return;
+            cp.mistakes.push({ id: "mist_" + Date.now() + "_exit", pointId: pointId, userEntryId: null,
+              note: String(m.note || "结课小测仍需复习").slice(0, 180), resolved: false, ts: Date.now() });
+          });
           cp.review_queue = Object.keys(cp.mastery).filter(function (k) { return cp.mastery[k] <= 1; });
-        } catch (e) {/* 掌握评估失败：仍然按用户意愿推进 */}
-        // 你手动点了「这节学完」= 你决定推进，无条件进下一小节
+          const independentlyPassed = Object.keys(checkedMastery).some(function (id) { return checkedMastery[id] >= 2; });
+          if (!res.completed || !independentlyPassed) {
+            cp.exit_ticket = { status: "needs_retry", unitId: cp.current_unit, checkedAt: Date.now() };
+            commit(Object.assign({}, s, { progress: cp }));
+            props.toast("这次小测还暴露了薄弱点，已经记下；练一会儿再测一次");
+            return;
+          }
+        } catch (e) {
+          props.toast("小测结算失败，没有推进进度");
+          return;
+        }
+        cp.exit_ticket = { status: "passed", unitId: cp.current_unit, checkedAt: Date.now() };
         const idx = units.findIndex(function (u) { return u.id === cp.current_unit; });
         if (!cp.completed.includes(cp.current_unit)) cp.completed = cp.completed.concat([cp.current_unit]);
         const nextU = units[idx + 1];
         if (nextU) {
           cp.current_unit = nextU.id;
+          cp.exit_ticket = null;
           const weak = (cp.review_queue || []).length;
           props.toast("进入下一小节：" + nextU.title + (weak ? "（有 " + weak + " 个点标了待复习）" : ""));
         } else {
@@ -942,7 +1024,10 @@
         right: sess.mode !== "costudy" ? h("div", { className: "flex items-center gap-1.5" },
           h("button", { onClick: prevUnit, disabled: busy || !units.length || (units.findIndex(function (u) { return u.id === prog.current_unit; }) <= 0), className: "active:opacity-60 disabled:opacity-30", style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog, border: "1px solid " + t.line, borderRadius: 8, padding: "4px 9px" } }, "上一小节"),
           h("button", { onClick: quizMe, disabled: busy, className: "active:opacity-60 disabled:opacity-30", style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink, border: "1px solid " + t.line, borderRadius: 8, padding: "4px 10px" } }, "🎯考我"),
-          h("button", { onClick: checkpoint, disabled: busy, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 12.5, color: accent, border: "1px solid " + accent, borderRadius: 8, padding: "4px 10px" } }, "这节学完")) : null
+          h("button", { onClick: checkpoint, disabled: busy, className: "active:opacity-60", style: { fontFamily: F_BODY, fontSize: 12.5, color: accent, border: "1px solid " + accent, borderRadius: 8, padding: "4px 10px" } },
+            prog.exit_ticket && prog.exit_ticket.status === "awaiting_answer"
+              ? (hasExitAnswer(sess, prog.exit_ticket) ? "提交结课" : "先答小测")
+              : (prog.exit_ticket && prog.exit_ticket.status === "needs_retry" ? "再测一次" : "结课小测"))) : null
       }),
       topBar,
       h("div", { ref: scrollRef, className: "flex-1 min-h-0 overflow-y-auto px-5 py-3" },
