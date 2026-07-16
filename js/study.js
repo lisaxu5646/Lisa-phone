@@ -76,7 +76,8 @@
       const mem = c.memory || { summaries: [] };
       const summaries = (mem.summaries || []).filter(function (s) { return s.sessionId !== sessionId; })
         .concat([{ sessionId: sessionId, text: text, ts: Date.now() }]);
-      return Object.assign({}, c, { memory: { summaries: summaries }, updated_at: Date.now() });
+      // 保留 memory 上除 summaries 外的一切（review_items 等）——曾整体重建导致间隔复习题库被清零
+      return Object.assign({}, c, { memory: Object.assign({}, mem, { summaries: summaries }), updated_at: Date.now() });
     });
     saveCurricula(all);
   }
@@ -300,8 +301,14 @@
       return { id: String(o && o.id || String.fromCharCode(65 + i)), label: String(o && o.label || "").trim() };
     }).filter(function (o) { return o.label; }) : [];
     if (type === "choice" && options.length < 2) return null;
-    const answer = type === "true_false" ? String(q.answer).toLowerCase() : String(q.answer || "").trim();
+    let answer = type === "true_false" ? String(q.answer).toLowerCase() : String(q.answer || "").trim();
     if (!answer || (type === "true_false" && !["true", "false"].includes(answer))) return null;
+    if (type === "choice" && !options.some(function (o) { return o.id === answer; })) {
+      // 模型常把 answer 写成选项文字而非选项 id；按归一化文字映射回 id，映射不到=坏题，宁可不出
+      const hit = options.find(function (o) { return normalizeQuizAnswer(o.label) === normalizeQuizAnswer(answer); });
+      if (!hit) return null;
+      answer = hit.id;
+    }
     return {
       type: type, prompt: prompt.slice(0, 600), pointId: pointId,
       options: options, answer: answer,
@@ -318,7 +325,7 @@
   async function genTurn(active, session, char, ctx, role) {
     const sys = buildStudyPrompt(session, char, ctx, role);
     const msgs = toMessages(session.transcript, char.id, (ctx.profile && ctx.profile.name) || "用户");
-    const raw = await callAI(active, sys, msgs, { maxTokens: 3200 });
+    const raw = await callAI(active, sys, msgs, { maxTokens: 6400 });
     const says = parseSay(raw);
     const d = extractJSON(raw) || {};
     const evidence = d.evidence && typeof d.evidence === "object" ? d.evidence : null;
@@ -340,7 +347,7 @@
     const u = "题目：" + quiz.prompt + "\n标准答案：" + quiz.answer +
       ((quiz.aliases || []).length ? "\n可接受别名：" + quiz.aliases.join("；") : "") + "\n用户答案：" + String(userAnswer || "");
     try {
-      const raw = await callAI(active, sys, [{ role: "user", content: u }], { maxTokens: 300 });
+      const raw = await callAI(active, sys, [{ role: "user", content: u }], { maxTokens: 6400 }); // 思考型模型思考预算从 maxTokens 扣，给小了直接空返回（仓库铁律 ≥6000）
       const d = extractJSON(raw) || {};
       const result = ["correct", "partial", "incorrect"].includes(d.result) ? d.result : "incorrect";
       return { result: result, feedback: String(d.feedback || (result === "correct" ? "意思对了" : "还需要再想想")).slice(0, 240), local: false };
@@ -413,7 +420,7 @@
       "别每轮都硬让两个人都说、也别让谁一直沉默；贴合当下语境（比如用户在问老师就老师答，用户和同学讨论就同学接）。绝不替用户发言。" +
       "只输出 JSON：{\"order\":[\"teacher\"或\"peer\", …]}，1~3 个元素。";
     try {
-      const raw = await callAI(active, sys, [{ role: "user", content: "【最近对话】\n" + conv }], { maxTokens: 200 });
+      const raw = await callAI(active, sys, [{ role: "user", content: "【最近对话】\n" + conv }], { maxTokens: 6400 });
       const d = extractJSON(raw) || {};
       let order = Array.isArray(d.order) ? d.order.filter(function (x) { return x === "teacher" || x === "peer"; }) : [];
       if (!order.length) order = ["teacher"];
@@ -430,7 +437,7 @@
       "只输出 JSON：{\"canTeach\":true或false,\"level\":\"入门/进阶/精通/无\",\"posture\":\"若不会，一句话态度\"}";
     const u = "【要学的】" + subject + "\n【角色人设】" + (char.persona || "（空）") + (worldbook ? "\n【世界书】" + worldbook : "");
     try {
-      const raw = await callAI(active, sys, [{ role: "user", content: u }], { maxTokens: 500 });
+      const raw = await callAI(active, sys, [{ role: "user", content: u }], { maxTokens: 6400 });
       const d = extractJSON(raw) || {};
       return { canTeach: !!d.canTeach, level: d.level || "", posture: d.posture || "" };
     } catch (e) { return { canTeach: false, level: "", posture: "" }; }
@@ -452,7 +459,7 @@
       "grammar/要点数组[{id(英文小写),label(中文短标签),note(一句说明)}]、vocab(若适用,数组)、can_do(学完能做到,1~2条)。" +
       "level 填这一节的难度定位。只输出 JSON：{\"level\":\"…\",\"language\":\"中文\",\"units\":[...]}。不要 markdown。";
     const u = "课程目标：" + goal + (lv ? "\n我的基础：" + lv : "") + (priorCtx && priorCtx.trim() ? "\n\n【这门课之前的记录】\n" + priorCtx.trim() : "\n（这是第一节）");
-    const raw = await callAI(active, sys, [{ role: "user", content: u }], { maxTokens: 5000 });
+    const raw = await callAI(active, sys, [{ role: "user", content: u }], { maxTokens: 6400 });
     const d = extractJSON(raw) || {};
     // 稳健：模型常漏 id，别因缺 id 把小节整个丢掉——按序补 id（单元 & 要点都补）
     let units = Array.isArray(d.units) ? d.units.filter(function (x) { return x && x.title; }) : [];
@@ -479,7 +486,7 @@
     const sys = "把这一节『" + session.subject + "』的学习，浓缩成 1~2 句给下次上课的备忘：这次讲/练了什么、" + userName + "掌握得怎样、哪里还卡着/下次该接着做什么。具体、可复用。只输出正文。";
     try {
       const progress = progressText(outline.units || [], session.progress || {});
-      return (await callAI(active, sys, [{ role: "user", content: "【本节安排】" + covered + "\n" + progress + "\n【对话】\n" + conv }], { maxTokens: 400 })).trim();
+      return (await callAI(active, sys, [{ role: "user", content: "【本节安排】" + covered + "\n" + progress + "\n【对话】\n" + conv }], { maxTokens: 6400 })).trim();
     } catch (e) { return ""; }
   }
 
@@ -496,7 +503,7 @@
       "\"weak\":\"还没稳的具体点，没有则写下一步挑战\",\"next\":\"下次开场先做什么\",\"note\":\"你以角色口吻留的一两句小纸条\"}。";
     const u = "【角色人设】\n" + (char && char.persona || "（暂无）") + "\n\n" + progressText(outline.units || [], progress) +
       "\n\n【本节真实对话】\n" + conv;
-    const raw = await callAI(active, sys, [{ role: "user", content: u }], { maxTokens: 800 });
+    const raw = await callAI(active, sys, [{ role: "user", content: u }], { maxTokens: 6400 });
     const d = extractJSON(raw) || {};
     return {
       achieved: String(d.achieved || "完成了这一节的学习与作答").slice(0, 180),
@@ -525,7 +532,7 @@
       "mastery 的 key 必须是要点 id（不是中文标签），值 0~2：0答错、1需提示/部分正确、2独立答对；3只能留给未来隔时复习再次独立答对。" +
       "若没有看到小测后的真实用户答案，completed 必须 false。mistakes 只列本次暴露的薄弱点。" +
       "只输出扁平 JSON：{\"completed\":true或false,\"mastery\":{\"<id>\":0-2},\"mistakes\":[{\"point_id\":\"<id>\",\"note\":\"具体错因\"}],\"notes\":\"给下次的一句提醒\"}。";
-    const raw = await callAI(active, sys, [{ role: "user", content: "【教学对话】\n" + conv }], { maxTokens: 1400 });
+    const raw = await callAI(active, sys, [{ role: "user", content: "【教学对话】\n" + conv }], { maxTokens: 6400 });
     const d = extractJSON(raw) || {};
     return { completed: !!d.completed, mastery: d.mastery && typeof d.mastery === "object" ? d.mastery : {}, mistakes: Array.isArray(d.mistakes) ? d.mistakes : [], notes: d.notes || "" };
   }
@@ -945,13 +952,15 @@
         pushEntry({ id: "c_" + Date.now() + "_" + i, role: "char", speakerId: char.id, name: char.name, content: says[i], ts: Date.now() });
       }
       if (res && res.quiz) {
-        const s = sessRef.current;
-        const cp = s.progress || {};
-        const cu = units.find(function (u) { return u.id === cp.current_unit; });
-        const allowed = (cu && cu.grammar || []).map(function (g) { return g.id; });
+        // 允许全大纲的要点 id：开场复习就是会考上一小节的点（progressText 明确引导），只卡当前小节会把合法复习题吞掉
+        const allowed = units.reduce(function (acc, u) { return acc.concat((u.grammar || []).map(function (g) { return g.id; })); }, []);
         if (allowed.includes(res.quiz.pointId)) {
           pushEntry({ id: "q_" + Date.now(), role: "char", speakerId: char.id, name: char.name,
             content: res.quiz.prompt, quiz: res.quiz, ts: Date.now() });
+        } else {
+          // 真越界也不许无声吞卡——老师嘴上说了「做做这道题」，屏幕上必须有东西；降级成普通文字，不带 quiz 结构不记证据
+          pushEntry({ id: "q_" + Date.now(), role: "char", speakerId: char.id, name: char.name,
+            content: res.quiz.prompt, ts: Date.now() });
         }
       }
       // 老师只能把用户刚刚真实作答的表现记成证据；任何模型信号都不能自动推进小节。
@@ -1007,7 +1016,7 @@
       if (!["sure", "unsure", "guess"].includes(confidence)) { props.toast("提交前选一下你有多确定"); return; }
       setBusy(true);
       try {
-        const grade = await gradeQuizAnswer(props.active, entry.quiz, answer);
+        const grade = await gradeQuizAnswer(props.bgActive || props.active, entry.quiz, answer);
         if (grade.reviewFailed) {
           props.toast("这次没能完成语义复核，没有判错也没有改掌握度；稍后再试");
           return;
@@ -1194,7 +1203,8 @@
           const independentlyPassed = Object.keys(checkedMastery).some(function (id) { return checkedMastery[id] >= 2; });
           if (!res.completed || !independentlyPassed) {
             cp.exit_ticket = { status: "needs_retry", unitId: cp.current_unit, checkedAt: Date.now() };
-            commit(Object.assign({}, s, { progress: cp }));
+            // 结算是好几秒的模型调用，期间用户可能又发了消息——必须用最新 sessRef 写回，不能用 await 前的旧快照（会整体覆盖丢消息）
+            commit(Object.assign({}, sessRef.current, { progress: cp }));
             props.toast("这次小测还暴露了薄弱点，已经记下；练一会儿再测一次");
             return;
           }
@@ -1214,11 +1224,11 @@
         } else {
           props.toast("本节都学完啦 🎉 回课程可以开下一节");
         }
-        const completedSession = Object.assign({}, s, { progress: cp });
+        const completedSession = Object.assign({}, sessRef.current, { progress: cp });
         commit(completedSession);
         if (!nextU && !cp.closing_note) {
           try {
-            const note = await generateStudyNote(props.active, completedSession, teacher, ctx);
+            const note = await generateStudyNote(props.bgActive || props.active, completedSession, teacher, ctx);
             const latest = sessRef.current;
             const nextProgress = Object.assign({}, latest.progress, { closing_note: note });
             const summary = "本节做到：" + note.achieved + "；还需：" + note.weak + "；下次：" + note.next;
@@ -1417,7 +1427,7 @@
 
     if (view === "newCurriculum") {
       return h(NewCurriculum, {
-        mode: tab, active: props.active, characters: props.characters, worldbook: props.worldbook, toast: props.toast,
+        mode: tab, active: props.active, bgActive: props.bgActive, characters: props.characters, worldbook: props.worldbook, toast: props.toast,
         onBack: function () { setView("home"); },
         onCreated: function (cur) { setCurId(cur.id); setView("console"); }, // 落到控制台，自己开第一节
         // 认真教判定不够格→用户选「改为一起研究」：建 costudy session 直接进聊天
@@ -1438,7 +1448,7 @@
       const cur = curricula.find(function (c) { return c.id === curId; });
       if (!cur) { setView("home"); return null; }
       return h(NewSession, {
-        curriculum: cur, active: props.active, characters: props.characters, worldbook: props.worldbook, profile: props.profile, toast: props.toast,
+        curriculum: cur, active: props.active, bgActive: props.bgActive, characters: props.characters, worldbook: props.worldbook, profile: props.profile, toast: props.toast,
         onBack: function () { setView("console"); },
         onCreated: function (sess) { setOpenId(sess.id); setView("thread"); }
       });
@@ -1478,7 +1488,7 @@
       const sess = loadSessions().find(function (s) { return s.id === openId; });
       if (!sess) { setView("home"); return null; }
       return h(StudyThread, {
-        session: sess, active: props.active, characters: props.characters, profile: props.profile, worldbook: props.worldbook, toast: props.toast,
+        session: sess, active: props.active, bgActive: props.bgActive, characters: props.characters, profile: props.profile, worldbook: props.worldbook, toast: props.toast,
         onBack: function () { refresh(); setView(sess.curriculum_id ? "console" : "home"); if (sess.curriculum_id) setCurId(sess.curriculum_id); },
         onUpdated: function () { }
       });

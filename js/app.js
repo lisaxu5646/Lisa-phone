@@ -2,15 +2,16 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.05";
+const APP_VERSION = "v49.06";
 
 const voiceToneForPrompt = m => {
   if (!m || !m.voiceTone) return "";
   const tone = m.voiceTone;
+  // 基线没建好时没有可用信号，直接不注入（省 token，也免得模型对着"基线还在建立"硬找戏）
+  if (!tone.baselineReady) return "";
   const heard = Array.isArray(tone.observations) && tone.observations.length
-    ? tone.observations.join("、")
-    : tone.baselineReady ? "整体与她平时的声音接近" : "个人声音基线还在建立，暂不做相对判断";
-  return "【只属于这条语音的声学线索：" + heard + "。这是相对她在这台设备上的个人基线得出的线索，不是确定情绪；请结合她说的内容和你们的关系自然回应，不要复述参数、不要宣判她处于某种情绪，也不要把这条声学线索当作长期事实或记忆素材。】";
+    ? tone.observations.join("、") : "与她平时的声音接近";
+  return "【这条语音听感（相对她平时，仅供参考非情绪定论；别复述参数、别当长期事实记）：" + heard + "】";
 };
 // 右上电池：干净的 iOS 风电池图标（只图标不数字）。Battery API 拿得到就按真实电量画填充，
 // iOS Safari/PWA 拿不到 → 画一个饱满的装饰电池（不显示假数字）。
@@ -7630,6 +7631,7 @@ function App() {
     onDelete: id => saveLore(loreRef.current.filter(x => x.id !== id))
   });else if (screen === "study") body = h(StudyApp, {
     active: active,
+    bgActive: bgActive, // 判卷/课后小纸条等结构化小活走便宜后台池；教学对话仍用主 active
     characters: characters,
     profile: profile,
     worldbook: worldbook,

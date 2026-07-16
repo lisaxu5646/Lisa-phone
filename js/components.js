@@ -2764,6 +2764,7 @@ function VoiceEarComposer({ onSend, onClose, senderName, ownerKey, toast }) {
   }, []);
 
   const begin = async () => {
+    if (!window.Ears) { toast && toast("声音分析模块没加载出来，刷新页面再试"); return; }
     if (!window.isSecureContext) {
       toast && toast("麦克风需要安全连接（https 或本机预览）");
       return;
