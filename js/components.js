@@ -2747,6 +2747,87 @@ function MomentsProfile({ isMe, character, profile, characters, moments, cover, 
     compose && h(MomentCompose, { friendGroups, characters, onPost: payload => { onPostMoment(payload); setCompose(false); }, onClose: () => setCompose(false) }));
 }
 
+function VoiceEarComposer({ onSend, onClose, senderName, ownerKey, toast }) {
+  const t = useTheme();
+  const [text, setText] = useState("");
+  const [recording, setRecording] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [level, setLevel] = useState(0);
+  const [speechNote, setSpeechNote] = useState("");
+  const [capture, setCapture] = useState(null);
+  const [info, setInfo] = useState(() => window.Ears ? window.Ears.profileInfo(ownerKey) : { count: 0, ready: false, target: 8 });
+  const sessionRef = useRef(null);
+
+  useEffect(() => () => {
+    if (sessionRef.current) sessionRef.current.cancel().catch(() => {});
+    sessionRef.current = null;
+  }, []);
+
+  const begin = async () => {
+    if (!window.isSecureContext) {
+      toast && toast("麦克风需要安全连接（https 或本机预览）");
+      return;
+    }
+    setBusy(true); setSpeechNote(""); setCapture(null);
+    try {
+      sessionRef.current = await window.Ears.start({
+        lang: "zh-CN",
+        ownerKey,
+        onLevel: setLevel,
+        onTranscript: setText,
+        onSpeechError: () => setSpeechNote("自动听写没接上，可以停下后自己改文字")
+      });
+      setRecording(true);
+    } catch (e) {
+      toast && toast((e && e.message) || "没能打开麦克风");
+    } finally { setBusy(false); }
+  };
+  const finish = async () => {
+    const session = sessionRef.current;
+    if (!session) return;
+    sessionRef.current = null; setBusy(true); setRecording(false); setLevel(0);
+    try {
+      const result = await session.stop();
+      if (result) {
+        setCapture(result);
+        if (result.transcript) setText(result.transcript);
+        setInfo(window.Ears.profileInfo(ownerKey));
+        if (!result.valid) setSpeechNote("这段太轻或几乎都是静音，没有拿来学习你的声音");
+      }
+    } catch (e) { toast && toast((e && e.message) || "这段录音没分析成功"); }
+    finally { setBusy(false); }
+  };
+  const send = () => {
+    const v = text.trim();
+    if (!v) { toast && toast("先说点什么，或者手动补上文字"); return; }
+    const dur = capture ? Math.max(1, Math.min(60, Math.round(capture.duration))) : Math.max(1, Math.min(60, Math.round(v.replace(/\s/g, "").length / 3)));
+    onSend({ role: "user", ...(senderName ? { senderName } : {}), kind: "voice", content: v, dur, ...(capture && capture.tone ? { voiceTone: capture.tone } : {}) });
+    onClose();
+  };
+  const progress = Math.min(info.count, info.target) + "/" + info.target;
+  return h(React.Fragment, null,
+    h(Eyebrow, { style: { marginBottom: 8 } }, "让 TA 听见你怎么说"),
+    h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 10, lineHeight: 1.6 } },
+      "声音在这台设备上分析，录音不会保存。自动听写可能经过浏览器或系统服务；文字可在发送前修改。"),
+    h("button", { onClick: recording ? finish : begin, disabled: busy, className: "w-full py-3 active:opacity-70 disabled:opacity-50", style: { borderRadius: 12, background: recording ? "#9f5149" : t.ink, color: t.bg2, fontFamily: F_BODY, fontSize: 14 } },
+      busy ? "请稍等…" : recording ? "■ 停下并分析" : "● 按下开始说"),
+    recording && h("div", { style: { height: 5, borderRadius: 9, background: t.line, marginTop: 8, overflow: "hidden" } },
+      h("div", { style: { width: Math.max(4, level * 100) + "%", height: "100%", background: t.tint, transition: "width .1s" } })),
+    h("textarea", { value: text, onChange: e => setText(e.target.value), rows: 3, placeholder: "听写会出现在这里，也可以自己输入或修改…", className: "w-full outline-none p-3 rounded-lg", style: { marginTop: 10, fontFamily: F_BODY, fontSize: 14, lineHeight: 1.6, color: t.ink, background: t.bg2, border: "1px solid " + t.line, resize: "none" } }),
+    speechNote && h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: "#9f5149", marginTop: 6 } }, speechNote),
+    capture && capture.tone && h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.sub, background: t.bg, borderRadius: 9, padding: "8px 10px", marginTop: 8, lineHeight: 1.6 } },
+      capture.tone.baselineReady
+        ? (capture.tone.observations.length ? "这条听起来：" + capture.tone.observations.join("、") : "这条和你平时的声音接近")
+        : "正在认识你的声音（" + progress + "）；满 8 条后才做相对比较"),
+    h("div", { className: "flex items-center justify-between", style: { marginTop: 9 } },
+      h("span", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog } }, info.ready ? "个人声音基线 · 本机 " + info.count + " 条" : "个人声音基线 · " + progress),
+      h("div", { className: "flex gap-3" },
+        info.count > 0 && h("button", { onClick: () => { setInfo(window.Ears.forgetLast(ownerKey)); setCapture(null); toast && toast("已忘掉最近一次声音样本"); }, style: { fontFamily: F_BODY, fontSize: 10.5, color: t.sub } }, "撤回上次"),
+        info.count > 0 && h("button", { onClick: () => { if (confirm("重建声音基线？只会清掉本机保存的声学数字，不会删聊天。")) { setInfo(window.Ears.resetProfile(ownerKey)); setCapture(null); toast && toast("声音基线已重建"); } }, style: { fontFamily: F_BODY, fontSize: 10.5, color: "#9f5149" } }, "重建基线"))),
+    h("button", { onClick: send, disabled: recording || busy || !text.trim(), className: "w-full mt-3 py-2.5 active:opacity-70 disabled:opacity-40", style: { borderRadius: 8, background: t.ink, color: t.bg2, fontFamily: F_BODY, fontSize: 13 } }, capture ? "带着这条语气发送" : "按文字发送成语音")
+  );
+}
+
 // ---- chat thread (single) ----
 function ChatThread({
   character,
@@ -2813,7 +2894,6 @@ function ChatThread({
   const [geoOpen, setGeoOpen] = useState(false);
   const [stickerOpen, setStickerOpen] = useState(false);
   const [voiceMsgOpen, setVoiceMsgOpen] = useState(false);
-  const [voiceMsgText, setVoiceMsgText] = useState("");
   const [callLogOpen, setCallLogOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [modeOpen, setModeOpen] = useState(false);
@@ -3621,10 +3701,7 @@ function ChatThread({
       : h("div", { className: "grid grid-cols-4 gap-2", style: { maxHeight: "46vh", overflowY: "auto" } }, (emotes || []).map(em => h("button", { key: em.id, onClick: () => { sendRich({ role: "user", kind: "emote", url: em.url, keyword: em.keyword, content: "[表情] " + em.keyword }); setStickerOpen(false); }, className: "active:opacity-70", style: { border: "1px solid " + t.line, borderRadius: 10, overflow: "hidden", background: t.bg2 } },
         h("div", { style: { width: "100%", aspectRatio: "1" } }, h("img", { src: em.url, referrerPolicy: "no-referrer", loading: "lazy", style: { width: "100%", height: "100%", objectFit: "cover", display: "block" }, onError: e => { e.target.style.display = "none"; } })))))
   ), callLogOpen && h(CallLogSheet, { calls: (messages || []).filter(x => x.kind === "callend"), chars: [character], onClose: () => setCallLogOpen(false) }), searchOpen && h(ChatSearchSheet, { messages, chars: [character], archCount: archCount, loadArch: onLoadOlder ? () => onLoadOlder(character.id) : null, onClose: () => setSearchOpen(false), onLocate: i => { setSearchOpen(false); setTimeout(() => locateMsgIn(ref.current, i), 130); } }), voiceMsgOpen && h(Sheet, { onClose: () => setVoiceMsgOpen(false) },
-    h(Eyebrow, { style: { marginBottom: 8 } }, "发一条语音"),
-    h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 10, lineHeight: 1.5 } }, "写下你要「说」的话，会发成语音气泡，下面自动显示转文字。"),
-    h("textarea", { value: voiceMsgText, onChange: e => setVoiceMsgText(e.target.value), rows: 3, autoFocus: true, placeholder: "想说的话…", className: "w-full outline-none p-3 rounded-lg", style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.6, color: t.ink, background: t.bg2, border: `1px solid ${t.line}`, resize: "none" } }),
-    h("button", { onClick: () => { const v = voiceMsgText.trim(); if (v) { sendRich({ role: "user", kind: "voice", content: v, dur: Math.max(1, Math.min(60, Math.round(v.replace(/\s/g, "").length / 3))) }); setVoiceMsgText(""); setVoiceMsgOpen(false); } }, className: "w-full mt-3 py-2.5 active:opacity-70", style: { borderRadius: 8, background: t.ink, color: t.bg2, fontFamily: F_BODY, fontSize: 13 } }, "发送语音")
+    h(VoiceEarComposer, { onSend: sendRich, onClose: () => setVoiceMsgOpen(false), ownerKey: profile && (profile.id || profile.name), toast })
   ), modeOpen && h(Sheet, {
     onClose: () => setModeOpen(false)
   }, h("div", {
@@ -5779,7 +5856,6 @@ function GroupThread({
   const [callPick, setCallPick] = useState(null); // "voice"|"video" 选打给谁
   const [callSel, setCallSel] = useState([]); // 多选成员 id
   const [voiceMsgOpen, setVoiceMsgOpen] = useState(false);
-  const [voiceMsgText, setVoiceMsgText] = useState("");
   const [callLogOpen, setCallLogOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [xferPick, setXferPick] = useState(false); // 选转给谁
@@ -6375,10 +6451,7 @@ function GroupThread({
     className: "w-full outline-none px-4 py-3 rounded-xl",
     style: { fontFamily: F_BODY, fontSize: 14, color: t.ink, background: "#fff", border: "1px solid " + t.line }
   })), callLogOpen && h(CallLogSheet, { calls: (messages || []).filter(x => x.kind === "callend"), chars: characters, onClose: () => setCallLogOpen(false) }), searchOpen && h(ChatSearchSheet, { messages, chars: characters, archCount: archCount, loadArch: onLoadOlder ? () => onLoadOlder("g_" + group.id) : null, onClose: () => setSearchOpen(false), onLocate: i => { setSearchOpen(false); setTimeout(() => locateMsgIn(ref.current, i), 130); } }), voiceMsgOpen && h(Sheet, { onClose: () => setVoiceMsgOpen(false) },
-    h(Eyebrow, { style: { marginBottom: 8 } }, "发一条语音"),
-    h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginBottom: 10, lineHeight: 1.5 } }, "写下你要「说」的话，会发成语音气泡，下面自动显示转文字。"),
-    h("textarea", { value: voiceMsgText, onChange: e => setVoiceMsgText(e.target.value), rows: 3, autoFocus: true, placeholder: "想说的话…", className: "w-full outline-none p-3 rounded-lg", style: { fontFamily: F_BODY, fontSize: 14, lineHeight: 1.6, color: t.ink, background: t.bg2, border: "1px solid " + t.line, resize: "none" } }),
-    h("button", { onClick: () => { const v = voiceMsgText.trim(); if (v) { sendRich({ role: "user", senderName: meName, kind: "voice", content: v, dur: Math.max(1, Math.min(60, Math.round(v.replace(/\s/g, "").length / 3))) }); setVoiceMsgText(""); setVoiceMsgOpen(false); } }, className: "w-full mt-3 py-2.5 active:opacity-70", style: { borderRadius: 8, background: t.ink, color: t.bg2, fontFamily: F_BODY, fontSize: 13 } }, "发送语音")
+    h(VoiceEarComposer, { onSend: sendRich, onClose: () => setVoiceMsgOpen(false), senderName: meName, ownerKey: profile && (profile.id || profile.name), toast })
   ), callPick && h(Sheet, {
     onClose: () => setCallPick(null)
   }, h("div", {
