@@ -3317,9 +3317,15 @@ function RecallShadowPanel() {
   const [folded, setFolded] = useState(true);
   const [rep, setRep] = useState(null);
   const [qrep, setQrep] = useState(null);
+  const [more, setMore] = useState({});
   const load = async () => {
     if (window.RecallShadow) setRep(await window.RecallShadow.report(200));
     if (window.MemoryQualityShadow) setQrep(await window.MemoryQualityShadow.report(200));
+    const defs = [["repair", window.OpenRepairShadow], ["experience", window.ExperienceGateShadow],
+      ["resolution", window.TwoResolutionShadow], ["budget", window.ContextBudgetShadow],
+      ["branch", window.MessageBranchShadow], ["insight", window.InsightCandidateShadow]];
+    const vals = await Promise.all(defs.map(async ([key, mod]) => [key, mod && mod.report ? await mod.report(200) : null]));
+    setMore(Object.fromEntries(vals));
   };
   useEffect(() => { if (!folded) load(); }, [folded]);
   if (!window.RecallShadow) return null;
@@ -3340,6 +3346,23 @@ function RecallShadowPanel() {
           "· 类别 " + Object.entries(qrep.kinds || {}).map(([k,v]) => k + " " + v).join(" · "), h("br"),
           "· 证据逐字核验通过 " + Math.round(qrep.evidenceValidRate * 100) + "%", h("br"),
           "· 里程碑误降温度 " + qrep.milestoneViolations + " · 日常温度仍被旧路入库 " + qrep.temperatureAccepted + " · 建议拒绝但旧路入库 " + qrep.proposedRejectButAccepted) : null,
+        more.repair && !more.repair.error ? h("div", { style: { marginTop: 7, paddingTop: 7, borderTop: "1px dashed " + t.line } },
+          "🩹 RepairGate：" + more.repair.candidates + " 个合格关闭候选 · 兑现 " + more.repair.fulfilled + " · 修复 " + more.repair.resolved + " · 放弃 " + more.repair.abandoned) : null,
+        more.experience && !more.experience.error ? h("div", { style: { marginTop: 7, paddingTop: 7, borderTop: "1px dashed " + t.line } },
+          "🏝️ 来源诚实性：" + more.experience.audits + " 次上下文 · " + more.experience.callsWithRisk + " 次含真假宣称风险", h("br"),
+          "· 风险块 " + (Object.entries(more.experience.riskyBlocks || {}).map(([k,v]) => k + " " + v).join(" · ") || "暂无")) : null,
+        more.resolution && !more.resolution.error ? h("div", { style: { marginTop: 7, paddingTop: 7, borderTop: "1px dashed " + t.line } },
+          "🌊 两分辨率：" + more.resolution.audits + " 次 · " + Object.entries(more.resolution.modes || {}).map(([k,v]) => k + " " + v).join(" · "), h("br"),
+          "· 精确碎片均值 " + more.resolution.avgBaselineDetails + " → 建议 " + more.resolution.avgProposedDetails + " · 事件覆盖 " + Math.round(more.resolution.eventCoverage * 100) + "%") : null,
+        more.budget && !more.budget.error ? h("div", { style: { marginTop: 7, paddingTop: 7, borderTop: "1px dashed " + t.line } },
+          "📏 统一预算：" + more.budget.audits + " 次 · 平均 " + more.budget.avgTotalChars + " 字 → 建议 " + more.budget.avgProposedChars + " 字", h("br"),
+          "· 超过 " + more.budget.softBudget + " 字软预算的比例 " + Math.round(more.budget.pressureRate * 100) + "%") : null,
+        more.branch && !more.branch.error ? h("div", { style: { marginTop: 7, paddingTop: 7, borderTop: "1px dashed " + t.line } },
+          "🌿 有效消息分支：" + more.branch.audits + " 次操作 · 异常 " + more.branch.invalid + " · 悬空后文 " + more.branch.danglingTail, h("br"),
+          "· 操作 " + (Object.entries(more.branch.actions || {}).map(([k,v]) => k + " " + v).join(" · ") || "暂无")) : null,
+        more.insight && !more.insight.error ? h("div", { style: { marginTop: 7, paddingTop: 7, borderTop: "1px dashed " + t.line } },
+          "💎 洞察候选：" + more.insight.candidates + " 个 · 四段完整 " + Math.round(more.insight.readyRate * 100) + "% · 引文有效 " + Math.round(more.insight.validQuoteRate * 100) + "%", h("br"),
+          "· 仍混入普通记忆 " + Math.round(more.insight.ordinaryMemoryLeakRate * 100) + "%") : null,
         h("div", { className: "flex", style: { gap: 10, marginTop: 6 } },
           h("button", { onClick: load, style: { fontFamily: F_BODY, fontSize: 11, color: t.tint } }, "刷新"),
           h("button", { onClick: () => { window.RecallShadow.setEnabled(!rep.enabled); load(); }, style: { fontFamily: F_BODY, fontSize: 11, color: rep.enabled ? "#9f5149" : t.tint } }, rep.enabled ? "暂停观测" : "恢复观测（当前已停·零写入）"),
