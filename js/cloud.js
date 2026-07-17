@@ -543,6 +543,26 @@
       return true;
     },
 
+    // ---- LLM 密钥代理（llm-proxy 函数，v49.38）----------------------------
+    // 密钥住云端 secrets；app 只带登录态借道，函数验明是本人后替贴钥匙转发。
+    // 返回原生 Response（调用方照常 .json()），供应商报错原样透传。
+    async llmProxyFetch(ref, url, body, extraHeaders, timeout) {
+      if (!client) throw new Error("云同步没初始化，云端代理用不了");
+      const { data: sess } = await client.auth.getSession();
+      const token = sess && sess.session && sess.session.access_token;
+      if (!token) throw new Error("未登录云同步——云端代理要先验明是你本人");
+      const ctrl = new AbortController();
+      const tm = setTimeout(() => ctrl.abort(), timeout || 120000);
+      try {
+        return await fetch(SUPABASE_URL + "/functions/v1/llm-proxy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + token },
+          body: JSON.stringify({ ref: ref, url: url, body: body, extraHeaders: extraHeaders || {} }),
+          signal: ctrl.signal
+        });
+      } finally { clearTimeout(tm); }
+    },
+
     // ---- 自动同步 ----------------------------------------------------
 
     // 本地 x_ 数据有变动时调用：登录状态下防抖后自动 push

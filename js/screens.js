@@ -3660,7 +3660,20 @@ function ApiConfig({
     onChange: e => upd({
       apiKey: e.target.value
     }),
-    placeholder: "sk-... / AIza...",
+    placeholder: cur.proxyRef ? "（走云端代理，密钥可留空）" : "sk-... / AIza...",
+    style: {
+      fontSize: 15,
+      fontFamily: F_BODY
+    }
+  })), /*#__PURE__*/React.createElement(LineField, {
+    zh: "云端代理",
+    en: "Proxy Ref · 选填"
+  }, /*#__PURE__*/React.createElement(LineInput, {
+    value: cur.proxyRef || "",
+    onChange: e => upd({
+      proxyRef: e.target.value.trim().toUpperCase()
+    }),
+    placeholder: "如 DZZI / ANTHROPIC——密钥住云端保险柜，此处填引用名",
     style: {
       fontSize: 15,
       fontFamily: F_BODY

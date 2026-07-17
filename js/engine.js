@@ -256,8 +256,14 @@ async function callAI(p, system, messages, opts) {
   const model = p.model;
   const temp = typeof p.temperature === "number" ? p.temperature : 0.75;
   const maxTokens = opts.maxTokens || 2400;
-  if (!p.apiKey) throw new Error("尚未填写密钥，去设置里补上");
+  if (!p.apiKey && !p.proxyRef) throw new Error("尚未填写密钥，去设置里补上（或填云端代理引用名走保险柜）");
   if (!model) throw new Error("尚未指定模型");
+  // 云端密钥代理（v49.38）：线路填了 proxyRef（如 DZZI/ANTHROPIC）就借道 llm-proxy 函数——
+  // 密钥住 Supabase secrets，浏览器一个字不存；函数只认 Lisa 本人登录态+域名白名单
+  const viaProxy = p.proxyRef ? (url, bodyObj, xh) => {
+    if (!(typeof window !== "undefined" && window.Cloud && window.Cloud.llmProxyFetch)) throw new Error("云端代理不可用：要先登录云同步");
+    return window.Cloud.llmProxyFetch(String(p.proxyRef).trim().toUpperCase(), url, bodyObj, xh, reqTimeout);
+  } : null;
   if (fmt === "anthropic") {
     // ⭐prompt 缓存降房租（v48.34，小克两步方案只做第①步；第②步「重排稳定段」她拍板不做——现在的顺序活人感对，不动）：
     // system 在【当前真实时间】处切成两块（时间行起每轮都变，是缓存的天然断点），前块打 cache_control ephemeral。
@@ -308,7 +314,9 @@ async function callAI(p, system, messages, opts) {
         "anthropic-dangerous-direct-browser-access": "true"
       };
       if (!_noExt) headers["anthropic-beta"] = "extended-cache-ttl-2025-04-11"; // 1h 缓存的 beta 门（GA 后无害）
-      const r = await fetchT(base + "/v1/messages", { method: "POST", headers, body: JSON.stringify(body) }, reqTimeout);
+      const r = viaProxy
+        ? await viaProxy(base + "/v1/messages", body, _noExt ? { "anthropic-version": "2023-06-01" } : { "anthropic-version": "2023-06-01", "anthropic-beta": "extended-cache-ttl-2025-04-11" })
+        : await fetchT(base + "/v1/messages", { method: "POST", headers, body: JSON.stringify(body) }, reqTimeout);
       return await r.json();
     };
     // ⚠️按次计费防双扣：某线路一旦被记过「不吃 temperature」就直接裸发，不再白扣一次
@@ -354,29 +362,31 @@ async function callAI(p, system, messages, opts) {
     return t;
   }
   if (fmt === "gemini") {
-    const r = await fetchT(base + "/v1beta/models/" + model + ":generateContent", {
+    const gBody = {
+      system_instruction: {
+        parts: [{
+          text: system
+        }]
+      },
+      contents: messages.map(m => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{
+          text: m.content
+        }]
+      })),
+      generationConfig: {
+        temperature: temp,
+        maxOutputTokens: maxTokens
+      }
+    };
+    // 走代理时函数按 ROUTES 里该引用名的 style 贴钥匙（google 原生线要 goog 头风格）
+    const r = viaProxy ? await viaProxy(base + "/v1beta/models/" + model + ":generateContent", gBody, {}) : await fetchT(base + "/v1beta/models/" + model + ":generateContent", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-goog-api-key": p.apiKey
       },
-      body: JSON.stringify({
-        system_instruction: {
-          parts: [{
-            text: system
-          }]
-        },
-        contents: messages.map(m => ({
-          role: m.role === "assistant" ? "model" : "user",
-          parts: [{
-            text: m.content
-          }]
-        })),
-        generationConfig: {
-          temperature: temp,
-          maxOutputTokens: maxTokens
-        }
-      })
+      body: JSON.stringify(gBody)
     }, reqTimeout);
     const d = await r.json();
     if (d.error) throw new Error(d.error.message);
@@ -390,7 +400,7 @@ async function callAI(p, system, messages, opts) {
   const postOpenAI = async withTemp => {
     const body = { model, max_tokens: maxTokens, messages: [{ role: "system", content: system }, ...messages] };
     if (withTemp) body.temperature = temp;
-    const r = await fetchT(root + "/chat/completions", {
+    const r = viaProxy ? await viaProxy(root + "/chat/completions", body, {}) : await fetchT(root + "/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + p.apiKey },
       body: JSON.stringify(body)
