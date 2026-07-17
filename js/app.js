@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.07";
+const APP_VERSION = "v49.08";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -12,6 +12,8 @@ const memoryRowFromCloud = r => ({
   archived: !!r.archived, archivedBatch: r.archived_batch == null ? null : String(r.archived_batch),
   archivedTs: r.archived_ts == null ? null : Number(r.archived_ts), source: r.source == null ? null : String(r.source)
 });
+const normalizeMemoryFact = s => String(s || "").replace(/[\s，。、；：,.;:!！?？「」『』"'“”‘’（）()【】\-—]/g, "").toLowerCase();
+const memoryFactKey = m => normalizeMemoryFact(m && m.text) + "|" + (Array.isArray(m && (m.charIds || m.char_ids)) ? (m.charIds || m.char_ids).map(String).sort().join(",") : "");
 
 const voiceToneForPrompt = m => {
   if (!m || !m.voiceTone) return "";
@@ -707,8 +709,7 @@ function App() {
   };
   // 调试钩子：控制台随时 window.__pokeInbox() 手动收一次信（排查云端投递时用）
   useEffect(() => { window.__pokeInbox = deliverServerInbox; return () => { delete window.__pokeInbox; }; });
-  // CC/小克家访写记忆的安全入口：CC 只投独立信箱，手机在本地按 id 合并后才盖消费戳。
-  // 这样 app 的 saves 整坨自动同步永远盖不到 CC 刚写的记忆；失败不消费，下次还会再取。
+  // 旧 MCP 信箱的退休兼容入口：新 MCP 已直写 memories；这里继续安全收完历史积压，失败不消费。
   const memInboxInflightRef = useRef(false);
   const memInboxSeenRef = useRef(new Set());
   const deliverMemoryInbox = async () => {
@@ -719,13 +720,16 @@ function App() {
       const rows = await window.Cloud.memInboxFetch();
       if (!rows.length) return;
       const known = new Set((memLibRef.current || []).map(m => m && m.id).filter(Boolean));
+      // 过渡期可能出现：旧 MCP 已投信箱、重启后的新 MCP 又直写表。两边 ID 不同，必须按“正文＋角色范围”再挡一层。
+      const knownFacts = new Set((memLibRef.current || []).filter(m => m && String(m.text || "").trim()).map(memoryFactKey));
       const add = [], done = [];
       for (const row of rows) {
         if (memInboxSeenRef.current.has(row.id)) { done.push(row.id); continue; }
         const m = row && row.memory;
         if (!m || !m.id || !String(m.text || "").trim()) continue; // 坏条目不吞，留在云端可排查
         memInboxSeenRef.current.add(row.id);
-        if (!known.has(m.id)) { add.push(m); known.add(m.id); }
+        const factKey = memoryFactKey(m);
+        if (!known.has(m.id) && !knownFacts.has(factKey)) { add.push(m); known.add(m.id); knownFacts.add(factKey); }
         done.push(row.id);
       }
       if (add.length) saveMemLib([...add, ...(memLibRef.current || [])]); // 先落本地，才允许消费云端信件
