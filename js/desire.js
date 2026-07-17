@@ -358,12 +358,14 @@
     const [showAxis, setShowAxis] = useState(false);
     const [showPersonalityNotes, setShowPersonalityNotes] = useState(false);
     const [personalityNotes, setPersonalityNotes] = useState([]);
+    const [driveShadow, setDriveShadow] = useState(null);
     const [confirmId, setConfirmId] = useState(null);
     useEffect(() => {
       let alive = true;
       if (window.PersonalityShadow && window.PersonalityShadow.listForChar) {
         window.PersonalityShadow.listForChar(char.id).then(rows => { if (alive) setPersonalityNotes(rows || []); }).catch(() => {});
       }
+      if (window.DesireDriveShadow) window.DesireDriveShadow.status(char.id).then(x => { if (alive) setDriveShadow(x); }).catch(() => {});
       return () => { alive = false; };
     }, [char.id]);
     const b = boxOf({ x: box }, "x"); // 复用克隆逻辑做展示排序，不动原数据
@@ -380,6 +382,9 @@
       h("div", { style: { fontFamily: F_DISPLAY, fontSize: 21, color: t.ink } }, (char.remark || char.name) + " 的欲望盒子"),
       h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 3, lineHeight: 1.55 } },
         "TA 自己攒下的念想——只有 TA 能往里写；你只是碰巧看见了。"),
+      driveShadow && driveShadow.top ? h("div", { style: { marginTop: 10, padding: "8px 10px", borderRadius: 10, border: "1px dashed " + t.line, fontFamily: F_BODY, fontSize: 10.5, color: t.fog, lineHeight: 1.6 } },
+        "九维驱动力影子（不影响 TA）：" + driveShadow.top.map(x => (window.DesireDriveShadow.labels[x.key] || x.key) + " " + (x.delta >= 0 ? "+" : "") + x.delta).join(" · ") +
+        ((driveShadow.warnings || []).length ? " · ⚠️安全阀 " + driveShadow.warnings.join("/") : "")) : null,
       // 今日独白
       h("div", { style: { marginTop: 16, padding: "13px 14px", borderRadius: 14, background: ACCENT + "14", border: "1px solid " + ACCENT + "38" } },
         h("div", { className: "flex items-center justify-between", style: { marginBottom: 6 } },

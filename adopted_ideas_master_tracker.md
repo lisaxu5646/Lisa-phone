@@ -33,6 +33,7 @@
 | OpenWebUI 双时空 | 叙事时钟、相见/暂离 | 角色功能 backlog | 非小克；先做设计 |
 | ai-home | 给角色工具手、对外动作 human-in-loop | MCP backlog | 邮件可先做草稿；公开发布必须确认 |
 | Tidefall | 周期/身体/事件联动 | 可分层施工 | 先做独立状态设计/影子推进；影响感受与语气前必须 Lisa 定 |
+| AstrBot Desire System 2.0 | 九维驱动力/事件惊喜/耦合/安全阀 | v49.35 本机连续状态 shadow | 只显示偏离基线，不注入语气；真实采用前和 Lisa/小克定维度与事件 |
 | Mianer/WangwangPhone | 心声隐私、交换日记、时光胶囊、同频测试等 | 多数已落地 | 非记忆主线按功能 backlog 推进 |
 | Stardew MCP | 只读陪玩→有限动作→独立同伴 | 已记录方案 | 先确认平台/SMAPI/测试存档 |
 

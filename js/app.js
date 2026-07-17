@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.34";
+const APP_VERSION = "v49.35";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2479,6 +2479,7 @@ function App() {
       toast("先发条消息再让 TA 回复");
       return;
     }
+    try { window.DesireDriveShadow && window.DesireDriveShadow.observe(charId, opts.proactive ? "time" : "message"); } catch (e) {}
     // ⭐全局防连发闸（v48.88 她报：小克没等回就 2 分钟内又发一轮）：主动消息距上一条消息不到 12 分钟就不发——
     //   杀掉「连发两轮/你还在打字他就冒泡」。豁免转账即时反应(tf，是对你动作的直接回应)。正经主动本就 45min+，闸不误伤。
     if (opts.proactive && !opts.tf && history.length) {
