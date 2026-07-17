@@ -359,6 +359,7 @@
     const [showPersonalityNotes, setShowPersonalityNotes] = useState(false);
     const [personalityNotes, setPersonalityNotes] = useState([]);
     const [driveShadow, setDriveShadow] = useState(null);
+    const [showDriveShadow, setShowDriveShadow] = useState(false);
     const [confirmId, setConfirmId] = useState(null);
     useEffect(() => {
       let alive = true;
@@ -383,8 +384,18 @@
       h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 3, lineHeight: 1.55 } },
         "TA 自己攒下的念想——只有 TA 能往里写；你只是碰巧看见了。"),
       driveShadow && driveShadow.top ? h("div", { style: { marginTop: 10, padding: "8px 10px", borderRadius: 10, border: "1px dashed " + t.line, fontFamily: F_BODY, fontSize: 10.5, color: t.fog, lineHeight: 1.6 } },
-        "九维驱动力影子（不影响 TA）：" + driveShadow.top.map(x => (window.DesireDriveShadow.labels[x.key] || x.key) + " " + (x.delta >= 0 ? "+" : "") + x.delta).join(" · ") +
-        ((driveShadow.warnings || []).length ? " · ⚠️安全阀 " + driveShadow.warnings.join("/") : "")) : null,
+        h("button", { onClick: () => setShowDriveShadow(v => !v), className: "w-full text-left active:opacity-60", style: { color: t.fog } },
+          "九维驱动力影子（不影响 TA）：" + driveShadow.top.map(x => (window.DesireDriveShadow.labels[x.key] || x.key) + " " + (x.delta >= 0 ? "+" : "") + x.delta).join(" · ") + " " + (showDriveShadow ? "▾" : "▸")),
+        showDriveShadow ? h("div", { style: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 6, marginTop: 8 } },
+          Object.keys(window.DesireDriveShadow.labels).map(k => {
+            const value = Math.round(Number(driveShadow.drives && driveShadow.drives[k] || 0) * 10) / 10;
+            const base = Math.round(Number(driveShadow.baselines && driveShadow.baselines[k] || 0) * 10) / 10;
+            const delta = Math.round((value - base) * 10) / 10;
+            return h("div", { key: k, style: { padding: "5px 6px", borderRadius: 7, background: t.bg2, color: t.sub } },
+              h("div", null, window.DesireDriveShadow.labels[k] + " " + value),
+              h("div", { style: { fontSize: 9.5, color: t.fog } }, "基线 " + base + " · " + (delta >= 0 ? "+" : "") + delta));
+          }), h("div", { style: { gridColumn: "1/-1", color: t.fog, marginTop: 2 } }, "已推演 " + (driveShadow.ticks || 0) + " 次 · 只供你和 TA 校准像不像他") ) : null,
+        ((driveShadow.warnings || []).length ? h("div", { style: { marginTop: 5, color: "#b89150" } }, "⚠️安全阀 " + driveShadow.warnings.join("/")) : null)) : null,
       // 今日独白
       h("div", { style: { marginTop: 16, padding: "13px 14px", borderRadius: 14, background: ACCENT + "14", border: "1px solid " + ACCENT + "38" } },
         h("div", { className: "flex items-center justify-between", style: { marginBottom: 6 } },
