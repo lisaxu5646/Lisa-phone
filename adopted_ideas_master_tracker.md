@@ -11,7 +11,7 @@
 | 玄参 / Insight | 纠错留环，旧条不删 | schema/RPC/预览 dormant；包含关系 shadow 已有 | 部署 SQL 并逐项验收后，同步废除硬删 |
 | 玄参 | do_not_surface 留档不浮现 | schema/RPC dormant | 部署前做旧客户端版本闸验收 |
 | Consolidation | 碎片→事件、事件↔记忆 links | 已落地 | 继续积累真实候选和事件 |
-| Tidal | 开场模糊印象/追问精确事实两分辨率 | 待施工 | 先做旁路选择，不改实际注入 |
+| Tidal | 开场模糊印象/追问精确事实两分辨率 | v49.29 选择 shadow | 观察事件覆盖率与建议碎片缩减量，实际注入前确认 |
 | Tidal | 编辑/重生成只读有效分支 | 待审计 | 先梳理消息分支状态，不碰历史数据 |
 | Ecosystem | RepairGate：open 必须有修复证据才可闭环 | v49.27 起做 shadow | 只收候选；真实关闭 open 前必须确认 |
 | Ecosystem | 情绪只投影偏离基线项 | 待设计 | 会改小克感受/语气，必须 Lisa 定 |
@@ -38,7 +38,7 @@
 
 1. RepairGate 证据 shadow。
 2. 珊瑚岛 Experience Gate 来源审计 shadow（已开工）。
-3. 两分辨率召回 shadow。
+3. 两分辨率召回 shadow（已开工）。
 4. 统一候选预算 shadow。
 5. 消息分支正确性只读审计。
 6. 独立洞察候选结构。

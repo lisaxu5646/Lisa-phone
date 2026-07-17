@@ -770,6 +770,13 @@ function retrieveMemories(lib, charId, queryText, opts = {}) {
   scored.sort((a, b) => b.s - a.s);
   const relevant = scored.filter(x => x.s > 0.9).slice(0, limit).map(x => x.e);
   const picked = pinned.concat(relevant);
+  // Tidal 两分辨率旁路（v49.29）：比较「事件印象 + 少量碎片」与现有精确碎片；永远不改 picked。
+  // 只在真实聊天触发，后台预取不记；模块异常/镜像离线全部吞掉。
+  try {
+    if (opts.touch !== false && window.TwoResolutionShadow) {
+      window.TwoResolutionShadow.observe({ charId, queryText, pinned, relevant, picked });
+    }
+  } catch (eResolutionShadow) {/* 旁路绝不影响召回 */}
   // ⑤后·记忆质量线 P0-1/P0-2 旁路（v49.15，施工图 §1-2）：同时算一版「4轮冷却」的 proposed 并记诊断，
   // 但【永远返回 baseline】。豁免：pinned（本就另开一路）/open/top-1。诊断关或模块缺=零写入；异常全吞不碰聊天。
   try {
