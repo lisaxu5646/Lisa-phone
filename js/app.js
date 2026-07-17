@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.22";
+const APP_VERSION = "v49.23";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -4262,10 +4262,20 @@ function App() {
           const _msgs = (chatsRef.current[c.id] || []).filter(m => !m.recalled && !isOocMsg(m));
           const _lastTs = _msgs.length ? (_msgs[_msgs.length - 1].ts || 0) : 0;
           if (_lastTs && Date.now() - _lastTs < 7 * 86400000) {
+            let _observerCompleted = false;
             try {
               const od = await runProbe(bgActive, leanWriteCtx(ctxFor(c)), DesireKit.observerSpec(c, box));
               DesireKit.applyObserver(box, od, today);
               saveDesires(n => { n[c.id] = box; });
+              _observerCompleted = true;
+            } catch (e) {}
+            // P3-1 人格四卡 shadow：旧观测成功记下本周节拍后才旁路跑，避免旧调用失败时反复烧 API。
+            // 只把逐字证据核验通过的候选放进本机 IDB；不改 box/persona，不进聊天 prompt。
+            try {
+              if (_observerCompleted && window.PersonalityShadow) {
+                const pd = await runProbe(bgActive, leanWriteCtx(ctxFor(c)), window.PersonalityShadow.spec(c, box, _msgs));
+                await window.PersonalityShadow.observe({ charId: c.id, result: pd, messages: _msgs });
+              }
             } catch (e) {}
           }
         }

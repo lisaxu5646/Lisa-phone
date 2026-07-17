@@ -10,6 +10,7 @@
 - P1-1：分类与证据逐字核验 shadow 已运行；真实入库仍走旧规则，temperature 尚未拦截。
 - P1-2：`memory_surface_state_*.sql` 仅为 dormant 设计/测试包，**未部署**；App 也没有状态写入口。
 - P1-3：`memory_corrections_*.sql` 已形成候选/双行原子决定/审计/回滚测试 dormant 包，**未部署**；App 只读预览台受本机 `memory_corrections_preview_v1` 闸保护且默认关闭，没有确认按钮；v49.22 已加本机 `MemoryCorrectionShadow` 观察新旧包含配对（不存正文、不上传），`pruneSubsumed` 的真实删留仍未替换。
+- P3-1：v49.23 已增加人格四卡本机 shadow；按价值/边界/偏好/习惯/能力/关系方式/欲望分类，逐字核验消息证据且至少一条来自角色本人；不改人格档案、不注入聊天，“对不上”只累计跨 10 天观察资格。
 - 07-22 纪律复核：`memory_post_cutover_audit.sql` 与 App“权威表纪律复核”只读导出已备好。
 
 ## 1. P0-1：召回质量旁路仪表
