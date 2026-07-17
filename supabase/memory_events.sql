@@ -1,7 +1,8 @@
 -- ============================================================
--- DRAFT ONLY — ⑥ event layer construction plan.
--- DO NOT RUN during the ⑤ memory shadow observation period.
--- This file is intentionally not deployed by the app and changes no current memory path.
+-- ⑥ 事件层 · 第 1 步建表（正式版，2026-07-17 由 _draft 转正）
+-- 转正依据：⑤ 权威切换验收通过（474/474 零差异，见 memory_shadow_exit_runbook.md），
+-- 总闸门各项已满足。部署方式：Lisa 在 Supabase SQL Editor 整份执行一次（幂等，可重跑）。
+-- 部署后跑同目录 memory_events_rls_test.sql 验收，全绿才进第 2 步联调。
 -- ============================================================
 
 -- Formal first-person events. Source memory text is never copied into this table.

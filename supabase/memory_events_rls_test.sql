@@ -1,7 +1,7 @@
 -- ============================================================
--- DRAFT ONLY — rollback/RLS test for memory_events_draft.sql.
--- DO NOT RUN until ⑤ completes and the draft schema is approved for deployment.
--- Every probe row is wrapped in a transaction and rolled back.
+-- ⑥ 事件层 · 第 1 步验收测试（对应 memory_events.sql，2026-07-17 转正）
+-- 在 memory_events.sql 部署后立即执行；所有探针行都包在事务里并回滚，不留垃圾。
+-- 全绿输出才允许进入第 2 步（App 只读联调）。
 -- ============================================================
 
 begin;
