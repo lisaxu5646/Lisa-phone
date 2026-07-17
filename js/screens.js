@@ -4754,6 +4754,7 @@ function MemoryLib({
   onRestoreArchived,
   onBulkImport,
   onAudit,
+  onPostCutoverAudit,
   onShadowMigrate,
   migrationBusy,
   onSyncStatus,
@@ -4828,6 +4829,11 @@ function MemoryLib({
     className: "w-full rounded-xl py-2.5 mb-2 active:opacity-60",
     style: { border: "1px dashed " + t.line, color: t.fog, fontFamily: F_BODY, fontSize: 12.5 }
   }, memoryTableMode ? "✅ 新记忆表是当前权威 · 查看同步状态" : "🔄 查看行级影子同步状态") : null,
+  memoryTableMode && onPostCutoverAudit ? h("button", {
+    onClick: onPostCutoverAudit,
+    className: "w-full rounded-xl py-2.5 mb-2 active:opacity-60",
+    style: { border: "1px dashed " + t.tint, color: t.tint, fontFamily: F_BODY, fontSize: 12.5 }
+  }, "🧪 权威表纪律复核 · 逐 ID 只读导出") : null,
   !memoryTableMode && onEnableTableMemory ? h("button", {
     onClick: () => { if (confirm("会先把本机旧库与新表逐 ID 核对；全部一致、待发送为 0 才会启用。旧镜像和回退闸都会保留。现在验收并启用吗？")) onEnableTableMemory(); },
     disabled: migrationBusy,

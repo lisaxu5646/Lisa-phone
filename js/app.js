@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.19";
+const APP_VERSION = "v49.20";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -1051,6 +1051,30 @@ function App() {
         (d && d.comparable ? (" · 本机独有 " + d.missingInCloud.length + " · 云端独有 " + d.missingInLocal.length + " · 同ID内容不同 " + d.changedSharedRows.length) : "");
       toast("审计报告已导出：" + summary);
     } catch (e) { toast("审计失败（没有改动数据）：" + String((e && e.message) || e)); }
+  };
+  // 07-22 纪律复核：本机离线镜像 vs 当前权威 memories 行表逐 ID 指纹。
+  // 只读：不先 flush、不 enqueue、不改 cursor；outbox 非 0 也照实写进报告并判红。
+  const exportPostCutoverMemoryAudit = async () => {
+    if (!(window.MemoryAudit && window.MemorySync && window.Cloud)) { toast("审计模块未就绪，请刷新后重试"); return; }
+    toast("正在只读核对本机镜像与当前权威行表…");
+    try {
+      const sync = await window.MemorySync.status();
+      const tableRows = await window.Cloud.memoryRowsFetchAll();
+      const live = tableRows.filter(r => r && !r.deleted).map(memoryRowFromCloud);
+      const report = await window.MemoryAudit.build(localStorage.getItem("x_memLib"), JSON.stringify(live), {
+        reportType: "post-cutover-authority-audit",
+        appVersion: APP_VERSION,
+        authority: "memories-table",
+        tableTotalRows: tableRows.length,
+        tableLiveRows: live.length,
+        tableDeletedRows: tableRows.filter(r => r && r.deleted).length,
+        outbox: sync.outbox,
+        cursor: sync.cursor || null
+      });
+      window.MemoryAudit.download(report);
+      const d = report.diff, pass = sync.outbox === 0 && d && d.comparable && d.exactSharedMatch;
+      toast((pass ? "纪律复核指纹全绿" : "纪律复核有红项") + "：本机 " + ((report.local.stats || {}).totalRows || 0) + " · 行表有效 " + live.length + " · 软删 " + (tableRows.length-live.length) + " · 待发送 " + sync.outbox);
+    } catch (e) { toast("纪律复核读取失败（没有改动数据）：" + String((e && e.message) || e)); }
   };
   const MEM_MIGRATION_BASELINE = {
     count: 390,
@@ -7835,6 +7859,7 @@ function App() {
     onRestoreArchived: restoreArchived,
     onBulkImport: bulkImportMemories,
     onAudit: exportMemoryAudit,
+    onPostCutoverAudit: exportPostCutoverMemoryAudit,
     onSyncStatus: showMemorySyncStatus,
     memoryTableMode: memTableMode,
     onEnableTableMemory: enableMemoryTableAuthority,
