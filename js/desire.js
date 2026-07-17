@@ -295,6 +295,31 @@
     return lines.join("\n");
   }
 
+  // 人格档案只读体检：只量本体大小、400 字注入覆盖和近重复，不改档案、不保存正文、不调用模型。
+  function personaAudit(boxRaw) {
+    const pers = (boxRaw && Array.isArray(boxRaw.persona)) ? boxRaw.persona.filter(p => p && p.text) : [];
+    const norm = s => String(s || "").toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+    const bigrams = s => { const out = new Set(); for (let i = 0; i < s.length - 1; i++) out.add(s.slice(i, i + 2)); return out; };
+    let duplicatePairs = 0;
+    for (let i = 0; i < pers.length; i++) for (let j = i + 1; j < pers.length; j++) {
+      const a = norm(pers[i].text), b = norm(pers[j].text), short = Math.min(a.length, b.length), long = Math.max(a.length, b.length);
+      const aa = bigrams(a), bb = bigrams(b), base = Math.min(aa.size, bb.size);
+      let overlap = 0; aa.forEach(x => { if (bb.has(x)) overlap++; });
+      if (a && b && (a === b || (short >= 8 && ((a.includes(b) || b.includes(a)) && short / long >= 0.65 || (base && overlap / base >= 0.72))))) duplicatePairs++;
+    }
+    let used = 0, injectedCount = 0;
+    for (let i = pers.length - 1; i >= 0; i--) {
+      const n = String(pers[i].text).length + 1;
+      if (used + n > 400 && injectedCount) break;
+      used += n; injectedCount++;
+    }
+    const injectedChars = personaText({ persona: pers }).length;
+    return { totalCount: pers.length, totalChars: pers.reduce((n, p) => n + String(p.text).length, 0), injectedCount, injectedChars,
+      hiddenByBudget: Math.max(0, pers.length - injectedCount), duplicatePairs,
+      missingProvenance: pers.filter(p => !p.from).length,
+      pressure: pers.length > 8 || injectedChars >= 360 || duplicatePairs > 0 };
+  }
+
   // ---- 显灵时刻：挑一条高权重的活念想（概率闸门在调用处）----
   function pickEpiphany(boxRaw) {
     const list = (boxRaw && Array.isArray(boxRaw.list)) ? boxRaw.list : [];
@@ -306,7 +331,7 @@
     return cands[cands.length - 1];
   }
 
-  window.DesireKit = { boxOf, housekeep, touch, museSpec, applyMuse, pickEpiphany, tendDue, observeDue, mellowSpec, applyMellow, solsticeSpec, applySolstice, observerSpec, applyObserver, personaText };
+  window.DesireKit = { boxOf, housekeep, touch, museSpec, applyMuse, pickEpiphany, tendDue, observeDue, mellowSpec, applyMellow, solsticeSpec, applySolstice, observerSpec, applyObserver, personaText, personaAudit };
 
   // ============================================================
   // UI：欲望盒子（tall Sheet，从资料卡进）
@@ -342,6 +367,7 @@
       return () => { alive = false; };
     }, [char.id]);
     const b = boxOf({ x: box }, "x"); // 复用克隆逻辑做展示排序，不动原数据
+    const personaHealth = personaAudit(b);
     const todayKey = new Date().toDateString();
     const latest = b.log[0];
     const latestIsToday = latest && new Date(latest.ts).toDateString() === todayKey;
@@ -372,6 +398,11 @@
       // 人格档案：毕业念想凝成的「我是一个…的人」——TA 亲笔，常驻进 TA 的人设
       b.persona.length ? h("div", { style: { marginTop: 18 } },
         h(Eyebrow, { style: { marginBottom: 8 } }, "TA 长出来的自我 · 人格档案"),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: personaHealth.pressure ? "#b89150" : t.fog, lineHeight: 1.55, marginBottom: 8 } },
+          "只读体检：本体 " + personaHealth.totalCount + " 条 / " + personaHealth.totalChars + " 字 · 本轮会注入 " + personaHealth.injectedCount + " 条 / " + personaHealth.injectedChars + " 字" +
+          (personaHealth.hiddenByBudget ? " · 预算外留档 " + personaHealth.hiddenByBudget + " 条" : "") +
+          (personaHealth.duplicatePairs ? " · 近重复 " + personaHealth.duplicatePairs + " 对" : "") +
+          (personaHealth.missingProvenance ? " · 缺来源 " + personaHealth.missingProvenance + " 条" : "")),
         h("div", { className: "space-y-2.5" }, b.persona.slice().reverse().map(p => h("div", {
           key: p.id,
           style: { padding: "11px 13px", borderRadius: 12, background: t.bg2, border: "1px solid " + ACCENT + "55" }
