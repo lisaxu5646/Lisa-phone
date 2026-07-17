@@ -4,7 +4,7 @@
 
 | 来源 | 已采纳点 | 当前状态 | 下一闸门 |
 |---|---|---|---|
-| 玄参 Persona Hub | 统一候选池/统一预算 | 待施工 | 先做旁路预算报告，不直接改 prompt |
+| 玄参 Persona Hub | 统一候选池/统一预算 | v49.30 占位预算 shadow | 观察各类材料挤压率；真实裁剪前确认 |
 | 玄参 / Tidal | 4 轮冷却，pinned/open 豁免 | shadow 已有 | 观察数据后，实际启用前需确认 |
 | 玄参 / Tidal | top-1 固定、同分窗口受控随机 | shadow 已有 | 观察窗口宽度后再决定启用 |
 | 玄参 / Insight | 事实/承诺/关系/洞察/温度分类与逐字证据 | shadow 已有 | temperature 实际拦截会改入库，启用前确认 |
@@ -39,7 +39,7 @@
 1. RepairGate 证据 shadow。
 2. 珊瑚岛 Experience Gate 来源审计 shadow（已开工）。
 3. 两分辨率召回 shadow（已开工）。
-4. 统一候选预算 shadow。
+4. 统一候选预算 shadow（已开工）。
 5. 消息分支正确性只读审计。
 6. 独立洞察候选结构。
 

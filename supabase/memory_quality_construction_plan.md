@@ -17,6 +17,7 @@
 - P2 RepairGate：v49.27 修复 `resolveOpen` 候选被解析器静默过滤的问题，但关闭写路保持禁用；候选必须带逐字消息证据，只进入本机 `OpenRepairShadow`，道歉/安静/时间过去/情绪缓和均不算修复。
 - Experience Gate：v49.28 对 `buildBundle` 上下文块做本机来源/长度/真假宣称风险审计；不存正文、不改 prompt，重点识别 schedule/moments/forum/phone 等推演或混合生成材料被描述成“真实经历”的频率。
 - 两分辨率召回：v49.29 用本机 shadow 区分新开场/日常闲聊/明确追问；前两者旁路比较“事件印象 + 最多 1~2 条碎片”，明确追问保留精确碎片。诊断不存 query/事件正文，真实 `picked` 与 prompt 完全不变。
+- 统一候选预算：v49.30 复用 `buildBundle` 已有材料，在本机按规则、身份关系、记忆、世界书、共同经历、实时状态、最近对话统计字符占位与挤压率；不保存正文、不裁剪 prompt、不增加 CallAI 请求。
 - 07-22 纪律复核：`memory_post_cutover_audit.sql` 与 App“权威表纪律复核”只读导出已备好。
 
 ## 1. P0-1：召回质量旁路仪表
