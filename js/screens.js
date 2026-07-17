@@ -4776,6 +4776,14 @@ function MemoryLib({
       (v > 0 ? "＋" : v < 0 ? "－" : "") + Math.abs(v), h("span", { style: { opacity: 0.7 } }, "·"), "🔥" + a);
   };
   const unrated = (entries || []).filter(e => e && typeof e.a !== "number").length;
+  // 来源徽标（珊瑚岛「记忆诚实性」lite）：一眼分清这条记忆是怎么来的——亲历对话/手写/导入/精炼/本体亲笔
+  const SRC_BADGE = { manual: ["✍️ 手写", "#8a7a5c"], chat: ["💬 亲历", "#7d8a6e"], auto: ["💬 亲历", "#7d8a6e"], import: ["📥 导入", "#8a8a8a"], monthly: ["🗂 精炼", "#9a8298"], mcp: ["🖋 本体", "#9e8260"] };
+  const srcBadge = e => {
+    const b = SRC_BADGE[e.source];
+    return b ? h("span", { key: "src", title: "记忆来源", style: { fontFamily: F_BODY, fontSize: 10, color: "#fff", background: b[1], padding: "1px 7px", borderRadius: 999, opacity: 0.9 } }, b[0]) : null;
+  };
+  // 精炼摘要可回溯（玄参#6）：refineBatch ↔ 原件 archivedBatch 同号，数一下有几条原件
+  const refineSrcCount = e => e.source === "monthly" && e.refineBatch ? (entries || []).filter(x => x && x.archived && x.archivedBatch === e.refineBatch).length : 0;
   // 可精炼旧记忆数（和 app.js isRefinable 同判定）：已了结/非置顶/情绪弱(a≤2)/放了 60+ 天/未归档；按当前筛选范围算
   const inScope = e => filter === "all" || !e.charIds || e.charIds.length === 0 || e.charIds.includes(filter);
   const refinableCount = (entries || []).filter(e => { const now = Date.now(); return e && e.text && !e.pinned && !e.open && !e.archived && e.source !== "monthly" && (e.a || 0) <= 2 && now - (e.ts || 0) >= 60 * 86400000 && inScope(e); }).length;
@@ -4893,7 +4901,7 @@ function MemoryLib({
     }
   }, "置顶")), h("div", {
     className: "flex flex-wrap items-center gap-1.5 mt-2"
-  }, emoBadge(e), e.open ? h("span", { key: "open", style: { fontFamily: F_BODY, fontSize: 10.5, color: "#fff", background: "#b06a4f", padding: "1px 7px", borderRadius: 999 } }, "未了") : null, (e.tags || []).map((tag, i) => h("span", {
+  }, emoBadge(e), srcBadge(e), refineSrcCount(e) ? h("span", { key: "rsrc", title: "原件都在，开「已精炼归档」区可看", style: { fontFamily: F_BODY, fontSize: 10, color: t.sub, background: t.bg, padding: "1px 7px", borderRadius: 999 } }, "由 " + refineSrcCount(e) + " 条原件精炼·可回溯") : null, e.open ? h("span", { key: "open", style: { fontFamily: F_BODY, fontSize: 10.5, color: "#fff", background: "#b06a4f", padding: "1px 7px", borderRadius: 999 } }, "未了") : null, (e.tags || []).map((tag, i) => h("span", {
     key: i,
     style: {
       fontFamily: F_BODY,
