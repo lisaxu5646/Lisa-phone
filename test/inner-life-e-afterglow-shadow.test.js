@@ -62,3 +62,13 @@ test("无真实消息或坏输入安静退化为 null", () => {
   assert.equal(Afterglow.deriveAfterglow(null), null);
   assert.doesNotThrow(() => Afterglow.deriveAfterglow({ now: T0 }));
 });
+
+test("诊断白名单会丢弃正文、余温文本和未知字段", () => {
+  const row = Afterglow._safeDiagnostic({ kind:"would_hold",outlet:"jiwen",message:"私密原话",moodSketch:"柔软",unfinishedThreads:["秘密"],prompt:"不可保存" }, "owner-hash");
+  assert.equal(row.kind, "would_hold");
+  assert.equal(row.outlet, "jiwen");
+  assert.equal("message" in row, false);
+  assert.equal("moodSketch" in row, false);
+  assert.equal("unfinishedThreads" in row, false);
+  assert.equal("prompt" in row, false);
+});

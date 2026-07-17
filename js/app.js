@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.39";
+const APP_VERSION = "v49.40";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -586,13 +586,13 @@ function App() {
   // E 潮汐 shadow：旁路记状态，任何失败都不能影响消息落盘或角色回复。
   const noteTidalUser = (text, ts) => { try { window.InnerLifeETidalShadow && window.InnerLifeETidalShadow.onUserMessage(text, ts); } catch (e) {} };
   useEffect(() => {
-    const foreground = () => { try { if (document.visibilityState === "visible") window.InnerLifeETidalShadow && window.InnerLifeETidalShadow.onForegroundNoMessage(Date.now()); } catch (e) {} };
+    const foreground = () => { try { if (!window.InnerLifeETidalShadow) return; if (document.visibilityState === "visible") window.InnerLifeETidalShadow.onForegroundNoMessage(Date.now()); else window.InnerLifeETidalShadow.flushAfterglow(Date.now()); } catch (e) {} };
     window.addEventListener("focus", foreground); document.addEventListener("visibilitychange", foreground);
     return () => { window.removeEventListener("focus", foreground); document.removeEventListener("visibilitychange", foreground); };
   }, []);
   useEffect(() => {
     if (screen === "thread" || screen === "gthread" || offlineChar || offlineGroup || call) {
-      try { window.InnerLifeETidalShadow && window.InnerLifeETidalShadow.onSessionOpenNoMessage(Date.now()); } catch (e) {}
+      try { window.InnerLifeETidalShadow && window.InnerLifeETidalShadow.onSessionOpenNoMessage(Date.now(), screen === "thread" && activeChar ? activeChar.id : offlineChar ? offlineChar.id : null); } catch (e) {}
     }
   }, [screen, activeChar && activeChar.id, activeGroup && activeGroup.id, offlineChar && offlineChar.id, offlineGroup && offlineGroup.id, call && call.startTs]);
   // 剥掉模型偶尔照抄的历史时间标注：〔今天07:57〕/〔昨天20:11〕/〔7/13 07:57〕/〔07:57〕（system 已明令禁止但拦不住，输出侧兜底，她 2026-07-13 截图）
@@ -625,6 +625,7 @@ function App() {
     // 未读红点：新增的角色消息若此刻没在看这个聊天，累加未读条数（推到微任务里，别在 reducer 里改别的 state）
     if (n.length > pl.length) {
       n.slice(pl.length).filter(m => m && m.role === "user" && m.content).forEach(m => setTimeout(() => noteTidalUser(m.content, m.ts), 0));
+      if (n.slice(pl.length).some(m => m && (m.role === "user" || m.role === "assistant") && m.content)) setTimeout(() => { try { window.InnerLifeETidalShadow && window.InnerLifeETidalShadow.scheduleAfterglow(id, n, moods[id], Date.now()); } catch (e) {} }, 0);
       const added = n.slice(pl.length).filter(m => m && m.role === "assistant" && m.kind !== "system" && m.kind !== "silence").length;
       const viewing = viewRef.current.screen === "thread" && viewRef.current.charId === id;
       if (added > 0 && !viewing) setTimeout(() => bumpUnread(id, added), 0);
@@ -2489,6 +2490,10 @@ function App() {
   const replyNow = async (charId, extraText, mode, opts) => {
     opts = opts || {};
     if (laneBusy("c:" + charId)) return;
+    if (opts.proactive) {
+      const outlet = opts.jiwen ? "jiwen" : opts.bday ? "birthday" : opts.remind ? "reminder" : opts.eyesAlert ? "eyes_alert" : opts.wx ? "weather" : opts.greet ? "greeting" : "foreground_proactive";
+      try { window.InnerLifeETidalShadow && window.InnerLifeETidalShadow.noteWouldHold(outlet, Date.now()); } catch (e) {}
+    }
     const char = characters.find(c => c.id === charId);
     let base = chatsRef.current[charId] || [];
     if (extraText != null && extraText !== "") {

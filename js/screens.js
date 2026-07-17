@@ -4800,6 +4800,35 @@ function MemoryCorrectionPreviewSheet({ candidate, onClose }) {
     h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, lineHeight: 1.65, marginTop: 8 } }, "当前是 dormant 预览：没有确认按钮，也不会修改两条记忆。正式启用必须先部署并跑完全套回滚测试。"));
 }
 
+function InnerLifeEDiagnosticSheet({ onClose }) {
+  const t = useTheme();
+  const [report, setReport] = useState(null);
+  const load = () => {
+    setReport(null);
+    Promise.resolve(window.InnerLifeETidalShadow && window.InnerLifeETidalShadow.report ? window.InnerLifeETidalShadow.report() : { error: "E 影子模块未载入" })
+      .then(setReport).catch(() => setReport({ error: "E 影子诊断读取失败" }));
+  };
+  useEffect(load, []);
+  const labels = { packet_created:"余温新包",packet_duplicate:"同锚重复（已拦）",packet_expired:"余温过期",would_surface:"本来会浮现",tidal_transition:"潮汐转移",would_hold:"本来会拦主动" };
+  const outlets = { foreground_proactive:"前台主动",jiwen:"积温主动",birthday:"生日",reminder:"提醒",eyes_alert:"体征提醒",weather:"天气",greeting:"问候",night_watch:"夜巡" };
+  const line = (a,b) => h("div", { className:"flex justify-between", style:{fontFamily:F_BODY,fontSize:11.5,color:t.sub,padding:"4px 0",borderBottom:"1px dashed "+t.line} }, h("span",null,a), h("span",{style:{color:t.ink,fontWeight:600}},b));
+  return h(Sheet, { onClose },
+    h(Eyebrow, null, "E · 余温与潮汐 · 纯影子诊断"),
+    h("div", { style:{fontFamily:F_BODY,fontSize:11,color:t.fog,lineHeight:1.65,margin:"7px 0 10px"} }, "只显示状态、次数、时间和角色 hash；不展示或保存聊天正文。现在不会注入，也不会真的拦住任何消息。"),
+    !report ? h("div", { style:{fontFamily:F_BODY,fontSize:12,color:t.fog,padding:"16px 0"} }, "正在读本机影子数据…") : report.error ? h("div", { style:{fontFamily:F_BODY,fontSize:12,color:"#9f5149",padding:"12px 0"} }, report.error) : h(React.Fragment, null,
+      line("当前潮汐", report.tidal ? report.tidal.state + " · " + report.tidal.signalKind : "尚无数据"),
+      line("诊断记录", report.diagnostics + " 条"),
+      line("余温包", (report.packets || []).length + " 个 · 有效 " + (report.packets || []).filter(p=>p.valid).length),
+      line("开窗误判 awake", report.invariants.sessionOpenWoke + "（必须为 0）"),
+      line("写入经历/记忆", report.invariants.writesExperience + "（必须为 0）"),
+      h("div", { style:{fontFamily:F_BODY,fontSize:11,fontWeight:700,color:t.ink,margin:"12px 0 4px"} }, "事件计数"),
+      Object.keys(report.kinds || {}).length ? Object.entries(report.kinds).map(([k,v])=>line(labels[k]||k,v)) : h("div",{style:{fontFamily:F_BODY,fontSize:11,color:t.fog}},"还没有事件"),
+      h("div", { style:{fontFamily:F_BODY,fontSize:11,fontWeight:700,color:t.ink,margin:"12px 0 4px"} }, "本来会拦的出口"),
+      Object.keys(report.outlets || {}).length ? Object.entries(report.outlets).map(([k,v])=>line(outlets[k]||k,v)) : h("div",{style:{fontFamily:F_BODY,fontSize:11,color:t.fog}},"目前 0 次"),
+      h("div", { style:{fontFamily:F_BODY,fontSize:10.5,color:t.fog,lineHeight:1.6,marginTop:10} }, "夜巡：等待独立潮汐云表，当前未纳入验收。")),
+    h("button", { onClick:load,className:"w-full mt-3 py-2.5 active:opacity-70",style:{borderRadius:9,border:"1px solid "+t.line,fontFamily:F_BODY,fontSize:12,color:t.sub} }, "刷新诊断"));
+}
+
 function MemoryLib({
   entries,
   characters,
@@ -4832,6 +4861,7 @@ function MemoryLib({
   const t = useTheme();
   const [showArchived, setShowArchived] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [innerLifeOpen, setInnerLifeOpen] = useState(false);
   const correctionPreviewOn = (() => { try { return localStorage.getItem("memory_corrections_preview_v1") === "1"; } catch (e) { return false; } })();
   const [corrections, setCorrections] = useState([]);
   const [correctionOpen, setCorrectionOpen] = useState(null);
@@ -4889,9 +4919,10 @@ function MemoryLib({
       onSaveCfg ? h("button", { onClick: () => setCfgOpen(true), className: "active:opacity-50", title: "召回设置" }, h(GConfig, { size: 19, color: t.ink })) : null,
       h("button", { onClick: () => setEditing("new"), className: "active:opacity-50" }, h(IPlus, { size: 20, color: t.ink })))
   }), importOpen && onBulkImport ? h(MemImportSheet, { characters: characters, defaultCharId: focusChar ? focusChar.id : (filter !== "all" ? filter : null), onImport: onBulkImport, onClose: () => setImportOpen(false) }) : null,
+  innerLifeOpen ? h(InnerLifeEDiagnosticSheet, { onClose: () => setInnerLifeOpen(false) }) : null,
   correctionOpen ? h(MemoryCorrectionPreviewSheet, { candidate: correctionOpen, onClose: () => setCorrectionOpen(null) }) : null, h("div", {
     className: "shrink-0 px-6 pb-2"
-  }, onAudit ? h("button", {
+  }, h("button", { onClick: () => setInnerLifeOpen(true), className: "w-full rounded-xl py-2.5 mb-2 active:opacity-60", style: { border: "1px dashed " + t.tint, color: t.tint, fontFamily: F_BODY, fontSize: 12.5 } }, "🌙 E 余温与潮汐 · 查看纯影子诊断"), onAudit ? h("button", {
     onClick: onAudit,
     className: "w-full rounded-xl py-2.5 mb-2 active:opacity-60",
     style: { border: "1px dashed " + t.line, color: t.sub, fontFamily: F_BODY, fontSize: 12.5 }

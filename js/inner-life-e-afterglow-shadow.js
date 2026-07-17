@@ -183,10 +183,86 @@
     } catch (_) { return null; }
   }
 
+  function safeDiagnostic(input, ownerHash) {
+    const allowedKinds = ["packet_created", "packet_duplicate", "packet_expired", "would_surface", "tidal_transition", "would_hold"];
+    const allowedStates = ["awake", "maybe_sleeping", "uncertain", null];
+    const allowedOutlets = ["foreground_proactive", "jiwen", "birthday", "reminder", "eyes_alert", "weather", "greeting", "night_watch", null];
+    const kind = allowedKinds.includes(input && input.kind) ? input.kind : null;
+    if (!kind) return null;
+    return {
+      ownerHash, t: Number(input.t) || Date.now(), kind,
+      charHash: clean(input.charHash, 32) || null,
+      fromState: allowedStates.includes(input.fromState) ? input.fromState : null,
+      toState: allowedStates.includes(input.toState) ? input.toState : null,
+      triggerRule: clean(input.triggerRule, 48) || null,
+      packetAgeBucket: clean(input.packetAgeBucket, 24) || null,
+      threadCount: Math.max(0, Math.min(3, Number(input.threadCount) || 0)),
+      strengthBucket: clean(input.strengthBucket, 16) || null,
+      outlet: allowedOutlets.includes(input.outlet) ? input.outlet : null
+    };
+  }
+
+  async function addDiagnostic(ownerId, input, indexedDBImpl) {
+    try {
+      const db = await openDB(indexedDBImpl), ownerHash = await ensureOwner(db, ownerId), row = safeDiagnostic(input, ownerHash);
+      if (!row) return null;
+      const tx = db.transaction("diagnostics", "readwrite"), txDone = transactionDone(tx);
+      tx.objectStore("diagnostics").add(row); await txDone;
+      if (Math.random() < 0.1) await trimDiagnostics(ownerId, indexedDBImpl);
+      return row;
+    } catch (_) { return null; }
+  }
+
+  async function trimDiagnostics(ownerId, indexedDBImpl) {
+    try {
+      const db = await openDB(indexedDBImpl), ownerHash = await ensureOwner(db, ownerId);
+      const tx = db.transaction("diagnostics", "readwrite"), txDone = transactionDone(tx), store = tx.objectStore("diagnostics");
+      const rows = await requestResult(store.getAll()), cutoff = Date.now() - DIAGNOSTIC_MAX_AGE;
+      rows.sort((a, b) => Number(a.t || 0) - Number(b.t || 0));
+      const survivors = rows.filter(r => r.ownerHash === ownerHash && Number(r.t || 0) >= cutoff);
+      rows.filter(r => r.ownerHash !== ownerHash || Number(r.t || 0) < cutoff).forEach(r => store.delete(r.id));
+      survivors.slice(0, Math.max(0, survivors.length - DIAGNOSTIC_CAP)).forEach(r => store.delete(r.id));
+      await txDone;
+    } catch (_) {}
+  }
+
+  async function diagnosticReport(ownerId, nowValue, indexedDBImpl) {
+    try {
+      const db = await openDB(indexedDBImpl), ownerHash = await ensureOwner(db, ownerId), now = Number(nowValue) || Date.now();
+      const tx = db.transaction(["diagnostics", "afterglow_packets", "tidal_state"], "readonly"), txDone = transactionDone(tx);
+      const diagnostics = (await requestResult(tx.objectStore("diagnostics").getAll())).filter(r => r.ownerHash === ownerHash);
+      const packets = (await requestResult(tx.objectStore("afterglow_packets").getAll())).filter(r => r.ownerHash === ownerHash);
+      const tidal = await requestResult(tx.objectStore("tidal_state").get(ownerHash)); await txDone;
+      const kinds = {}, outlets = {}; diagnostics.forEach(r => { kinds[r.kind] = (kinds[r.kind] || 0) + 1; if (r.outlet) outlets[r.outlet] = (outlets[r.outlet] || 0) + 1; });
+      return {
+        generatedAt: now, tidal: tidal ? { state: tidal.state, signalKind: tidal.signalKind, updatedTs: tidal.updatedTs } : null,
+        diagnostics: diagnostics.length, kinds, outlets,
+        packets: packets.map(p => ({ charHash: p.charHash, valid: isValid(p, now), createdTs: p.createdTs, expiresTs: p.expiresTs, threadCount: (p.unfinishedThreads || []).length, shadowWouldSurfaceAt: p.shadowWouldSurfaceAt || null })),
+        invariants: { sessionOpenWoke: diagnostics.filter(r => r.kind === "tidal_transition" && r.triggerRule === "session_open" && r.toState === "awake").length, writesExperience: packets.filter(p => p.writesExperience !== false).length },
+        nightWatchCoverage: "waiting_for_cloud_tidal_row"
+      };
+    } catch (_) { return { error: "E 影子诊断读取失败" }; }
+  }
+
+  async function markPacketObserved(ownerId, charId, nowValue, indexedDBImpl) {
+    try {
+      const db = await openDB(indexedDBImpl); await ensureOwner(db, ownerId);
+      const tx = db.transaction("afterglow_packets", "readwrite"), txDone = transactionDone(tx), store = tx.objectStore("afterglow_packets");
+      const packet = await requestResult(store.get(storageKey(ownerId, charId)));
+      if (!packet) { await txDone; return { status: "missing", packet: null }; }
+      const now = Number(nowValue) || Date.now(); let status = "already_observed", next = packet;
+      if (isValid(packet, now) && packet.shadowWouldSurfaceAt == null) { next = { ...packet, shadowWouldSurfaceAt: now }; status = "would_surface"; store.put(next); }
+      else if (Number(packet.expiresTs) <= now && packet.shadowExpiredAt == null) { next = { ...packet, shadowExpiredAt: now }; status = "expired"; store.put(next); }
+      await txDone; return { status, packet: next };
+    } catch (_) { return { status: "error", packet: null }; }
+  }
+
   return Object.freeze({
     DB_NAME, DB_VERSION, EXPIRES_MS, MAX_THREADS, DIAGNOSTIC_CAP, DIAGNOSTIC_MAX_AGE,
     hash, storageKey, anchorFor, moodSketch, collectThreads, deriveAfterglow,
     mergePacket, isValid, markShadowWouldSurface, putPacket, getPacket, putTidalState, getTidalState,
+    addDiagnostic, trimDiagnostics, diagnosticReport, markPacketObserved,
+    _safeDiagnostic: safeDiagnostic,
     _resetDBForTests: () => { dbPromise = null; }
   });
 });
