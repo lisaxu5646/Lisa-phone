@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.30";
+const APP_VERSION = "v49.31";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2105,8 +2105,18 @@ function App() {
     }
   };
   const offlineDelSession = (charId, sessId) => { if (window.confirm("删除这条线下记录？删了不可恢复。")) pOffline(charId, list => list.filter(s => s.id !== sessId)); };
-  const offlineEditMsg = (charId, msgId, text) => pOffline(charId, list => list.map(s => !s.endTs ? { ...s, msgs: s.msgs.map(m => m.id === msgId ? { ...m, content: text } : m) } : s));
-  const offlineDelMsg = (charId, msgId) => pOffline(charId, list => list.map(s => !s.endTs ? { ...s, msgs: s.msgs.filter(m => m.id !== msgId) } : s));
+  const offlineEditMsg = (charId, msgId, text) => pOffline(charId, list => list.map(s => {
+    if (s.endTs) return s;
+    const idx = s.msgs.findIndex(m => m.id === msgId), next = s.msgs.map(m => m.id === msgId ? { ...m, content: text } : m);
+    try { window.MessageBranchShadow && window.MessageBranchShadow.observeMutation({ kind: "edit", charId, before: s.msgs, after: next, targetIndex: idx }); } catch (e) {}
+    return { ...s, msgs: next };
+  }));
+  const offlineDelMsg = (charId, msgId) => pOffline(charId, list => list.map(s => {
+    if (s.endTs) return s;
+    const idx = s.msgs.findIndex(m => m.id === msgId), next = s.msgs.filter(m => m.id !== msgId);
+    try { window.MessageBranchShadow && window.MessageBranchShadow.observeMutation({ kind: "delete", charId, before: s.msgs, after: next, targetIndex: idx }); } catch (e) {}
+    return { ...s, msgs: next };
+  }));
   const offlineRerollMsg = async (charId, msgId) => {
     if (laneBusy("c:" + charId)) return;
     const sess = (offlinesRef.current[charId] || []).find(s => !s.endTs);
@@ -2114,6 +2124,7 @@ function App() {
     const idx = sess.msgs.findIndex(m => m.id === msgId);
     if (idx < 0) return;
     const truncated = sess.msgs.slice(0, idx); // 去掉这条及之后，重新生成
+    try { window.MessageBranchShadow && window.MessageBranchShadow.observeMutation({ kind: "offline_reroll", charId, before: sess.msgs, after: truncated, targetIndex: idx }); } catch (e) {}
     pOffline(charId, list => list.map(s => s.id === sess.id ? { ...s, msgs: truncated } : s));
     if (!truncated.length) { toast("这条前面没有内容可续写"); return; }
     await genOfflineFrom(charId, { ...sess, msgs: truncated });
@@ -3020,14 +3031,19 @@ function App() {
       toast("已复制");
     } else if (act === "recall") {
       const orig = m;
-      pChat(activeChar.id, p => p.map((x, i) => i === idx ? {
-        ...x,
-        recalled: true
-      } : x));
+      pChat(activeChar.id, p => {
+        const next = p.map((x, i) => i === idx ? { ...x, recalled: true } : x);
+        try { window.MessageBranchShadow && window.MessageBranchShadow.observeMutation({ kind: "recall", charId: activeChar.id, before: p, after: next, targetIndex: idx }); } catch (e) {}
+        return next;
+      });
       if (orig && orig.role === "user" && orig.content) reactToMyRecall(activeChar.id, orig.content);
     } else if (act === "edit") {
       const cid = activeChar.id;
-      setEditMsg({ content: m.content || "", onSave: nv => pChat(cid, p => p.map((x, i) => i === idx ? { ...x, content: nv } : x)) });
+      setEditMsg({ content: m.content || "", onSave: nv => pChat(cid, p => {
+        const next = p.map((x, i) => i === idx ? { ...x, content: nv } : x);
+        try { window.MessageBranchShadow && window.MessageBranchShadow.observeMutation({ kind: "edit", charId: cid, before: p, after: next, targetIndex: idx }); } catch (e) {}
+        return next;
+      }) });
     } else if (act === "quote") {
       toast("已引用（在输入框继续说）");
     } else if (act === "memsave") {
@@ -3046,14 +3062,20 @@ function App() {
       const turnId = m.turnId;
       if (turnId) {
         // 正常回合：删掉这一轮 AI 回复（保留用户最后一条）重生成
-        pChat(activeChar.id, p => p.filter(x => x.turnId !== turnId));
+        pChat(activeChar.id, p => {
+          const next = p.filter(x => x.turnId !== turnId);
+          try { window.MessageBranchShadow && window.MessageBranchShadow.observeMutation({ kind: "reroll", charId: activeChar.id, before: p, after: next, targetIndex: idx, turnId }); } catch (e) {}
+          return next;
+        });
       } else {
         // 无 turnId 的角色消息（如同人文读后感）：只删「从这条起、连续的无 turnId 角色气泡」这一组，
         // 绝不能按 turnId===undefined 批量过滤——那会连我发的同人文卡和别的消息一起删掉。
         pChat(activeChar.id, p => {
           let end = idx;
           while (end < p.length && p[end].role === "assistant" && !p[end].turnId) end++;
-          return p.slice(0, idx).concat(p.slice(end));
+          const next = p.slice(0, idx).concat(p.slice(end));
+          try { window.MessageBranchShadow && window.MessageBranchShadow.observeMutation({ kind: "reroll", charId: activeChar.id, before: p, after: next, targetIndex: idx }); } catch (e) {}
+          return next;
         });
       }
       setTimeout(() => replyNow(activeChar.id), 200);
