@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.18";
+const APP_VERSION = "v49.19";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -1322,6 +1322,8 @@ function App() {
         if (isDupMem(x.text, [charId], batchSeen)) return false; // 和本批已收的重复
         batchSeen.push(x); return true;
       });
+      // P1-1 shadow：传入内存做机械证据核验，只落类别/计数/hash；真实 entries 与旧版完全同路。
+      try { window.MemoryQualityShadow && window.MemoryQualityShadow.observeBatch({ charId, candidates: items, acceptedTexts: entries.map(e => e.text), messages: msgs }); } catch (e) {}
       if (entries.length) saveMemLib([...entries, ...pruneSubsumed(memLibRef.current, entries)]);
       return entries.length;
     } finally {

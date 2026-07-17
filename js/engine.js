@@ -872,7 +872,8 @@ async function summarizeGroup(p, ctx, msgs) {
 async function extractMemories(p, ctx, msgs, opts = {}) {
   const uName = (ctx.profile && ctx.profile.name) || "用户";
   const charName = ctx.char.name;
-  const text = msgs.map(m => (m.role === "user" ? uName : charName) + ": " + m.content).join("\n");
+  const messageIdOf = (m, i) => String((m && (m.id || m.mid)) || (m && m.ts ? "ts_" + m.ts : "idx_" + i));
+  const text = msgs.map((m, i) => "[消息ID " + messageIdOf(m, i) + "] " + (m.role === "user" ? uName : charName) + ": " + m.content).join("\n");
   const avoid = Array.isArray(opts.existing) && opts.existing.length
     ? "\n\n【这些事实已经记过了，别再抽取——同一件事换个说法也算重复，一律跳过】\n" + opts.existing.slice(0, 40).map(t => "· " + String(t).replace(/\s+/g, " ").slice(0, 60)).join("\n")
     : "";
@@ -881,12 +882,14 @@ async function extractMemories(p, ctx, msgs, opts = {}) {
     "· 一句话、具体可复用；**每条开头必须点明这条是关于谁的**，用真名写清主语：关于用户「" + uName + "」的、关于角色「" + charName + "」自己的、还是关于「他俩之间」的。例：『" + uName + " 下周要去比赛』『" + charName + " 小时候在乡下长大』『" + uName + " 和 " + charName + " 约好周末见面』。\n" +
     "· **绝对不许张冠李戴**：用户的经历/喜好/身份/计划，就记在用户「" + uName + "」名下，【不要写成角色自己的】；角色的就记在「" + charName + "」名下。分不清是谁的就别记这条。\n" +
     "· 同一件事【只记一条】，别把一件事拆成好几条重复的；忽略寒暄和没信息量的闲聊。为每条配 1~3 个中文标签。" + avoid + "\n" +
+    "【质量分类 shadow：只供诊断，不决定本次是否入库】每条同时给：kind=fact|promise|relationship|insight|temperature；confidence=0~1；proposed_action=accept|candidate|reject。没有新事实的日常甜话只能是 temperature/candidate；明确承诺、关系转折、边界与里程碑（如『做我的吧』『我爱你』、明确约定）必须是 promise 或 relationship/accept，绝不能降成 temperature。\n" +
+    "【证据】每条给 evidence_message_ids 和 evidence_quotes，两数组一一对应且至少 1 项；ID 必须照抄上面的消息ID，quote 必须是该消息正文中逐字存在的短句。找不到就别造这条。\n" +
     "· 每条再标注情绪与状态：**v**=这件事的情绪愉悦度（整数 -5~5，负=难过/生气/难堪/委屈，0=中性事实，正=开心/温暖/心动）；**a**=情绪强度（整数 0~5，0=平淡的事实，5=强烈动情/激烈冲突/刻骨铭心）；**open**=是不是【还没了结的开环】（true=没兑现的约定/没和好的争执/悬着的心事/在等的结果这类还惦记着、还没画句号的；false=已了结的、或本来就是静态事实/偏好/背景）。\n" +
     (Array.isArray(opts.openList) && opts.openList.length
       ? "\n\n【当前还没了结的约定/心事（下面每条前有编号）】若下面对话显示某条【已经完成/兑现/做过了/解决/明确不了了之】，就在输出数组里加一个 {\"resolveOpen\":编号} 元素（**填那条的数字编号**，不是原文；能确定哪几条完成就各加一个，没完成的别加）：\n" + opts.openList.slice(0, 30).map((s, i) => (i + 1) + ". " + s).join("\n")
       : "") +
-    "【输出】只输出合法 JSON 数组，无 markdown：\n[{\"text\":\"一句话事实（开头带主语真名）\",\"tags\":[\"标签1\"],\"v\":0,\"a\":1,\"open\":false}]\n没有值得记的、或全都已记过，就输出 []。";
-  const raw = await callAI(p, system, [{ role: "user", content: "【对话】\n" + text }], { maxTokens: 3500 });
+    "【输出】只输出合法 JSON 数组，无 markdown：\n[{\"text\":\"一句话事实（开头带主语真名）\",\"tags\":[\"标签1\"],\"v\":0,\"a\":1,\"open\":false,\"kind\":\"fact\",\"confidence\":0.9,\"evidence_message_ids\":[\"消息ID\"],\"evidence_quotes\":[\"逐字短引文\"],\"proposed_action\":\"accept\"}]\n没有值得记的、或全都已记过，就输出 []。";
+  const raw = await callAI(p, system, [{ role: "user", content: "【对话】\n" + text }], { maxTokens: 4200 });
   const parsed = extractJSON(raw);
   return Array.isArray(parsed) ? parsed.filter(x => x && x.text) : [];
 }
@@ -2041,4 +2044,3 @@ function decayMood(mood) {
   };
   return mood;
 }
-

@@ -3316,7 +3316,11 @@ function RecallShadowPanel() {
   const t = useTheme();
   const [folded, setFolded] = useState(true);
   const [rep, setRep] = useState(null);
-  const load = async () => { if (window.RecallShadow) setRep(await window.RecallShadow.report(200)); };
+  const [qrep, setQrep] = useState(null);
+  const load = async () => {
+    if (window.RecallShadow) setRep(await window.RecallShadow.report(200));
+    if (window.MemoryQualityShadow) setQrep(await window.MemoryQualityShadow.report(200));
+  };
   useEffect(() => { if (!folded) load(); }, [folded]);
   if (!window.RecallShadow) return null;
   return h("div", { style: { marginTop: 10, border: "1px dashed " + t.line, borderRadius: 12, padding: "8px 12px" } },
@@ -3331,10 +3335,15 @@ function RecallShadowPanel() {
         "· 空召回率 " + Math.round(rep.emptyRate * 100) + "% · 平均每次被冷却 " + rep.avgCooledPerCall + " 条", h("br"),
         "· 同分窗口均宽 " + rep.avgWindowSize + " · 窄窗(≤1)占 " + Math.round(rep.narrowWindowRate * 100) + "%（P0-3 随机值不值得开看这行）", h("br"),
         "· 活跃角色环：" + (rep.rings || []).map(r => r.char + "(" + r.ring + "条/第" + r.turn + "轮)").join("、"),
+        qrep && !qrep.error ? h("div", { style: { marginTop: 7, paddingTop: 7, borderTop: "1px dashed " + t.line } },
+          "🧪 抽取质量 shadow：" + qrep.batches + " 批 / " + qrep.candidates + " 个候选", h("br"),
+          "· 类别 " + Object.entries(qrep.kinds || {}).map(([k,v]) => k + " " + v).join(" · "), h("br"),
+          "· 证据逐字核验通过 " + Math.round(qrep.evidenceValidRate * 100) + "%", h("br"),
+          "· 里程碑误降温度 " + qrep.milestoneViolations + " · 日常温度仍被旧路入库 " + qrep.temperatureAccepted + " · 建议拒绝但旧路入库 " + qrep.proposedRejectButAccepted) : null,
         h("div", { className: "flex", style: { gap: 10, marginTop: 6 } },
           h("button", { onClick: load, style: { fontFamily: F_BODY, fontSize: 11, color: t.tint } }, "刷新"),
           h("button", { onClick: () => { window.RecallShadow.setEnabled(!rep.enabled); load(); }, style: { fontFamily: F_BODY, fontSize: 11, color: rep.enabled ? "#9f5149" : t.tint } }, rep.enabled ? "暂停观测" : "恢复观测（当前已停·零写入）"),
-          h("button", { onClick: () => { if (confirm("清空旁路诊断和冷却环？不影响任何记忆数据。")) { window.RecallShadow.clearAll().then(load); } }, style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, "清空")))) :
+          h("button", { onClick: () => { if (confirm("清空召回与抽取质量旁路诊断？不影响任何记忆数据。")) { Promise.all([window.RecallShadow.clearAll(), window.MemoryQualityShadow ? window.MemoryQualityShadow.clearAll() : null]).then(load); } }, style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, "清空")))) :
       h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 6 } }, "读取中…")));
 }
 

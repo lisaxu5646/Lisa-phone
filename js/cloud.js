@@ -120,6 +120,7 @@
       // 召回冷却环/旁路诊断只属于当前账号。本机换号时必须清掉，不能让相同 charId
       // 的另一个账号继承上一人的「刚想起过」状态。
       try { if (window.RecallShadow && window.RecallShadow.clearAll) await window.RecallShadow.clearAll(); } catch (e) {}
+      try { if (window.MemoryQualityShadow && window.MemoryQualityShadow.clearAll) await window.MemoryQualityShadow.clearAll(); } catch (e) {}
     },
 
     // 把本地存档推到云端（覆盖该用户那一行）
