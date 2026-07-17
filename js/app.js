@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.44";
+const APP_VERSION = "v49.45";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -637,6 +637,23 @@ function App() {
           const projection = window.JiwenEmotionA.displayProjection(saved);
           await window.InnerLifeAShadow.addDiagnostic(ownerId, charId, { t: now, items: projection.items, tokenEstimate: projection.tokenEstimate, moodMatched: result.audit.moodMatched, clippedAxis: result.audit.clippedAxis, scaledTotal: result.audit.scaledTotal });
           if (activeChar && activeChar.id === charId) { const report = await window.InnerLifeAShadow.report(ownerId, charId); setAShadowPanel({ state: saved, projection, report }); }
+        } catch (e) {}
+      }, 0);
+    } catch (e) {}
+  };
+  const observeRelationshipBShadow = (char, messages) => {
+    try {
+      if (!char || !window.InnerLifeBShadow || !window.InnerLifeBShadow.pilotFor(char)) return;
+      // 双重保险：即使配置误改，小克也永远不进 B 试点。
+      if (String(char.name || "").includes("小克")) return;
+      const bg = bgActiveRef.current; if (!bg) return;
+      setTimeout(async () => {
+        try {
+          const ownerId = await aShadowOwnerId();
+          await window.InnerLifeBShadow.observe({ ownerId, char, messages, runDetector: async spec => {
+            const raw = await callAI(bg, spec.system, spec.messages, { maxTokens: spec.maxTokens || 6000 });
+            return extractJSON(raw) || {};
+          }});
         } catch (e) {}
       }, 0);
     } catch (e) {}
@@ -3038,6 +3055,8 @@ function App() {
       });
       // A 情绪立体化 shadow：只算十维与 display 候选，写独立 IDB 诊断；绝不注入本轮/下轮 prompt。
       observeEmotionAShadow(charId, parsed.affinityDelta, parsed.mood && parsed.mood.label);
+      // B 关系轴 shadow：仅阿屿/顾暮、仅正常用户回合；回复落地后才走 bg，不污染角色生成 prompt。
+      if (!opts.proactive && !contMode) observeRelationshipBShadow(char, history.concat(words.map((content, i) => ({ role: "assistant", content, mid: turnId + "_" + i, ts: Date.now(), turnId }))));
       const st = {};
       if (parsed.wearing) st.wearing = parsed.wearing;
       if (parsed.action) st.action = parsed.action;
