@@ -420,6 +420,22 @@
       if (error) throw error;
       return data;
     },
+    // ⑥第6步：Lisa 确认入册只走这一条原子 RPC。候选、来源、正式事件和 links
+    // 在数据库同一事务里锁定并核对；失败时一行都不会留下。
+    async eventCandidateAccept(id, revision, mutationId, userEdits) {
+      if (!client) throw new Error("云服务未就绪");
+      const user = await this.getUser();
+      if (!user) throw new Error("未登录");
+      if (!mutationId) throw new Error("缺少本次确认凭证");
+      const { data, error } = await client.rpc("accept_memory_event_candidate", {
+        p_candidate_id: String(id),
+        p_candidate_revision: Number(revision),
+        p_mutation_id: String(mutationId),
+        p_user_edits: userEdits || null
+      });
+      if (error) throw error;
+      return data || {};
+    },
     async eventGet(id) {
       if (!client) throw new Error("云服务未就绪");
       const user = await this.getUser();

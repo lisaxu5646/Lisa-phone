@@ -4481,6 +4481,7 @@ function EventComposeSheet({ entries, characters, onClose, onCreated, toast }) {
 // 红灯规则（施工图 §5）：来源缺失/软删/revision 漂移、状态不是 drafted、草稿引用候选外 ID
 // → 确认按钮禁用，没有"仍然继续"。正式确认走第 6 步原子 RPC（未部署时按钮同样禁用）。
 const K_EVC_EDITS = "x_evcEdits"; // { [candidateId]: {title,synopsis,narrative,editedAt} } —— 你的修改稿，确认时才随 RPC 落库
+const K_EVC_ACCEPT_MUTATIONS = "x_evcAcceptMutations"; // 网络超时重试沿用同一 UUID，RPC 才能安全返回同一事件
 function CandidateReviewSheet({ candidateId, characters, onClose, onChanged, toast }) {
   const t = useTheme();
   const [cand, setCand] = useState(null);
@@ -4559,8 +4560,34 @@ function CandidateReviewSheet({ candidateId, characters, onClose, onChanged, toa
     finally { setBusy(false); }
   };
   const d = cand && cand.draft;
-  const canConfirm = lights && !lights.length && typeof (window.Cloud && window.Cloud.eventCandidateAccept) === "function";
+  const canConfirm = !editing && lights && !lights.length && typeof (window.Cloud && window.Cloud.eventCandidateAccept) === "function";
   const edited = !!edits || eTitle !== ((d && d.title) || "") || eNarr !== ((d && d.narrative) || "") || eSyn !== ((d && d.synopsis) || "");
+  const doConfirm = async () => {
+    if (!canConfirm || !cand) return;
+    if (!eTitle.trim() || !eNarr.trim()) { toast && toast("标题和事件正文不能留空"); return; }
+    if (!confirm("把这份候选正式写进事件书架？确认会原子落下事件和来源链接。")) return;
+    const mutations = loadJSON(K_EVC_ACCEPT_MUTATIONS, {});
+    const makeUuid = () => (window.crypto && window.crypto.randomUUID)
+      ? window.crypto.randomUUID()
+      : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+          const r = Math.random() * 16 | 0; return (c === "x" ? r : (r & 3 | 8)).toString(16);
+        });
+    const mutationId = mutations[candidateId] || makeUuid();
+    mutations[candidateId] = mutationId;
+    saveJSON(K_EVC_ACCEPT_MUTATIONS, mutations); // 成功前不删；断网/超时再点仍是同一次确认
+    const userEdits = edited ? { title: eTitle.trim(), synopsis: eSyn.trim(), narrative: eNarr.trim() } : null;
+    setBusy(true);
+    try {
+      const result = await window.Cloud.eventCandidateAccept(candidateId, cand.revision, mutationId, userEdits);
+      const allEdits = loadJSON(K_EVC_EDITS, {}); delete allEdits[candidateId]; saveJSON(K_EVC_EDITS, allEdits);
+      const allMutations = loadJSON(K_EVC_ACCEPT_MUTATIONS, {}); delete allMutations[candidateId]; saveJSON(K_EVC_ACCEPT_MUTATIONS, allMutations);
+      toast && toast(result && result.idempotent ? "已确认过，书架里是同一篇事件" : "事件已正式入册");
+      onChanged && await onChanged();
+      onClose();
+    } catch (e) {
+      toast && toast("确认失败，没有写入半成品：" + ((e && e.message) || "稍后再试"));
+    } finally { setBusy(false); }
+  };
   return h(Sheet, { onClose: onClose },
     h(Eyebrow, { style: { marginBottom: 6 } }, "候选过目 · " + (cand ? nameOf(cand.requested_char_id) + " 执笔" : "加载中…")),
     lights == null ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, padding: "12px 0" } }, "正在跟云端核对来源与草稿…") : h(React.Fragment, null,
@@ -4594,7 +4621,7 @@ function CandidateReviewSheet({ candidateId, characters, onClose, onChanged, toa
       cand && cand.status !== "rejected" && cand.status !== "accepted" ? h("div", { className: "flex", style: { gap: 8 } },
         h("button", { onClick: doReturn, disabled: busy, className: "flex-1 py-2.5 active:opacity-70 disabled:opacity-40", style: { borderRadius: 8, border: "1px solid " + t.line, color: t.sub, fontFamily: F_BODY, fontSize: 12.5 } }, "↩︎ 退回重写"),
         h("button", { onClick: doReject, disabled: busy, className: "flex-1 py-2.5 active:opacity-70 disabled:opacity-40", style: { borderRadius: 8, border: "1px solid #9f5149", color: "#9f5149", fontFamily: F_BODY, fontSize: 12.5 } }, "✕ 拒绝"),
-        h("button", { disabled: !canConfirm || busy, title: canConfirm ? "" : lights && lights.length ? "红灯未清不能确认" : "确认通道（原子 RPC）施工中", className: "flex-1 py-2.5 active:opacity-70 disabled:opacity-40", style: { borderRadius: 8, background: t.ink, color: t.bg2, fontFamily: F_BODY, fontSize: 12.5 } }, "✓ 确认入册")) : null));
+        h("button", { onClick: doConfirm, disabled: !canConfirm || busy, title: canConfirm ? "" : editing ? "先保存或退出编辑" : lights && lights.length ? "红灯未清不能确认" : "确认通道（原子 RPC）尚未部署", className: "flex-1 py-2.5 active:opacity-70 disabled:opacity-40", style: { borderRadius: 8, background: t.ink, color: t.bg2, fontFamily: F_BODY, fontSize: 12.5 } }, busy ? "入册中…" : "✓ 确认入册")) : null));
 }
 
 // ⑥事件层 · 第2步：事件书架（只读）。自包含读 window.MemoryEvents 的 IDB 镜像；
