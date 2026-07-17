@@ -36,6 +36,7 @@
 | AstrBot Desire System 2.0 | 九维驱动力/事件惊喜/耦合/安全阀 | v49.35 本机连续状态 shadow | 只显示偏离基线，不注入语气；真实采用前和 Lisa/小克定维度与事件 |
 | Mianer/WangwangPhone | 心声隐私、交换日记、时光胶囊、同频测试等 | 多数已落地 | 非记忆主线按功能 backlog 推进 |
 | Stardew MCP | 只读陪玩→有限动作→独立同伴 | 已记录方案 | 先确认平台/SMAPI/测试存档 |
+| Chrome MCP Bridge | 给 CC 打开网页/提取正文 | 安全施工方案已记录 | 独立 profile + loopback + token 的本机只读试验；安装前需 Lisa 确认 |
 
 ## 当前横向施工顺序
 
