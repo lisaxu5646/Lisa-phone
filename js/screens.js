@@ -4388,6 +4388,63 @@ function DataConfig({
 // ============================================================
 // MEMORY LIBRARY 记忆库
 // ============================================================
+// ⑥事件层 · 第2步：事件书架（只读）。自包含读 window.MemoryEvents 的 IDB 镜像；
+// 未登录/表未建=空态不报错；本步没有任何写入口（施工图 §2）。
+function EventShelfSection({ characters }) {
+  const t = useTheme();
+  const [open, setOpen] = useState(false);
+  const [events, setEvents] = useState([]);
+  const [cands, setCands] = useState([]);
+  const [detail, setDetail] = useState(null); // { event, links }
+  const nameOf = id => { const c = (characters || []).find(x => x.id === id); return c ? (c.remark || c.name) : "？"; };
+  const fmtD = ts => { if (!ts) return ""; const d = new Date(ts); return (d.getMonth() + 1) + "/" + d.getDate(); };
+  const load = async () => {
+    if (!window.MemoryEvents) return;
+    try {
+      setEvents(await window.MemoryEvents.listEvents());
+      setCands(await window.MemoryEvents.listCandidates());
+    } catch (e) {/* IDB 异常不阻塞记忆库 */}
+  };
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!window.MemoryEvents) return;
+      await window.MemoryEvents.refresh(); // 失败=读旧缓存，安静
+      if (alive) load();
+    })();
+    return () => { alive = false; };
+  }, []);
+  const pendingCands = cands.filter(c => c.status === "requested" || c.status === "drafted");
+  return h(React.Fragment, null, h("button", {
+    onClick: () => setOpen(!open),
+    className: "w-full rounded-xl py-2.5 mb-2 active:opacity-60 flex items-center justify-between px-4",
+    style: { border: "1px solid " + t.line, color: t.ink, fontFamily: F_BODY, fontSize: 12.5 }
+  }, h("span", null, "📚 事件书架 · " + events.length + " 件" + (pendingCands.length ? "（候选 " + pendingCands.length + "）" : "")),
+    h("span", { style: { color: t.fog, fontSize: 11 } }, open ? "收起" : "展开")),
+  open && h("div", { style: { maxHeight: "38vh", overflowY: "auto", marginBottom: 8 } },
+    !events.length && h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, textAlign: "center", padding: "14px 0", lineHeight: 1.7 } },
+      "还没有事件。", h("br"), "等整理功能上线，挑几条记忆碎片就能请小克写成第一件。"),
+    events.map(ev => h("button", {
+      key: ev.id,
+      onClick: async () => { const d = window.MemoryEvents ? await window.MemoryEvents.getEvent(ev.id) : null; if (d) setDetail(d); },
+      className: "w-full text-left rounded-xl p-3 mb-2 active:opacity-70",
+      style: { border: "1px solid " + t.line, background: t.bg2 }
+    },
+      h("div", { className: "flex items-center justify-between" },
+        h("span", { style: { fontFamily: F_BODY, fontSize: 13.5, fontWeight: 700, color: t.ink } }, ev.title),
+        h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: ev.status === "ongoing" ? "#c98a3c" : t.fog } }, ev.status === "ongoing" ? "进行中" : "已完结")),
+      ev.synopsis ? h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.sub, marginTop: 4, lineHeight: 1.6 } }, ev.synopsis) : null,
+      h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginTop: 5 } },
+        (ev.char_ids || []).map(nameOf).join("、"),
+        " · ", fmtD(ev.started_ts), ev.ended_ts ? "–" + fmtD(ev.ended_ts) : "起",
+        ev.edited_by_user ? " · 你改过" : "")))),
+  detail && h(Sheet, { onClose: () => setDetail(null) },
+    h(Eyebrow, { style: { marginBottom: 6 } }, detail.event.title),
+    h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, marginBottom: 10 } },
+      "执笔：" + nameOf(detail.event.author_char_id) + (detail.event.edited_by_user ? " · 你改过" : "") + " · 关联碎片 " + (detail.links || []).filter(l => !l.deleted).length + " 条"),
+    h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, color: t.ink, lineHeight: 1.9, whiteSpace: "pre-wrap", maxHeight: "52vh", overflowY: "auto" } }, detail.event.narrative)));
+}
+
 function MemoryLib({
   entries,
   characters,
@@ -4478,6 +4535,7 @@ function MemoryLib({
     className: "w-full rounded-xl py-2.5 mb-2 active:opacity-60 disabled:opacity-40",
     style: { border: "1px solid " + t.tint, color: t.tint, fontFamily: F_BODY, fontSize: 12.5 }
   }, migrationBusy ? "正在逐 ID 验收…" : "🛟 逐 ID 验收并启用新记忆表") : null,
+  h(EventShelfSection, { characters: characters }),
   memoryTableMode && onUseLegacyMemory ? h("button", {
     onClick: () => { if (confirm("紧急改回本机旧镜像读取？不会删除新表或任何记忆；重新启用前不要在两边同时修改。")) onUseLegacyMemory(); },
     className: "w-full rounded-xl py-2.5 mb-2 active:opacity-60",

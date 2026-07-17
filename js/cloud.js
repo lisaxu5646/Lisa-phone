@@ -324,6 +324,48 @@
       return data || {};
     },
 
+    // ---- ⑥事件层 · 第2步只读（memory_events / memory_event_candidates / memory_event_links）----
+    // v1 只读：书架和候选列表。表没建时报错由调用方 catch → 整块 dormant，零影响。
+    async eventsList() {
+      if (!client) throw new Error("云服务未就绪");
+      const user = await this.getUser();
+      if (!user) throw new Error("未登录");
+      const { data, error } = await client.from("memory_events")
+        .select("id,title,synopsis,char_ids,author_char_id,started_ts,ended_ts,status,themes,edited_by_user,deleted,revision,updated_at")
+        .eq("user_id", user.id).eq("deleted", false)
+        .order("updated_at", { ascending: false }).order("id", { ascending: true })
+        .limit(500);
+      if (error) throw error;
+      return data || [];
+    },
+    async eventCandidatesList() {
+      if (!client) throw new Error("云服务未就绪");
+      const user = await this.getUser();
+      if (!user) throw new Error("未登录");
+      const { data, error } = await client.from("memory_event_candidates")
+        .select("id,status,source_memory_ids,requested_char_id,feedback,edited_by_user,accepted_event_id,revision,updated_at")
+        .eq("user_id", user.id)
+        .order("updated_at", { ascending: false }).order("id", { ascending: true })
+        .limit(200);
+      if (error) throw error;
+      return data || [];
+    },
+    async eventGet(id) {
+      if (!client) throw new Error("云服务未就绪");
+      const user = await this.getUser();
+      if (!user) throw new Error("未登录");
+      const { data, error } = await client.from("memory_events")
+        .select("*").eq("user_id", user.id).eq("id", String(id)).maybeSingle();
+      if (error) throw error;
+      if (!data) return null;
+      const { data: links, error: le } = await client.from("memory_event_links")
+        .select("memory_id,relation,weight,ordinal,memory_revision_at_link,deleted")
+        .eq("user_id", user.id).eq("event_id", String(id))
+        .order("ordinal", { ascending: true });
+      if (le) throw le;
+      return { event: data, links: links || [] };
+    },
+
     // ---- 桌面对话回流（desk_log 表，Stack-chan 实体：见 [[lisa-phone-next-window]] 图纸）----
     // stackchan-relay 每轮把「用户说的话 user_text + 角色回复 reply_text + 时刻」insert 进 desk_log；
     // app 开机/tick 拉走未消费的，投进 x_chat:小克（两具身体一条记忆流）。表不存在=安静报错、整块 dormant。
