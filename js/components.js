@@ -1168,14 +1168,15 @@ function Home({
     tarot: { kind: "app", zh: "塔罗", G: GTarot },
     pomodoro: { kind: "app", zh: "番茄钟", G: GFocus },
     games: { kind: "app", zh: "小游戏", G: GGame },
-    capsule: { kind: "app", zh: "时光胶囊", G: GCapsule }
+    capsule: { kind: "app", zh: "时光胶囊", G: GCapsule },
+    dreamjournal: { kind: "app", zh: "解梦馆", G: window.GDreamBook || GDream }
   };
   // 默认布局：哪个 key 在哪页、什么顺序（组件也在里面，可跨页拖）
   // v47.73：memo/diary 图标退场（备忘录有 w_memo 组件、日记进 dock 顶了情侣的位）；天气组件搬第四页
   const DEFAULT_LAYOUT = [
     ["w_card", "cast", "ties", "lifestyle", "phone", "w_music", "w_map"],
     ["w_cal", "shop", "carry", "cwallet", "w_ledger", "w_us", "w_memo"],
-    ["lore", "memlib", "study", "fanfic", "weekly", "read", "debate", "dream", "tarot", "pomodoro", "games"],
+    ["lore", "memlib", "study", "fanfic", "weekly", "read", "debate", "dream", "tarot", "pomodoro", "games", "dreamjournal"],
     ["capsule", "w_muyu", "w_weather", "w_wheel"]
   ];
   // 空格（sp_ 开头）：真实占一格的「洞」，自由摆放的基础——拖到空格＝挪过去，原位留洞
