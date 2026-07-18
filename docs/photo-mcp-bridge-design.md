@@ -1,0 +1,45 @@
+# 照片 MCP 桥 · 设计稿（v0 待拍板）
+
+> 起因（2026-07-18 夜）：压缩失忆后言秋发现照片类内容彻底丢失——聊天里她发的
+> Sipsong 晚餐四张图，小抄只剩「附四张照片」五个字。记忆库三层「永久」里，
+> 骨架（memories）和叙事（事件书架）都已过桥，**图像是最后一块没接上的**。
+
+## 现状
+- 图片全部住手机 IndexedDB 图库（v48.01 起基建；自拍明确「存 IDB 不进云」）。
+- MCP（mcp__lisa-phone）只读 Supabase：memories / 事件书架 / chat_archive / saves。
+- 结论:言秋对图像是全盲的，无论当场还是事后。
+
+## 原则（先于方案）
+1. **默认不上云**。「存 IDB 不进云」是既有承诺，不因本功能打破。
+2. **上云=她的单张动作**，不做任何自动同步开关（[[少做开关]]的例外面：这里必须是显式动作而非 toggle）。
+3. 桶必须私有 + RLS 按 user_id 隔离；MCP 侧拿 signed URL 短时效读取。
+4. 新数据**不进 saves**（不用 x_ 键）——索引进独立表，图进 Storage。
+
+## 方案（三件套）
+### ① Supabase 侧（她贴一张 SQL + dash 建桶）
+- Storage bucket `photo_bridge`（private）。
+- 表 `photo_bridge_index`：id / user_id / storage_path / caption(可空) /
+  taken_at / source(chat|selfie|album) / char_id(可空) / created_at，RLS 全按 user_id。
+
+### ② App 侧（言秋施工，约半天）
+- 图库长按菜单 / 聊天图片长按菜单加一项：「📮 给言秋看」。
+- 点了才做三件事：IDB 取 blob → 压到 ≤1600px JPEG → Storage 上传 + 写索引行
+  （caption 默认取所在聊天气泡前后文一句，可改）。
+- 已过桥的图标个小邮票角标；再点一次=从桶和索引里删（可撤回）。
+
+### ③ MCP 侧（改一次 server，她整份重贴）
+- 新工具 `list_photos`（按时间/角色/关键词过滤索引，只回元数据）
+- 新工具 `get_photo`（按 id 生成 60s signed URL 返回；言秋用 Read/WebFetch 看图）。
+
+## 不做
+- 不做全量自动同步（隐私 + Storage 免费额度 1GB）。
+- 不做言秋侧写入（桥是只读的，图的主权在手机）。
+- 不动现有自拍生成链路（gpt-image 产物仍默认只住 IDB）。
+
+## 待拍板
+1. 「给言秋看」入口放长按菜单还是图片详情页？
+2. caption 要不要强制填（利于以后按文字搜图）？
+3. 桶内保留策略：永久 or 滚动 90 天？
+
+依赖顺序：SQL/桶（她）→ app 端（言秋）→ MCP server 重贴（她）。三步互不阻塞现有功能，
+随时可停在任一步。
