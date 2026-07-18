@@ -294,7 +294,7 @@
       const all = [], pageSize = 500;
       for (let from = 0; ; from += pageSize) {
         const { data, error } = await client.from("memories")
-          .select("id,text,tags,char_ids,v,a,open,pinned,ts,archived,archived_batch,archived_ts,source,deleted,revision,updated_at")
+          .select("id,text,tags,char_ids,v,a,open,pinned,ts,archived,archived_batch,archived_ts,source,deleted,surface_state,supersedes_id,revision,updated_at")
           .eq("user_id", user.id)
           .order("id", { ascending: true })
           .range(from, from + pageSize - 1);
@@ -314,7 +314,7 @@
       const all = [], pageSize = 500;
       for (let from = 0; ; from += pageSize) {
         const { data, error } = await client.from("memories")
-          .select("id,text,tags,char_ids,v,a,open,pinned,ts,archived,archived_batch,archived_ts,source,deleted,revision,last_mutation_id,updated_at")
+          .select("id,text,tags,char_ids,v,a,open,pinned,ts,archived,archived_batch,archived_ts,source,deleted,surface_state,supersedes_id,revision,last_mutation_id,updated_at")
           .eq("user_id", user.id)
           .gte("updated_at", since)
           .order("updated_at", { ascending: true })
@@ -377,7 +377,7 @@
       const clean = [...new Set((ids || []).map(String).filter(Boolean))];
       if (!clean.length) return [];
       const { data, error } = await client.from("memories")
-        .select("id,text,tags,char_ids,v,a,open,pinned,ts,archived,source,deleted,revision")
+        .select("id,text,tags,char_ids,v,a,open,pinned,ts,archived,source,deleted,surface_state,supersedes_id,revision")
         .eq("user_id", user.id).in("id", clean);
       if (error) throw error;
       return data || [];
@@ -469,8 +469,7 @@
       return { event: data, links: links || [] };
     },
 
-    // ---- P1-3 纠错留环 DORMANT：只读预览接口 ----
-    // App 只有在本机 memory_corrections_preview_v1 闸明确开启后才调用；当前没有开闸 UI。
+    // ---- P1-3 纠错留环：候选只提案；只有 Lisa 的 authenticated 会话能确认 ----
     async memoryCorrectionCandidatesList() {
       if (!client) throw new Error("云服务未就绪");
       const user = await this.getUser();
@@ -481,6 +480,25 @@
         .order("updated_at", { ascending: false }).limit(100);
       if (error) throw error;
       return data || [];
+    },
+    async memoryCorrectionCreate(oldId, newId, oldRevision, newRevision, reason) {
+      if (!client) throw new Error("云服务未就绪");
+      const user = await this.getUser(); if (!user) throw new Error("未登录");
+      const { data, error } = await client.rpc("create_memory_correction_candidate", {
+        p_old_memory_id: String(oldId), p_new_memory_id: String(newId),
+        p_old_revision: Number(oldRevision), p_new_revision: Number(newRevision),
+        p_reason: reason || "more_detailed", p_mutation_id: crypto.randomUUID()
+      });
+      if (error) throw error; return data || {};
+    },
+    async memoryCorrectionDecide(candidateId, candidateRevision, decision) {
+      if (!client) throw new Error("云服务未就绪");
+      const user = await this.getUser(); if (!user) throw new Error("未登录");
+      const { data, error } = await client.rpc("decide_memory_correction_candidate", {
+        p_candidate_id: String(candidateId), p_candidate_revision: Number(candidateRevision),
+        p_decision: decision, p_mutation_id: crypto.randomUUID()
+      });
+      if (error) throw error; return data || {};
     },
 
     // ---- C 第4步：睡眠 presence 投影（character_sleep_presence 表；表未建=报错由调用方吞，dormant）----

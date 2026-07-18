@@ -1,5 +1,5 @@
 -- ============================================================
--- P1-3 DORMANT · 纠错留环候选与审计表（当前不要执行）
+-- P1-3 LIVE · 纠错留环候选与审计表（2026-07-18 已部署）
 -- 前置：memory_surface_state_migration.sql。只建结构，不扫描/修改现有 memories。
 -- ============================================================
 create table if not exists public.memory_correction_candidates (

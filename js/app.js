@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.59";
+const APP_VERSION = "v49.60";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -10,7 +10,8 @@ const memoryRowFromCloud = r => ({
   charIds: Array.isArray(r.char_ids) ? r.char_ids.map(String) : [], v: typeof r.v === "number" ? r.v : 0,
   a: typeof r.a === "number" ? r.a : 1, open: !!r.open, pinned: !!r.pinned, ts: Number(r.ts) || 0,
   archived: !!r.archived, archivedBatch: r.archived_batch == null ? null : String(r.archived_batch),
-  archivedTs: r.archived_ts == null ? null : Number(r.archived_ts), source: r.source == null ? null : String(r.source)
+  archivedTs: r.archived_ts == null ? null : Number(r.archived_ts), source: r.source == null ? null : String(r.source),
+  surfaceState: r.surface_state == null ? "active" : String(r.surface_state), supersedesId: r.supersedes_id == null ? null : String(r.supersedes_id)
 });
 const normalizeMemoryFact = s => String(s || "").replace(/[\s，。、；：,.;:!！?？「」『』"'“”‘’（）()【】\-—]/g, "").toLowerCase();
 const memoryFactKey = m => normalizeMemoryFact(m && m.text) + "|" + (Array.isArray(m && (m.charIds || m.char_ids)) ? (m.charIds || m.char_ids).map(String).sort().join(",") : "");
@@ -1049,7 +1050,8 @@ function App() {
       }
 
       const cursor2 = await window.MemorySync.getCursor();
-      await window.MemorySync.storePulledRows(await window.Cloud.memoryRowsFetchUpdatedSince(cursor2));
+      const pulled2 = await window.Cloud.memoryRowsFetchUpdatedSince(cursor2);
+      await window.MemorySync.storePulledRows(pulled2);
 
       // 权威切换后：服务端行合成完整本机镜像；hits/lastHit 是设备私有统计，只从本机同 ID 继承。
       if (memoryTableAuthorityOn()) {
@@ -1066,11 +1068,39 @@ function App() {
         setMemLib(authoritative);
         saveJSON("x_memLib", authoritative); // 现在只是离线镜像；Cloud.collect 已明确排除它
         await window.MemorySync.replaceLocalSnapshot(authoritative);
+        // P1-3：本地包含关系只提候选；等新旧两行都已同步并取得当前 revision 后，才调用原子候选 RPC。
+        try {
+          const C = window.MemoryCorrectionShadow;
+          if (C && C.pendingPairs && window.Cloud.memoryCorrectionCreate) {
+            const byId = new Map(tableRows.filter(r => r && r.id).map(r => [String(r.id), r]));
+            // CC/另一设备直写的新条不会经过本机 pruneSubsumed：对本轮云端变化补同一套确定性包含检测。
+            for (const ne of [...pulled, ...pulled2]) {
+              if (!ne || !ne.id || ne.deleted || ne.archived || (ne.surface_state || "active") !== "active") continue;
+              const nn = normMemText(ne.text); if (nn.length < 6) continue;
+              for (const old of tableRows) {
+                if (!old || old.id === ne.id || old.deleted || old.archived || (old.surface_state || "active") !== "active" || old.pinned || old.open) continue;
+                if (!memShareChar(ne.char_ids, old.char_ids)) continue;
+                const on = normMemText(old.text);
+                if (on.length >= 6 && nn.length > on.length && nn.indexOf(on) >= 0 && on.length / nn.length > 0.72) {
+                  await C.observePair({ oldId: old.id, newId: ne.id, oldPinned: false, oldOpen: false, oldTooShort: false, currentWouldPrune: true, source: ne.source || "cloud" });
+                }
+              }
+            }
+            for (const p of (await C.pendingPairs()).slice(0, 20)) {
+              const oldRow = byId.get(String(p.oldId)), newRow = byId.get(String(p.newId));
+              if (!oldRow || !newRow || oldRow.deleted || newRow.deleted) continue;
+              if ((oldRow.surface_state || "active") !== "active" || (newRow.surface_state || "active") !== "active" || newRow.supersedes_id) continue;
+              const made = await window.Cloud.memoryCorrectionCreate(oldRow.id, newRow.id, oldRow.revision, newRow.revision, "more_detailed");
+              await C.markProposed(p.pair, made && made.candidate && made.candidate.id);
+            }
+          }
+        } catch (eCorrection) {/* SQL 尚未部署/离线：保留 pending，下轮重试；不影响记忆同步 */}
       }
     } catch (e) {
       // 断网/临时错误：outbox 已落 IndexedDB，下次启动、回前台或联网会继续；不影响当前旧库。
     } finally { memRowSyncInflightRef.current = false; }
   };
+  useEffect(() => { window.__runMemoryRowSync = runMemoryRowSync; return () => { delete window.__runMemoryRowSync; }; });
   const saveMemLib = next => {
     // ref 必须在这里同步更新：同一轮里连续多次保存（逐条 addMemEntry / 先了结旧约定再入新条）之间不会重渲染，
     // 若只等渲染期赋值，后一次保存会拿旧数组把前一次覆盖掉（lost write，v47.55 细节逐条入库曾因此只存活最后一条）
@@ -1266,6 +1296,7 @@ function App() {
   const isDupMem = (text, charIds, pool) => {
     const n = normMemText(text); if (n.length < 4) return false;
     return (pool || memLibRef.current).some(e => {
+      if ((e.surfaceState || "active") !== "active") return false;
       if (!memShareChar(charIds, e.charIds)) return false;
       const en = normMemText(e.text); if (!en) return false;
       if (en === n) return true;
@@ -1273,8 +1304,8 @@ function App() {
       return n.length >= 6 && en.length > n.length && en.indexOf(n) >= 0 && n.length / en.length > 0.72;
     });
   };
-  // v49.22：真实删留仍完整沿用 v48.41；同时把命中的新旧 ID 写入独立本机 shadow，
-  // 供 P1-3 上线前核对。旁路不存正文、不上传，失败也不影响这里的同步返回。
+  // P1-3 LIVE：命中只生成纠错候选，旧条原位保留；Lisa 确认后由原子 RPC 标 superseded。
+  // 这里永不 filter 掉旧条，open/pinned 也同样保留且不会自动提“更详细替代”候选。
   const pruneSubsumed = (existing, newEntries) => existing.filter(old => {
     const on = normMemText(old.text);
     const match = newEntries.find(ne => {
@@ -1289,7 +1320,7 @@ function App() {
         oldTooShort: on.length < 6, currentWouldPrune: !protectedOld, source: match.source || "unknown"
       }); } catch (e) {}
     }
-    return protectedOld || !match;
+    return true;
   });
   const clampInt = (x, lo, hi, dflt) => typeof x === "number" && !isNaN(x) ? Math.max(lo, Math.min(hi, Math.round(x))) : dflt;
   const addMemEntry = e => {
@@ -1359,7 +1390,7 @@ function App() {
   // ⚠️她的未了约定(open)和置顶的绝不清。判定逻辑同步给 MemoryLib 组件算数量（memWithered）。
   const purgeWithered = () => {
     const now = Date.now();
-    const keep = memLibRef.current.filter(e => !(e && !e.pinned && !e.open && (e.a || 0) <= 1 && (e.hits || 0) < 2 && now - (Math.max(e.ts || 0, e.lastHit || 0) || now) >= 120 * 86400000));
+    const keep = memLibRef.current.filter(e => !(e && (e.surfaceState || "active") === "active" && !e.pinned && !e.open && (e.a || 0) <= 1 && (e.hits || 0) < 2 && now - (Math.max(e.ts || 0, e.lastHit || 0) || now) >= 120 * 86400000));
     const removed = memLibRef.current.length - keep.length;
     if (!removed) { toast("没有可清理的落灰记忆"); return; }
     saveMemLib(keep);
@@ -1402,7 +1433,7 @@ function App() {
   // 从云端/新设备回来时用这个稳定规则复原批次关系，恢复原件时才能一并撤掉摘要。
   const refineBatchOf = e => e && e.refineBatch ? String(e.refineBatch)
     : (e && e.source === "monthly" && e.ts ? "rf_" + Number(e.ts) : null);
-  const isRefinable = e => { const now = Date.now(); return e && e.text && !e.pinned && !e.open && !e.archived && e.source !== "monthly" && (e.a || 0) <= 2 && now - (e.ts || 0) >= REFINE_OLD_DAYS * 86400000; };
+  const isRefinable = e => { const now = Date.now(); return e && e.text && (e.surfaceState || "active") === "active" && !e.pinned && !e.open && !e.archived && e.source !== "monthly" && (e.a || 0) <= 2 && now - (e.ts || 0) >= REFINE_OLD_DAYS * 86400000; };
   const refineOldMemories = async (scopeCharId, opts = {}) => {
     if (!bgActive && !active) { if (!opts.auto) toast("请先到设置配置 API"); return 0; }
     const now = Date.now();

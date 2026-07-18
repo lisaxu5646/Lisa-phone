@@ -4797,11 +4797,11 @@ function EventShelfSection({ characters, entries }) {
     h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, color: t.ink, lineHeight: 1.9, whiteSpace: "pre-wrap", maxHeight: "52vh", overflowY: "auto" } }, detail.event.narrative)));
 }
 
-// P1-3 DORMANT 只读过目台：没有确认/拒绝按钮，不调用决定 RPC。
-// 只有未来部署验收后显式写入 memory_corrections_preview_v1=1 才会出现。
-function MemoryCorrectionPreviewSheet({ candidate, onClose }) {
+// P1-3 纠错过目台：只有 Lisa 明确确认才把旧条标 superseded；拒绝不碰两条记忆。
+function MemoryCorrectionPreviewSheet({ candidate, onDecided, onClose }) {
   const t = useTheme();
   const [pair, setPair] = useState(null);
+  const [busy, setBusy] = useState(false);
   useEffect(() => { let alive=true; window.Cloud.memoryRowsFetchByIds([candidate.old_memory_id,candidate.new_memory_id]).then(rows => { if (alive) setPair(rows || []); }).catch(() => { if (alive) setPair([]); }); return () => { alive=false; }; }, [candidate.id]);
   const oldRow = pair && pair.find(e => e && e.id === candidate.old_memory_id);
   const newRow = pair && pair.find(e => e && e.id === candidate.new_memory_id);
@@ -4817,14 +4817,28 @@ function MemoryCorrectionPreviewSheet({ candidate, onClose }) {
     h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color, marginBottom: 5 } }, label + " · 提案时 rev " + baseRevision),
     h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, color: t.ink, lineHeight: 1.7, whiteSpace: "pre-wrap" } }, row ? row.text : "（本机未读到这条）"),
     row && (row.pinned || row.open) ? h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: "#b06a4f", marginTop: 5 } }, (row.pinned ? "📌 置顶 " : "") + (row.open ? "⏳ 未了结" : "")) : null);
+  const decide = async decision => {
+    if (busy || issues.length || !pair) return;
+    setBusy(true);
+    try {
+      await window.Cloud.memoryCorrectionDecide(candidate.id, candidate.revision, decision);
+      if (window.__runMemoryRowSync) await window.__runMemoryRowSync();
+      onDecided && onDecided(decision);
+      onClose();
+    } catch (e) { window.__toast && window.__toast("纠错没有落地：" + (e.message || e)); }
+    finally { setBusy(false); }
+  };
   return h(Sheet, { onClose },
-    h(Eyebrow, null, "纠错候选 · 只读预览"),
+    h(Eyebrow, null, "纠错候选 · 由你定夺"),
     h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.sub, margin: "6px 0 10px" } }, reason),
     !pair ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, padding: "14px 0" } }, "正在从权威表重读新旧两条…") : h(React.Fragment, null,
       issues.length ? h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: "#9f5149", background: "rgba(159,81,73,.08)", borderRadius: 9, padding: "8px 10px", marginBottom: 8 } }, "🔴 " + issues.join("；") + "。未来正式确认时必须重新生成候选。") : null,
       card("旧说法（确认后只留档，不删除）", oldRow, candidate.old_base_revision, "#9f5149"),
       card("新说法（确认后保持主动浮现）", newRow, candidate.new_base_revision, t.tint)),
-    h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, lineHeight: 1.65, marginTop: 8 } }, "当前是 dormant 预览：没有确认按钮，也不会修改两条记忆。正式启用必须先部署并跑完全套回滚测试。"));
+    h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, lineHeight: 1.65, marginTop: 8 } }, "确认只会让旧说法退出正常召回，并留下新→旧的可追溯关系；任何一条都不会被删除。"),
+    h("div", { className: "flex", style: { gap: 8, marginTop: 10 } },
+      h("button", { onClick: () => decide("rejected"), disabled: busy || !pair, className: "flex-1 py-2.5 disabled:opacity-40", style: { border: "1px solid " + t.line, borderRadius: 9, color: t.sub, fontFamily: F_BODY, fontSize: 12.5 } }, "不是纠错"),
+      h("button", { onClick: () => decide("accepted"), disabled: busy || !pair || issues.length > 0, className: "flex-1 py-2.5 disabled:opacity-40", style: { background: t.ink, borderRadius: 9, color: t.bg2, fontFamily: F_BODY, fontSize: 12.5 } }, busy ? "正在留环…" : "确认：新条纠正旧条")));
 }
 
 function InnerLifeEDiagnosticSheet({ onClose }) {
@@ -5004,23 +5018,27 @@ function MemoryLib({
 }) {
   const t = useTheme();
   const [showArchived, setShowArchived] = useState(false);
+  const [showSuperseded, setShowSuperseded] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [innerLifeOpen, setInnerLifeOpen] = useState(false);
   const [bAxesOpen, setBAxesOpen] = useState(false);
   const [cSleepOpen, setCSleepOpen] = useState(false);
   const [aEmoOpen, setAEmoOpen] = useState(false);
   const [diagOpen, setDiagOpen] = useState(false); // 工程仪表抽屉：默认合拢，别压着记忆
-  const correctionPreviewOn = (() => { try { return localStorage.getItem("memory_corrections_preview_v1") === "1"; } catch (e) { return false; } })();
   const [corrections, setCorrections] = useState([]);
   const [correctionOpen, setCorrectionOpen] = useState(null);
+  const [correctionPicking, setCorrectionPicking] = useState(null); // null=关闭；{oldId:null|string}=正在挑旧→新
+  const reloadCorrections = () => window.Cloud && window.Cloud.memoryCorrectionCandidatesList
+    ? window.Cloud.memoryCorrectionCandidatesList().then(rows => { setCorrections(rows || []); return rows || []; }).catch(() => { setCorrections([]); return []; })
+    : Promise.resolve([]);
   useEffect(() => {
     let alive = true;
-    if (!correctionPreviewOn || !(window.Cloud && window.Cloud.memoryCorrectionCandidatesList)) return () => { alive = false; };
+    if (!(window.Cloud && window.Cloud.memoryCorrectionCandidatesList)) return () => { alive = false; };
     window.Cloud.memoryCorrectionCandidatesList().then(rows => { if (alive) setCorrections(rows || []); }).catch(() => { if (alive) setCorrections([]); });
     return () => { alive = false; };
-  }, [correctionPreviewOn]);
+  }, [entries]);
   // 落灰记忆数量（和 app.js purgeWithered 同判定）：非置顶/非开环/情绪弱(a≤1)/120天没被想起/几乎没被召回(hits<2)
-  const witheredCount = (entries || []).filter(e => { const now = Date.now(); return e && !e.pinned && !e.open && (e.a || 0) <= 1 && (e.hits || 0) < 2 && now - (Math.max(e.ts || 0, e.lastHit || 0) || now) >= 120 * 86400000; }).length;
+  const witheredCount = (entries || []).filter(e => { const now = Date.now(); return e && (e.surfaceState || "active") === "active" && !e.pinned && !e.open && (e.a || 0) <= 1 && (e.hits || 0) < 2 && now - (Math.max(e.ts || 0, e.lastHit || 0) || now) >= 120 * 86400000; }).length;
   const [filter, setFilter] = useState(focusChar ? focusChar.id : "all");
   const [editing, setEditing] = useState(null); // "new" | entry
   const [cfgOpen, setCfgOpen] = useState(false); // 召回设置弹层
@@ -5051,11 +5069,30 @@ function MemoryLib({
   const refineSrcCount = e => { const batch = refineBatchOf(e); return batch ? (entries || []).filter(x => x && x.archived && x.archivedBatch === batch).length : 0; };
   // 可精炼旧记忆数（和 app.js isRefinable 同判定）：已了结/非置顶/情绪弱(a≤2)/放了 60+ 天/未归档；按当前筛选范围算
   const inScope = e => filter === "all" || !e.charIds || e.charIds.length === 0 || e.charIds.includes(filter);
-  const refinableCount = (entries || []).filter(e => { const now = Date.now(); return e && e.text && !e.pinned && !e.open && !e.archived && e.source !== "monthly" && (e.a || 0) <= 2 && now - (e.ts || 0) >= 60 * 86400000 && inScope(e); }).length;
+  const refinableCount = (entries || []).filter(e => { const now = Date.now(); return e && e.text && (e.surfaceState || "active") === "active" && !e.pinned && !e.open && !e.archived && e.source !== "monthly" && (e.a || 0) <= 2 && now - (e.ts || 0) >= 60 * 86400000 && inScope(e); }).length;
   const archived = (entries || []).filter(e => e && e.archived && inScope(e)).slice().sort((a, b) => (b.archivedTs || 0) - (a.archivedTs || 0));
+  const superseded = (entries || []).filter(e => e && (e.surfaceState || "active") === "superseded" && inScope(e)).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
   const qlc = q.trim().toLowerCase();
-  const list = (entries || []).filter(e => !e.archived && (!openOnly || e.open) && (filter === "all" || !e.charIds || e.charIds.length === 0 || e.charIds.includes(filter)) && (!qlc || (String(e.text || "") + " " + (e.tags || []).join(" ") + " " + (e.charIds || []).map(nameOf).join(" ")).toLowerCase().indexOf(qlc) >= 0)).slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (b.ts || 0) - (a.ts || 0));
+  const list = (entries || []).filter(e => !e.archived && (e.surfaceState || "active") === "active" && (!openOnly || e.open) && (filter === "all" || !e.charIds || e.charIds.length === 0 || e.charIds.includes(filter)) && (!qlc || (String(e.text || "") + " " + (e.tags || []).join(" ") + " " + (e.charIds || []).map(nameOf).join(" ")).toLowerCase().indexOf(qlc) >= 0)).slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (b.ts || 0) - (a.ts || 0));
   const importable = focusChar && oldMemories && (oldMemories[focusChar.id] || "").trim();
+  const pickCorrectionRow = async e => {
+    if (!correctionPicking) return false;
+    if (!correctionPicking.oldId) { setCorrectionPicking({ oldId: e.id }); window.__toast && window.__toast("旧说法已选；现在点那条正确的新说法"); return true; }
+    if (correctionPicking.oldId === e.id) { window.__toast && window.__toast("新旧不能是同一条"); return true; }
+    try {
+      const rows = await window.Cloud.memoryRowsFetchByIds([correctionPicking.oldId, e.id]);
+      const oldRow = rows.find(x => x.id === correctionPicking.oldId), newRow = rows.find(x => x.id === e.id);
+      if (!oldRow || !newRow) throw new Error("权威表里缺少其中一条");
+      const made = await window.Cloud.memoryCorrectionCreate(oldRow.id, newRow.id, oldRow.revision, newRow.revision, "manual");
+      setCorrectionPicking(null); await reloadCorrections();
+      const cid = made && made.candidate && made.candidate.id;
+      const latest = await window.Cloud.memoryCorrectionCandidatesList();
+      const cand = (latest || []).find(x => x.id === cid);
+      if (cand) setCorrectionOpen(cand);
+      window.__toast && window.__toast("纠错候选已建好，请核对新旧两条");
+    } catch (err) { window.__toast && window.__toast("候选没建成：" + (err.message || err)); }
+    return true;
+  };
   return h("div", {
     className: "h-full flex flex-col"
   }, h(Head, {
@@ -5071,7 +5108,7 @@ function MemoryLib({
   bAxesOpen ? h(InnerLifeBDiagnosticSheet, { characters, onClose: () => setBAxesOpen(false) }) : null,
   cSleepOpen ? h(InnerLifeCDiagnosticSheet, { characters, onClose: () => setCSleepOpen(false) }) : null,
   aEmoOpen ? h(InnerLifeADiagnosticSheet, { characters, onClose: () => setAEmoOpen(false) }) : null,
-  correctionOpen ? h(MemoryCorrectionPreviewSheet, { candidate: correctionOpen, onClose: () => setCorrectionOpen(null) }) : null, h("div", {
+  correctionOpen ? h(MemoryCorrectionPreviewSheet, { candidate: correctionOpen, onDecided: () => setCorrections(p => p.filter(x => x.id !== correctionOpen.id)), onClose: () => setCorrectionOpen(null) }) : null, h("div", {
     className: "shrink-0 px-6 pb-2"
   }, h("button", { onClick: () => setDiagOpen(v => !v), className: "w-full rounded-xl py-2 mb-2 active:opacity-60 flex items-center justify-between px-4", style: { border: "1px dashed " + t.line, color: t.sub, fontFamily: F_BODY, fontSize: 12 } },
     h("span", null, "🔬 诊断与审计 · 工程仪表"), h("span", { style: { color: t.fog, fontSize: 10.5 } }, diagOpen ? "收起 ▾" : "展开 ▸")),
@@ -5108,9 +5145,11 @@ function MemoryLib({
     style: { border: "1px dashed " + t.line, color: t.fog, fontFamily: F_BODY, fontSize: 11.5 }
   }, "紧急回退：改读本机镜像") : null) : null,
   corrections.length ? h("div", { style: { border: "1px dashed " + t.tint, borderRadius: 11, padding: "8px 10px", marginBottom: 8 } },
-    h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.sub, marginBottom: 5 } }, "🧷 待过目的纠错候选 " + corrections.length + " 条（只读）"),
+    h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.sub, marginBottom: 5 } }, "🧷 待你定夺的纠错候选 " + corrections.length + " 条"),
     corrections.slice(0, 5).map(c => h("button", { key: c.id, onClick: () => setCorrectionOpen(c), className: "w-full text-left active:opacity-60", style: { fontFamily: F_BODY, fontSize: 11, color: t.ink, padding: "5px 0", borderTop: "1px dashed " + t.line } },
       ({ more_detailed: "更详细", contradiction: "事实纠正", manual: "手动纠正" })[c.reason] || c.reason, " · ", String(c.updated_at || "").slice(0,10)))) : null,
+  h("button", { onClick: () => setCorrectionPicking(p => p ? null : { oldId: null }), className: "w-full rounded-lg py-2 mb-2 active:opacity-70", style: { border: "1px dashed " + (correctionPicking ? "#9f5149" : t.line), color: correctionPicking ? "#9f5149" : t.fog, fontFamily: F_BODY, fontSize: 11.5 } },
+    correctionPicking ? (correctionPicking.oldId ? "已选旧说法 · 现在点正确的新说法（取消）" : "现在点一条错误的旧说法（取消）") : "🪡 手动挑两条做事实纠正"),
   h(EventShelfSection, { characters: characters, entries: entries }),
   h("input", { value: q, onChange: e => setQ(e.target.value), placeholder: "搜索记忆内容 / 标签 / 角色…",
     className: "w-full outline-none", style: { fontFamily: F_BODY, fontSize: 13, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 999, padding: "8px 14px" } })), h("div", {
@@ -5159,7 +5198,7 @@ function MemoryLib({
     sub: "点右上角 + 手动添加，或从对话自动提取"
   }), list.map(e => h("button", {
     key: e.id,
-    onClick: () => setEditing(e),
+    onClick: () => { if (!correctionPicking) setEditing(e); else pickCorrectionRow(e); },
     className: "w-full text-left rounded-2xl px-4 py-3 mb-2.5",
     style: {
       background: t.bg2,
@@ -5206,7 +5245,15 @@ function MemoryLib({
       fontSize: 10,
       color: t.line
     }
-  }, "· " + new Date(e.ts || Date.now()).toLocaleDateString("zh-CN"), (e.source === "import" ? " · 导入" : e.source === "manual" ? " · 手动" : (e.tags || []).includes("群聊") ? " · 群聊" : (e.tags || []).includes("线下") ? " · 线下" : e.source === "auto" ? " · 自动" : ""))))), archived.length ? h("div", {
+  }, "· " + new Date(e.ts || Date.now()).toLocaleDateString("zh-CN"), (e.source === "import" ? " · 导入" : e.source === "manual" ? " · 手动" : (e.tags || []).includes("群聊") ? " · 群聊" : (e.tags || []).includes("线下") ? " · 线下" : e.source === "auto" ? " · 自动" : ""))))), superseded.length ? h("div", {
+    style: { marginTop: 12, paddingTop: 12, borderTop: "1px dashed " + t.line }
+  }, h("button", {
+    onClick: () => setShowSuperseded(s => !s), className: "w-full text-left active:opacity-60",
+    style: { fontFamily: F_BODY, fontSize: 12, color: t.fog }
+  }, (showSuperseded ? "▾ " : "▸ ") + "旧说法留档 " + superseded.length + " 条" + (showSuperseded ? "（收起）" : "（不参与召回）")),
+    showSuperseded ? h("div", { className: "mt-2" }, superseded.slice(0, 100).map(e => h("div", {
+      key: e.id, style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, lineHeight: 1.6, padding: "5px 0", borderTop: "1px solid " + t.bg2, whiteSpace: "pre-wrap" }
+    }, e.text, e.supersedesId ? h("div", { style: { fontSize: 10, opacity: .7 } }, "由新条纠正关系留档") : null))) : null) : null, archived.length ? h("div", {
     style: { marginTop: 12, paddingTop: 12, borderTop: "1px dashed " + t.line }
   }, h("button", {
     onClick: () => setShowArchived(s => !s), className: "w-full text-left active:opacity-60",

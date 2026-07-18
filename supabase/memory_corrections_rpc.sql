@@ -1,5 +1,5 @@
 -- ============================================================
--- P1-3 DORMANT · 创建/决定纠错候选的原子 RPC（当前不要执行）
+-- P1-3 LIVE · 创建/决定纠错候选的原子 RPC（2026-07-18 已部署）
 -- 不复制 memory 正文；确认才修改两行 surface state，拒绝不碰 memories。
 -- ============================================================
 create or replace function public.create_memory_correction_candidate(

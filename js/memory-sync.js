@@ -45,10 +45,13 @@
       ts: Number(e && e.ts) || 0, archived: !!(e && e.archived),
       archivedBatch: e && e.archivedBatch != null ? String(e.archivedBatch) : null,
       archivedTs: e && e.archivedTs != null ? Number(e.archivedTs) : null,
-      source: e && e.source != null ? String(e.source) : null
+      source: e && e.source != null ? String(e.source) : null,
+      // 专用纠错 RPC 拥有写权；普通同步只镜像这两项，绝不放进 mutation payload。
+      surfaceState: e && e.surfaceState != null ? String(e.surfaceState) : "active",
+      supersedesId: e && e.supersedesId != null ? String(e.supersedesId) : null
     };
   }
-  const sig = e => JSON.stringify(sharedRow(e));
+  const sig = e => { const x = sharedRow(e); delete x.surfaceState; delete x.supersedesId; return JSON.stringify(x); };
   const payloadFor = (e, deviceId) => {
     const x = sharedRow(e);
     return {

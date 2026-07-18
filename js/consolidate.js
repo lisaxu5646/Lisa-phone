@@ -3,7 +3,7 @@
 // 纯前端确定性算法，零 API 费。只「建议」不「创建」：建议卡点开后
 // 预填进 EventComposeSheet，仍走既有候选请求流程（核对→执笔→过目→确认），
 // 同意权全程在 Lisa 手里——事件层 v1 合同「不做自动聚类」指的是不自动
-// 建候选，本模块不触碰任何写入。
+// 建候选，本模块不触碰任何写入；superseded 留档条永不进入新建议。
 // 算法：按主角色分组 → 时间链（间隔>gap 断开）→ 标签聚合评分。
 // ============================================================
 (function (root, factory) {
@@ -45,7 +45,7 @@
     const topN = Number(opts.topN) > 0 ? Number(opts.topN) : TOP_N;
     const used = opts.usedIds instanceof Set ? opts.usedIds : new Set(Array.isArray(opts.usedIds) ? opts.usedIds : []);
     const rows = (Array.isArray(entries) ? entries : []).filter(e =>
-      e && e.id && e.text && Number.isFinite(Number(e.ts)) && !e.deleted && !e.archived && !used.has(e.id));
+      e && e.id && e.text && Number.isFinite(Number(e.ts)) && !e.deleted && !e.archived && (e.surfaceState || e.surface_state || "active") === "active" && !used.has(e.id));
     const byChar = new Map();
     rows.forEach(e => {
       const c = Array.isArray(e.charIds) && e.charIds.length ? String(e.charIds[0]) : "_misc";

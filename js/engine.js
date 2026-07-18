@@ -774,7 +774,7 @@ function scoreMemEntry(entry, qTokens, now, qVec) {
 }
 function retrieveMemories(lib, charId, queryText, opts = {}) {
   const limit = opts.limit || 6;
-  const list = (lib || []).filter(e => e && e.text && !e.archived && (!e.charIds || e.charIds.length === 0 || e.charIds.includes(charId)));
+  const list = (lib || []).filter(e => e && e.text && !e.archived && (e.surfaceState || "active") === "active" && (!e.charIds || e.charIds.length === 0 || e.charIds.includes(charId)));
   if (list.length === 0) return [];
   const qTokens = memTokens(queryText);
   // 向量：只有发送前 primeQueryVec 预热过、缓存命中才拿得到；没有就 null=纯关键词，行为同旧版

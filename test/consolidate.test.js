@@ -30,11 +30,12 @@ test("不足 minSize 的链不出建议；不同角色不混摞", () => {
   assert.deepEqual(out[0].ids, ["y1", "y2", "y3"]);
 });
 
-test("usedIds 排除已进事件/候选的碎片，deleted/archived 排除", () => {
+test("usedIds 排除已进事件/候选的碎片，deleted/archived/superseded 排除", () => {
   const entries = [
     mk("u1", T0, "c1"), mk("u2", T0 + H, "c1"), mk("u3", T0 + 2 * H, "c1"), mk("u4", T0 + 3 * H, "c1"),
     Object.assign(mk("u5", T0 + 4 * H, "c1"), { deleted: true }),
-    Object.assign(mk("u6", T0 + 5 * H, "c1"), { archived: true })
+    Object.assign(mk("u6", T0 + 5 * H, "c1"), { archived: true }),
+    Object.assign(mk("u7", T0 + 6 * H, "c1"), { surfaceState: "superseded" })
   ];
   const out = C.suggestClusters(entries, { usedIds: ["u1", "u2"] });
   assert.equal(out.length, 0); // 剩 u3/u4 两条，不够 minSize

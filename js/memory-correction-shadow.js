@@ -42,7 +42,9 @@
         oldOpen: !!(input && input.oldOpen),
         oldTooShort: !!(input && input.oldTooShort),
         currentWouldPrune: !!(input && input.currentWouldPrune),
-        source: safeId(input && input.source || "unknown")
+        source: safeId(input && input.source || "unknown"),
+        proposedAt: previous && previous.proposedAt || null,
+        candidateId: previous && previous.candidateId || null
       });
       await done(tx);
       if (Math.random() < 0.08) await trim();
@@ -77,9 +79,24 @@
       };
     } catch (e) { return { error: "纠错旁路报表读取失败" }; }
   }
+  async function pendingPairs() {
+    try {
+      const db = await openDB(), tx = db.transaction("pairs", "readonly"), rows = await rq(tx.objectStore("pairs").getAll());
+      await done(tx);
+      return rows.filter(x => x && x.currentWouldPrune && !x.proposedAt).sort((a, b) => Number(a.firstSeenAt || 0) - Number(b.firstSeenAt || 0));
+    } catch (e) { return []; }
+  }
+  async function markProposed(pair, candidateId) {
+    try {
+      const db = await openDB(), tx = db.transaction("pairs", "readwrite"), store = tx.objectStore("pairs");
+      const row = await rq(store.get(String(pair || "")));
+      if (row) store.put({ ...row, proposedAt: Date.now(), candidateId: safeId(candidateId) || null });
+      await done(tx);
+    } catch (e) {}
+  }
   async function clearAll() {
     try { const db = await openDB(), tx = db.transaction("pairs", "readwrite"); tx.objectStore("pairs").clear(); await done(tx); } catch (e) {}
   }
 
-  window.MemoryCorrectionShadow = { observePair, report, clearAll };
+  window.MemoryCorrectionShadow = { observePair, pendingPairs, markProposed, report, clearAll };
 })();
