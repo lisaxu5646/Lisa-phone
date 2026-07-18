@@ -4849,6 +4849,45 @@ function InnerLifeEDiagnosticSheet({ onClose }) {
     h("button", { onClick:load,className:"w-full mt-3 py-2.5 active:opacity-70",style:{borderRadius:9,border:"1px solid "+t.line,fontFamily:F_BODY,fontSize:12,color:t.sub} }, "刷新诊断"));
 }
 
+// A 情绪统一影子诊断台（只读）：十维当前值 + 投影采样统计（凑齐 E/B/C/A 四块仪表）
+function InnerLifeADiagnosticSheet({ characters, onClose }) {
+  const t = useTheme();
+  const [rows, setRows] = useState(null);
+  const AXIS_ZH = { connection: "思念", pride: "傲娇", valence: "愉悦", arousal: "唤醒", immersion: "沉浸", hurt: "委屈", anger: "火气", anxiety: "不安", warmth: "暖意", fatigue: "疲惫" };
+  const load = async () => {
+    setRows(null);
+    try {
+      const S = window.InnerLifeAShadow;
+      if (!S) { setRows({ error: "A 影子模块未载入" }); return; }
+      let ownerId = "local-device";
+      try { const u = window.Cloud && window.Cloud.getSessionUser && await window.Cloud.getSessionUser(); if (u && u.id) ownerId = u.id; } catch (e) {}
+      const out = [];
+      for (const c of (characters || [])) {
+        const st = await S.get(ownerId, c.id);
+        const r = await S.report(ownerId, c.id);
+        if (st || (r && r.sampleCount)) out.push({ char: c, st, r: r || {} });
+      }
+      setRows({ list: out });
+    } catch (e) { setRows({ error: "A 影子诊断读取失败" }); }
+  };
+  useEffect(() => { load(); }, []);
+  const line = (a, b) => h("div", { className: "flex justify-between", style: { fontFamily: F_BODY, fontSize: 11.5, color: t.sub, padding: "4px 0", borderBottom: "1px dashed " + t.line } }, h("span", null, a), h("span", { style: { color: t.ink, fontWeight: 600 } }, b));
+  return h(Sheet, { onClose },
+    h(Eyebrow, null, "A · 情绪统一 · 纯影子诊断"),
+    h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, lineHeight: 1.65, margin: "7px 0 10px" } }, "十维只算不注入：当前值在影子库里演算与回归，投影采样只记录「如果注入会给哪些维度」。评审看：投影维度分布合不合理、mood 未匹配率、钳制次数。"),
+    !rows ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, padding: "16px 0" } }, "正在读本机影子数据…") :
+    rows.error ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: "#9f5149", padding: "12px 0" } }, rows.error) :
+    !rows.list.length ? h("div", { style: { fontFamily: F_BODY, fontSize: 12, color: t.fog, padding: "12px 0" } }, "还没有任何角色的情绪影子数据") :
+    rows.list.map(({ char, st, r }) => h("div", { key: char.id, style: { marginBottom: 14 } },
+      h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, fontWeight: 700, color: t.ink, marginBottom: 4 } }, char.remark || char.name),
+      st && st.emotion && st.emotion.current ? h("div", { className: "flex flex-wrap", style: { gap: 5, marginBottom: 5 } },
+        Object.entries(st.emotion.current).map(([k, v]) => h("span", { key: k, style: { fontFamily: F_BODY, fontSize: 10.5, padding: "2px 8px", borderRadius: 999, border: "1px solid " + t.line, color: Math.abs(v) > 0.45 ? t.tint : t.fog } }, (AXIS_ZH[k] || k) + " " + (Math.round(v * 100) / 100))))
+        : h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, "无状态（引擎还没为 TA 演算过）"),
+      line("投影采样 / mood未匹配 / 被钳制", (r.sampleCount || 0) + " / " + (r.unmatchedMoodCount || 0) + " / " + (r.clippedCount || 0)),
+      r.dimensionCounts && Object.keys(r.dimensionCounts).length ? line("投影维度分布", Object.entries(r.dimensionCounts).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, n]) => (AXIS_ZH[k] || k) + "×" + n).join(" ")) : null)),
+    h("button", { onClick: load, className: "w-full mt-3 py-2.5 active:opacity-70", style: { borderRadius: 9, border: "1px solid " + t.line, fontFamily: F_BODY, fontSize: 12, color: t.sub } }, "刷新诊断"));
+}
+
 // B 第3步：关系轴影子诊断台（只读；试点=阿屿/顾暮，小克硬拒在 pilotFor 里）
 function InnerLifeBDiagnosticSheet({ characters, onClose }) {
   const t = useTheme();
@@ -4962,6 +5001,7 @@ function MemoryLib({
   const [innerLifeOpen, setInnerLifeOpen] = useState(false);
   const [bAxesOpen, setBAxesOpen] = useState(false);
   const [cSleepOpen, setCSleepOpen] = useState(false);
+  const [aEmoOpen, setAEmoOpen] = useState(false);
   const [diagOpen, setDiagOpen] = useState(false); // 工程仪表抽屉：默认合拢，别压着记忆
   const correctionPreviewOn = (() => { try { return localStorage.getItem("memory_corrections_preview_v1") === "1"; } catch (e) { return false; } })();
   const [corrections, setCorrections] = useState([]);
@@ -5023,11 +5063,13 @@ function MemoryLib({
   innerLifeOpen ? h(InnerLifeEDiagnosticSheet, { onClose: () => setInnerLifeOpen(false) }) : null,
   bAxesOpen ? h(InnerLifeBDiagnosticSheet, { characters, onClose: () => setBAxesOpen(false) }) : null,
   cSleepOpen ? h(InnerLifeCDiagnosticSheet, { characters, onClose: () => setCSleepOpen(false) }) : null,
+  aEmoOpen ? h(InnerLifeADiagnosticSheet, { characters, onClose: () => setAEmoOpen(false) }) : null,
   correctionOpen ? h(MemoryCorrectionPreviewSheet, { candidate: correctionOpen, onClose: () => setCorrectionOpen(null) }) : null, h("div", {
     className: "shrink-0 px-6 pb-2"
   }, h("button", { onClick: () => setDiagOpen(v => !v), className: "w-full rounded-xl py-2 mb-2 active:opacity-60 flex items-center justify-between px-4", style: { border: "1px dashed " + t.line, color: t.sub, fontFamily: F_BODY, fontSize: 12 } },
     h("span", null, "🔬 诊断与审计 · 工程仪表"), h("span", { style: { color: t.fog, fontSize: 10.5 } }, diagOpen ? "收起 ▾" : "展开 ▸")),
   diagOpen ? h(React.Fragment, null,
+  h("button", { onClick: () => setAEmoOpen(true), className: "w-full rounded-xl py-2.5 mb-2 active:opacity-60", style: { border: "1px dashed " + t.tint, color: t.tint, fontFamily: F_BODY, fontSize: 12.5 } }, "🫀 A 情绪统一 · 查看纯影子诊断"),
   h("button", { onClick: () => setInnerLifeOpen(true), className: "w-full rounded-xl py-2.5 mb-2 active:opacity-60", style: { border: "1px dashed " + t.tint, color: t.tint, fontFamily: F_BODY, fontSize: 12.5 } }, "🌙 E 余温与潮汐 · 查看纯影子诊断"), h("button", { onClick: () => setBAxesOpen(true), className: "w-full rounded-xl py-2.5 mb-2 active:opacity-60", style: { border: "1px dashed " + t.tint, color: t.tint, fontFamily: F_BODY, fontSize: 12.5 } }, "🧵 B 关系轴 · 查看纯影子诊断"), h("button", { onClick: () => setCSleepOpen(true), className: "w-full rounded-xl py-2.5 mb-2 active:opacity-60", style: { border: "1px dashed " + t.tint, color: t.tint, fontFamily: F_BODY, fontSize: 12.5 } }, "😴 C 睡眠与发声闸 · 查看纯影子诊断"), onAudit ? h("button", {
     onClick: onAudit,
     className: "w-full rounded-xl py-2.5 mb-2 active:opacity-60",
