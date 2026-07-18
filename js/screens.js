@@ -4470,11 +4470,13 @@ async function evSha256Hex(s) {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return [...new Uint8Array(d)].map(x => x.toString(16).padStart(2, "0")).join("");
 }
-function EventComposeSheet({ entries, characters, onClose, onCreated, toast }) {
+function EventComposeSheet({ entries, characters, onClose, onCreated, toast, preselect }) {
   const t = useTheme();
   const [stage, setStage] = useState("pick"); // pick → verify
-  const [selChar, setSelChar] = useState(null);
-  const [selIds, setSelIds] = useState([]); // 保留勾选顺序
+  const [selChar, setSelChar] = useState(preselect && preselect.charId ? preselect.charId : null);
+  // 聚类建议预填：只收还存在于当前碎片列表的 ID，仍可增删，走完整核对流程
+  const [selIds, setSelIds] = useState(() => preselect && Array.isArray(preselect.ids)
+    ? preselect.ids.filter(id => (entries || []).some(e => e && e.id === id)).slice(0, 30) : []); // 保留勾选顺序
   const [q, setQ] = useState("");
   const [rows, setRows] = useState(null);   // 核对页：权威行表重读结果
   const [problems, setProblems] = useState([]);
@@ -4708,6 +4710,8 @@ function EventShelfSection({ characters, entries }) {
   const [cands, setCands] = useState([]);
   const [detail, setDetail] = useState(null); // { event, links }
   const [composeOpen, setComposeOpen] = useState(false);
+  const [preselect, setPreselect] = useState(null); // 聚类建议 → 预填执笔请求
+  const [sugs, setSugs] = useState([]);
   const [reviewId, setReviewId] = useState(null); // 打开过目台的候选 id
   const [showRejected, setShowRejected] = useState(false);
   const [evQ, setEvQ] = useState(""); // ⑥第7步：书架搜索（标题/梗概/主题，本地过滤）
@@ -4717,7 +4721,13 @@ function EventShelfSection({ characters, entries }) {
     if (!window.MemoryEvents) return;
     try {
       setEvents(await window.MemoryEvents.listEvents());
-      setCands(await window.MemoryEvents.listCandidates());
+      const cs = await window.MemoryEvents.listCandidates();
+      setCands(cs);
+      if (window.Consolidate) { // 聚类建议：排除已进候选/事件的碎片（rejected/expired 可重聚）
+        const used = new Set();
+        cs.forEach(c => { if (c.status !== "rejected" && c.status !== "expired") (c.source_memory_ids || []).forEach(id => used.add(id)); });
+        setSugs(window.Consolidate.suggestClusters(entries || [], { usedIds: used }));
+      }
     } catch (e) {/* IDB 异常不阻塞记忆库 */}
   };
   useEffect(() => {
@@ -4738,6 +4748,14 @@ function EventShelfSection({ characters, entries }) {
     h("span", { style: { color: t.fog, fontSize: 11 } }, open ? "收起" : "展开")),
   open && h("div", { style: { maxHeight: "38vh", overflowY: "auto", marginBottom: 8 } },
     h("button", { onClick: () => setComposeOpen(true), className: "w-full rounded-lg py-2 mb-2 active:opacity-70", style: { border: "1px dashed " + t.tint, color: t.tint, fontFamily: F_BODY, fontSize: 12 } }, "＋ 挑碎片整理成事件"),
+    sugs.length ? h("div", { style: { marginBottom: 8 } },
+      h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, color: t.fog, margin: "2px 0 5px" } }, "🧩 帮你聚了 " + sugs.length + " 摞像一件事的碎片（点开预填，仍由你核对定夺）"),
+      sugs.map(s => h("button", {
+        key: s.key, onClick: () => { setPreselect(s); setComposeOpen(true); },
+        className: "w-full text-left rounded-lg py-2 px-3 mb-1.5 active:opacity-70",
+        style: { border: "1px dashed " + t.line, background: t.bg2, fontFamily: F_BODY, fontSize: 11.5, color: t.sub }
+      }, "🧩 " + (s.topTags.length ? s.topTags.join("/") : "未标签") + " · " + fmtD(s.startTs) + "–" + fmtD(s.endTs) + " · " + s.size + " 条" +
+        (s.charId ? " · 关联" + nameOf(s.charId) : "") + (s.truncatedFrom ? "（原 " + s.truncatedFrom + " 条取最近 30）" : "")))) : null,
     pendingCands.map(c => h("button", {
       key: c.id, onClick: () => setReviewId(c.id),
       className: "w-full rounded-lg py-2 mb-1.5 active:opacity-70",
@@ -4763,7 +4781,7 @@ function EventShelfSection({ characters, entries }) {
         (ev.char_ids || []).map(nameOf).join("、"),
         " · ", fmtD(ev.started_ts), ev.ended_ts ? "–" + fmtD(ev.ended_ts) : "起",
         ev.edited_by_user ? " · 你改过" : "")))),
-  composeOpen && h(EventComposeSheet, { entries: entries, characters: characters, toast: window.__toast, onCreated: async () => { if (window.MemoryEvents) { await window.MemoryEvents.refresh(); load(); } }, onClose: () => setComposeOpen(false) }),
+  composeOpen && h(EventComposeSheet, { entries: entries, characters: characters, preselect: preselect, toast: window.__toast, onCreated: async () => { if (window.MemoryEvents) { await window.MemoryEvents.refresh(); load(); } }, onClose: () => { setComposeOpen(false); setPreselect(null); } }),
   reviewId && h(CandidateReviewSheet, { candidateId: reviewId, characters: characters, toast: window.__toast, onChanged: async () => { if (window.MemoryEvents) { await window.MemoryEvents.refresh(); load(); } }, onClose: () => setReviewId(null) }),
   detail && h(Sheet, { onClose: () => setDetail(null) },
     h(Eyebrow, { style: { marginBottom: 6 } }, detail.event.title),
