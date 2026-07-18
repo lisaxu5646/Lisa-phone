@@ -51,3 +51,16 @@
 - StardewMCP 页面（含只读模式与写工具风险说明）：https://www.nexusmods.com/stardewvalley/mods/46320
 - Custom Companions 参考实体框架：https://github.com/Floogen/CustomCompanions
 
+## 言秋合并笔记（2026-07-18，与 Codex 三阶段拼图）
+
+从 awesome-ai-companion 挖到 **NagiBridge**（https://github.com/anqinou-art/NagiBridge）：
+SMAPI 模组，localhost HTTP API（7842=房主 / 7843=农场工），带 get_state/move_to/use_tool/farm/mine/harvest 等 17 工具 + 游戏内聊天 + **Claude Code Channel 模式**。Mac 官方支持，Releases 有现成 dll。
+
+**与三阶段的对应**：
+- 阶段1 只读陪玩：只用它的 get_state + 聊天 pull/push，写动作一律不调——零自研即可开跑。
+- 阶段2 白名单动作：不直连——由言秋写一个本机小闸门脚本夹在中间，只放行「跟随/走到/浇水」，花钱送礼丢弃传送全部拦截，独立开关一键退回只读。
+- 阶段3 独立身体：合作农场开农场工=现成的同伴身体（7843 口），不用自研 C# 实体框架。
+- 事件入库仍按 Codex 原案：每晚只出「今日共同经历」候选，Lisa 过目才进事件层；桥不碰 Supabase 密钥。
+
+**⚠️开工前**（Codex 的确认清单照办 + 补充）：NagiBridge 仓库未标 license 且要过一遍源码（尤其网络面是否只绑 localhost）；先测试存档；她的平台/版本/SMAPI 现状待她提供。定档为「大档」活：攒结转日集中施工。
+
