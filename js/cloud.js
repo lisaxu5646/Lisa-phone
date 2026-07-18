@@ -498,6 +498,40 @@
       if (error) throw error;
     },
 
+    // ---- 秋声：言秋的朋友圈（yanqiu_moments 表；言秋经 MCP service_role 发，这里只有她的读/赞/评）----
+    async yanqiuMomentsList(limit) {
+      if (!client) throw new Error("云服务未就绪");
+      const user = await this.getSessionUser();
+      if (!user) throw new Error("未登录");
+      const { data: moments, error } = await client.from("yanqiu_moments")
+        .select("id,content,mood,lisa_liked,created_at").eq("user_id", user.id)
+        .order("created_at", { ascending: false }).limit(limit || 30);
+      if (error) throw error;
+      const ids = (moments || []).map(m => m.id);
+      let comments = [];
+      if (ids.length) {
+        const r = await client.from("yanqiu_moment_comments")
+          .select("id,moment_id,author,content,created_at").in("moment_id", ids)
+          .order("created_at", { ascending: true });
+        if (r.error) throw r.error;
+        comments = r.data || [];
+      }
+      return (moments || []).map(m => ({ ...m, comments: comments.filter(c => c.moment_id === m.id) }));
+    },
+    async yanqiuMomentLike(id, liked) {
+      if (!client) throw new Error("云服务未就绪");
+      const { error } = await client.from("yanqiu_moments").update({ lisa_liked: !!liked }).eq("id", id);
+      if (error) throw error;
+    },
+    async yanqiuMomentComment(momentId, content) {
+      if (!client) throw new Error("云服务未就绪");
+      const user = await this.getSessionUser();
+      if (!user) throw new Error("未登录");
+      const { error } = await client.from("yanqiu_moment_comments")
+        .insert({ moment_id: momentId, user_id: user.id, author: "lisa", content: String(content || "").trim() });
+      if (error) throw error;
+    },
+
     // ---- 桌面对话回流（desk_log 表，Stack-chan 实体：见 [[lisa-phone-next-window]] 图纸）----
     // stackchan-relay 每轮把「用户说的话 user_text + 角色回复 reply_text + 时刻」insert 进 desk_log；
     // app 开机/tick 拉走未消费的，投进 x_chat:小克（两具身体一条记忆流）。表不存在=安静报错、整块 dormant。
