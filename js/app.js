@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.57";
+const APP_VERSION = "v49.58";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -7958,6 +7958,7 @@ function App() {
     profile: profile,
     toast: toast,
     apiFor: apiFor,
+    bgApi: bgActive,
     onBack: () => setScreen("home")
   });else if (screen === "yanqiu") body = h(window.YanqiuMomentsApp, {
     toast: toast,

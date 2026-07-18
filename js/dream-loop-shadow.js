@@ -112,5 +112,28 @@
   }
   async function clearAll() { try { const db = await openDB(), tx = db.transaction(["dreams", "diag", "meta"], "readwrite"); ["dreams", "diag", "meta"].forEach(s => tx.objectStore(s).clear()); await done(tx); } catch (e) {} }
 
-  window.DreamLoop = { observe, report, clearAll };
+  // ---- 步骤 2：给解梦馆的读写口（懒生成由 UI 触发，这里只存取）----
+  async function listDreams(limit) {
+    try {
+      await ensureOwner();
+      const db = await openDB();
+      const all = await rq(db.transaction("dreams", "readonly").objectStore("dreams").getAll());
+      return all.sort((a, b) => String(b.nightKey).localeCompare(String(a.nightKey)) || (b.createdAt || 0) - (a.createdAt || 0)).slice(0, limit || 60);
+    } catch (e) { return []; }
+  }
+  async function saveGenerated(key, gen) {
+    try {
+      const db = await openDB();
+      const row = await rq(db.transaction("dreams", "readonly").objectStore("dreams").get(key));
+      if (!row || row.status !== "queued") return null;
+      const next = { ...row, status: "generated",
+        narrative: String(gen.narrative || "").slice(0, 2000), motifs: (Array.isArray(gen.motifs) ? gen.motifs : []).slice(0, 4).map(x => String(x).slice(0, 12)),
+        tone: String(gen.tone || "").slice(0, 8), wakeLine: String(gen.wakeLine || "").slice(0, 120), generatedAt: Date.now() };
+      const tx = db.transaction("dreams", "readwrite"); tx.objectStore("dreams").put(next); await done(tx);
+      addDiag({ charId: row.charId, kind: "generated", night: row.nightKey, intensity: row.intensity });
+      return next;
+    } catch (e) { return null; }
+  }
+
+  window.DreamLoop = { observe, report, clearAll, listDreams, saveGenerated };
 })();
