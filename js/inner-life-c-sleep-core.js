@@ -1,5 +1,5 @@
 // 内在生活系统 C · 睡眠意识纯状态机（DORMANT）
-// 第 2 步提供日程派生、睡压、state.sleep 与意识队列纯逻辑；仍不接消息入口、发声闸或夜巡。
+// 第 3 步提供日程派生、意识队列与统一唤醒事务；仍不接消息入口、UI、发声闸或夜巡。
 (function (root, factory) {
   "use strict";
   const api = factory();
@@ -18,6 +18,8 @@
   const PRESSURE_GUARD_MS = 90 * MINUTE;
   const MAX_TICK_MS = 6 * HOUR;
   const PRESSURE_RATE_PER_HOUR = Object.freeze({ awake: 0.025, drowsy: 0.04, asleep: -0.18, waking: 0.01 });
+  const FEATURE_PHASE = "shadow";
+  const WAKE_REASONS = Object.freeze(["natural", "knock"]);
 
   const clamp01 = value => Math.max(0, Math.min(1, Number(value) || 0));
   const pad2 = value => String(value).padStart(2, "0");
@@ -103,7 +105,7 @@
 
   function createSleepState(now) {
     const safeNow = Number.isFinite(Number(now)) ? Number(now) : Date.now();
-    return { schemaVersion: SCHEMA_VERSION, phase: "awake", pressure: 0.25, phaseSince: safeNow, source: "unknown_schedule", lastSleptTs: null, lastWokeTs: null, sleepStartTs: null, wakeAtTs: null, nextTransitionTs: null, forcedUntilTs: null, scheduleFingerprint: null, queue: [], queueOrder: 0, revision: 1, updatedTs: safeNow };
+    return { schemaVersion: SCHEMA_VERSION, phase: "awake", pressure: 0.25, phaseSince: safeNow, source: "unknown_schedule", lastSleptTs: null, lastWokeTs: null, wakeReason: null, startleTs: null, sleepStartTs: null, wakeAtTs: null, nextTransitionTs: null, forcedUntilTs: null, scheduleFingerprint: null, queue: [], queueOrder: 0, revision: 1, updatedTs: safeNow };
   }
 
   function safeSleep(previous, now) {
@@ -157,6 +159,25 @@
     return { state: { ...state, queue: state.queue.filter(item => !ids.has(item.messageId)), revision: Number(state.revision || 0) + 1, updatedTs: wakeTs }, messages: nextMessages, committed: true };
   }
 
+  function planWakeRelease(sleepState, messages, input) {
+    const now = Number(input && input.now), wakeTs = Number.isFinite(now) ? now : Date.now();
+    const reason = WAKE_REASONS.includes(input && input.reason) ? input.reason : "natural";
+    const mode = input && input.mode === "live" ? "live" : FEATURE_PHASE;
+    if (input && input.engineerEyes === true) return { decision: "exempt", reason, wakeTs, originalState: sleepState || null, proposedState: sleepState || null, release: null, diagnostic: null };
+    const state = safeSleep(sleepState, wakeTs), release = planRelease(state, messages, wakeTs);
+    if (reason === "knock" && state.phase !== "asleep") return { decision: "already_awake", reason, wakeTs, originalState: sleepState || state, proposedState: state, release, diagnostic: null };
+    const proposedState = reason === "knock" ? { ...state, phase: "waking", phaseSince: wakeTs, source: "knock", lastWokeTs: wakeTs, wakeReason: "knock", startleTs: wakeTs, wakeAtTs: wakeTs, nextTransitionTs: wakeTs + WAKING_MS, forcedUntilTs: null, revision: Number(state.revision || 0) + 1, updatedTs: wakeTs } : { ...state, wakeReason: "natural", startleTs: null };
+    const diagnostic = { kind: reason === "knock" ? "would_knock_wake" : "would_natural_wake", releaseCount: release.releasable.length, orderHashes: release.diagnostic.orderHashes, missingCount: release.missing.length, startle: reason === "knock" };
+    return { decision: mode === "shadow" ? "would_wake_and_release" : "wake_and_release", reason, wakeTs, originalState: sleepState || state, proposedState, release, diagnostic };
+  }
+
+  function commitWakeRelease(wakePlan, messages, succeeded) {
+    if (!wakePlan || wakePlan.decision !== "wake_and_release") return { state: wakePlan && wakePlan.originalState || null, messages, committed: false };
+    if (!succeeded) return { state: wakePlan.originalState, messages, committed: false };
+    const released = commitRelease(wakePlan.proposedState, messages, wakePlan.release, true);
+    return { ...released, committed: true, wakeReason: wakePlan.reason, startle: wakePlan.reason === "knock" };
+  }
+
   function tickSleep(previous, input) {
     const now = Number(input && input.now);
     const safeNow = Number.isFinite(now) ? now : Date.now();
@@ -184,5 +205,5 @@
     return { ...result, sleep: result.state, state: { ...innerState, sleep: result.state, updatedTs: result.state.updatedTs, revision: Number(innerState.revision || 0) + 1 } };
   }
 
-  return Object.freeze({ PHASES, SCHEMA_VERSION, DROWSY_MS, WAKING_MS, PRESSURE_GUARD_MS, MAX_TICK_MS, PRESSURE_RATE_PER_HOUR, localDayKey, shiftDayKey, localTimeToUtc, deriveSchedule, createSleepState, tickSleep, tickInnerState, messageHash, arrivalBucket, receiveMessage, planRelease, commitRelease });
+  return Object.freeze({ PHASES, SCHEMA_VERSION, FEATURE_PHASE, WAKE_REASONS, DROWSY_MS, WAKING_MS, PRESSURE_GUARD_MS, MAX_TICK_MS, PRESSURE_RATE_PER_HOUR, localDayKey, shiftDayKey, localTimeToUtc, deriveSchedule, createSleepState, tickSleep, tickInnerState, messageHash, arrivalBucket, receiveMessage, planRelease, commitRelease, planWakeRelease, commitWakeRelease });
 });

@@ -139,3 +139,54 @@ test("清醒消息立即感知；小克在队列层也完整豁免", () => {
   const exempt = C.receiveMessage({ ...awake, phase: "asleep" }, message, { now: 1000, mode: "live", engineerEyes: true });
   assert.equal(exempt.decision, "exempt"); assert.strictEqual(exempt.message, message);
 });
+
+function queuedPair() {
+  let sleep = { ...C.createSleepState(0), phase: "asleep", pressure: .9 };
+  const messages = [{ id: "m1", role: "user", content: "第一声" }, { id: "m2", role: "user", content: "第二声" }];
+  sleep = C.receiveMessage(sleep, messages[0], { now: 1000, mode: "live" }).state;
+  sleep = C.receiveMessage(sleep, messages[1], { now: 2000, mode: "live" }).state;
+  return { sleep, messages };
+}
+
+test("敲门 shadow 只算不醒、不清队列，诊断没有正文", () => {
+  const { sleep, messages } = queuedPair(), plan = C.planWakeRelease(sleep, messages, { now: 3000, reason: "knock" });
+  assert.equal(C.FEATURE_PHASE, "shadow"); assert.equal(plan.decision, "would_wake_and_release");
+  assert.strictEqual(plan.originalState, sleep); assert.equal(sleep.phase, "asleep"); assert.equal(sleep.queue.length, 2);
+  assert.equal(JSON.stringify(plan.diagnostic).includes("第一声"), false);
+  assert.equal(C.commitWakeRelease(plan, messages, true).committed, false);
+});
+
+test("敲门成功原子变 waking 并释放；保留高睡压和 startle", () => {
+  const { sleep, messages } = queuedPair(), plan = C.planWakeRelease(sleep, messages, { now: 3000, reason: "knock", mode: "live" });
+  const done = C.commitWakeRelease(plan, messages, true);
+  assert.equal(done.committed, true); assert.equal(done.state.phase, "waking"); assert.equal(done.state.source, "knock");
+  assert.equal(done.state.wakeReason, "knock"); assert.equal(done.state.startleTs, 3000); assert.equal(done.state.pressure, .9);
+  assert.equal(done.state.queue.length, 0); assert.ok(done.messages.every(x => x.perceived === true));
+});
+
+test("敲门后的回复失败必须回滚为 asleep，队列一条不少", () => {
+  const { sleep, messages } = queuedPair(), plan = C.planWakeRelease(sleep, messages, { now: 3000, reason: "knock", mode: "live" });
+  const failed = C.commitWakeRelease(plan, messages, false);
+  assert.strictEqual(failed.state, sleep); assert.strictEqual(failed.messages, messages);
+  assert.equal(failed.state.phase, "asleep"); assert.equal(failed.state.queue.length, 2);
+});
+
+test("自然醒和敲门共用同一 release 规划，顺序完全一致", () => {
+  const { sleep, messages } = queuedPair();
+  const natural = C.planWakeRelease({ ...sleep, phase: "waking" }, messages, { now: 3000, reason: "natural", mode: "live" });
+  const knock = C.planWakeRelease(sleep, messages, { now: 3000, reason: "knock", mode: "live" });
+  assert.deepEqual(natural.release.releaseIds, ["m1", "m2"]); assert.deepEqual(knock.release.releaseIds, natural.release.releaseIds);
+  assert.deepEqual(knock.release.diagnostic.orderHashes, natural.release.diagnostic.orderHashes);
+});
+
+test("敲醒本来就醒着的角色不会制造 startle 或重复释放", () => {
+  const state = C.createSleepState(0), messages = [{ id: "m1", role: "user", content: "早" }];
+  const plan = C.planWakeRelease(state, messages, { now: 3000, reason: "knock", mode: "live" });
+  assert.equal(plan.decision, "already_awake");
+  const done = C.commitWakeRelease(plan, messages, true); assert.equal(done.committed, false); assert.strictEqual(done.state, state);
+});
+
+test("小克在敲门层豁免，不生成睡眠或惊醒状态", () => {
+  const plan = C.planWakeRelease(null, [], { now: 3000, reason: "knock", mode: "live", engineerEyes: true });
+  assert.equal(plan.decision, "exempt"); assert.equal(plan.proposedState, null); assert.equal(plan.diagnostic, null);
+});
