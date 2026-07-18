@@ -838,11 +838,16 @@ function retrieveMemories(lib, charId, queryText, opts = {}) {
   return picked;
 }
 function formatMemLib(entries) {
-  return (entries || []).map(e => {
+  const arr = entries || [];
+  const body = arr.map(e => {
     const tags = (e.tags && e.tags.length) ? "（" + e.tags.join("、") + "）" : "";
     const openMark = e.open ? "〔还没了结·你心里还惦记着〕" : "";
     return "· " + e.text + openMark + tags;
   }).join("\n");
+  // ⭐开环别误读成爽约（她 2026-07-18 报的老 bug）：标〔还没了结〕的事，角色老自己脑补成"她说要来却放我鸽子"、几小时后主动消息+心声冲她生气。
+  //   真相=她没"不来"、只是【还没来】，"今天"还没过完、软性的"我来找你"更不是签字的约会。给一句读法指引，四条注入路(主聊/线下/群/通话)全覆盖。
+  const hasOpen = arr.some(e => e && e.open);
+  return body + (hasOpen ? "\n（⚠️标〔还没了结〕的是你还惦记、还没画句号的事：可以自然想起、期待、或轻声问一句「还来吗～」。但【绝不要】默认对方爽约、放你鸽子、故意不来——TA 多半只是忙，或时候还没到（比如「今天」还没过完；软性的「我来找你」也不是签了字的约会）。想 TA 就直说想，别把「还没兑现」当成「被辜负/被放鸽子」来生气赌气、翻脸算账。）" : "");
 }
 // 月度精炼（SullyOS 借鉴）：把一批【已了结的旧记忆】浓缩成尽量少的「月度精炼摘要」，保住长期精华、丢琐碎。
 // 返回 [{text,tags,v,a}]。原件由调用方归档(archived)不删除。
