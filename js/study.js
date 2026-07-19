@@ -206,6 +206,22 @@
     return lines.join("\n");
   }
 
+  // 顶部进度既要守住“只有结课才能算完成一小节”的纪律，也要让本节真实答题有可见反馈。
+  // 当前小节内，独立答对（level>=2）的要点只贡献不足 1 小节的视觉进度，不会写进 completed。
+  function studyProgressRatio(units, progress) {
+    const list = Array.isArray(units) ? units : [];
+    if (!list.length) return 0;
+    const p = progress || {};
+    const completed = Array.isArray(p.completed) ? p.completed.filter(function (id) {
+      return list.some(function (u) { return u.id === id; });
+    }).length : 0;
+    const current = list.find(function (u) { return u.id === p.current_unit; });
+    const points = current && Array.isArray(current.grammar) ? current.grammar : [];
+    const mastered = points.filter(function (g) { return Number((p.mastery || {})[g.id]) >= 2; }).length;
+    const withinUnit = points.length ? (mastered / points.length) * 0.9 : 0;
+    return Math.max(0, Math.min(1, (completed + withinUnit) / list.length));
+  }
+
   // ---- 课程记忆：curriculum 下跨 session 的往期摘要（内部互通，绝不碰全局聊天记忆库）----
   function curriculumMemoryText(cur) {
     if (!cur || !cur.memory || !Array.isArray(cur.memory.summaries) || !cur.memory.summaries.length) return "";
@@ -295,7 +311,7 @@
     if (!q || typeof q !== "object") return null;
     const type = ["choice", "true_false", "fill_blank"].includes(q.type) ? q.type : "";
     const prompt = String(q.prompt || "").trim();
-    const pointId = String(q.point_id || "").trim();
+    const pointId = String(q.point_id || q.pointId || "").trim();
     if (!type || !prompt || !pointId) return null;
     const options = type === "choice" && Array.isArray(q.options) ? q.options.slice(0, 5).map(function (o, i) {
       return { id: String(o && o.id || String.fromCharCode(65 + i)), label: String(o && o.label || "").trim() };
@@ -546,7 +562,8 @@
     genTurn: genTurn, inferAbility: inferAbility, draftSessionOutline: draftSessionOutline,
     summarizeStudySession: summarizeStudySession, generateStudyNote: generateStudyNote, runCheckpoint: runCheckpoint, tail: tail,
     normalizeQuizAnswer: normalizeQuizAnswer, gradeQuizAnswer: gradeQuizAnswer, parseQuiz: parseQuiz,
-    updateCurriculumReview: updateCurriculumReview, dueReviewCards: dueReviewCards, quizMasteryLevel: quizMasteryLevel
+    updateCurriculumReview: updateCurriculumReview, dueReviewCards: dueReviewCards, quizMasteryLevel: quizMasteryLevel,
+    studyProgressRatio: studyProgressRatio
   };
 
   // ============================================================
@@ -953,7 +970,7 @@
       }
       if (res && res.quiz) {
         // 允许全大纲的要点 id：开场复习就是会考上一小节的点（progressText 明确引导），只卡当前小节会把合法复习题吞掉
-        const allowed = units.reduce(function (acc, u) { return acc.concat((u.grammar || []).map(function (g) { return g.id; })); }, []);
+        const allowed = units.reduce(function (acc, u) { return acc.concat((u.grammar || []).map(function (g) { return String(g.id); })); }, []);
         if (allowed.includes(res.quiz.pointId)) {
           pushEntry({ id: "q_" + Date.now(), role: "char", speakerId: char.id, name: char.name,
             content: res.quiz.prompt, quiz: res.quiz, ts: Date.now() });
@@ -972,8 +989,8 @@
       const s = sessRef.current;
       const cp = Object.assign({ completed: [], mastery: {}, evidence: [], mistakes: [] }, s.progress);
       const cu = units.find(function (u) { return u.id === cp.current_unit; });
-      const pointIds = (cu && cu.grammar || []).map(function (g) { return g.id; });
-      const pointId = String(raw.point_id || "");
+      const pointIds = (cu && cu.grammar || []).map(function (g) { return String(g.id); });
+      const pointId = String(raw.point_id || raw.pointId || "");
       const result = ["correct", "partial", "incorrect"].includes(raw.result) ? raw.result : "";
       const support = ["none", "hinted", "guided"].includes(raw.support) ? raw.support : "";
       if (!pointId || !pointIds.includes(pointId) || !result || !support) return;
@@ -1001,12 +1018,13 @@
       commit(Object.assign({}, s, { progress: cp }));
     }
 
-    // 发送：只把用户这条加进对话，不触发角色（可连发多条），像主聊天一样
+    // 发送即回复：符合普通聊天直觉。旧版还要再点一次“让 TA 回复”，会让人误以为题卡和进度坏了。
     function send() {
       const txt = input.trim();
-      if (!txt) return;
+      if (!txt || busy) return;
       setInput("");
       pushEntry({ id: "u_" + Date.now(), role: "user", content: txt, ts: Date.now() });
+      setTimeout(function () { replyNow(); }, 60);
     }
 
     async function submitQuiz(entry, value, confidence) {
@@ -1271,7 +1289,7 @@
       : h("div", { className: "px-5 pb-2", style: { background: t.bg } },
           h("button", { onClick: function () { return setExpand(!expand); }, className: "w-full flex items-center gap-2 active:opacity-70" },
             h("div", { className: "flex-1", style: { height: 5, background: t.line, borderRadius: 3, overflow: "hidden" } },
-              h("div", { style: { height: "100%", width: (units.length ? ((prog.completed || []).length / units.length * 100) : 0) + "%", background: accent } })),
+              h("div", { style: { height: "100%", width: (studyProgressRatio(units, prog) * 100) + "%", background: accent } })),
             h("span", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } },
               (unit ? unit.title : "本节") + " " + ((prog.completed || []).length) + "/" + (units.length || "?"))),
           expand && unit ? h("div", { className: "mt-2 flex flex-wrap gap-1.5" }, (unit.grammar || []).map(function (g) {
@@ -1405,9 +1423,9 @@
           h("button", { onClick: replyNow, disabled: busy, className: "flex-1 active:opacity-70", style: { fontFamily: F_BODY, fontSize: 13, background: busy ? t.line : accent, color: "#fff", borderRadius: 10, padding: "8px 0", opacity: busy ? 0.8 : 1 } },
             busy ? "生成中…" : (sess.mode === "nv1" ? "让 " + (teacher ? teacher.name : "老师") + " / 同学接话" : "让 " + (chars[0] ? chars[0].name : "对方") + " 回复"))) : null,
         h("div", { className: "px-4 py-3 flex items-end gap-2", style: { paddingBottom: "calc(env(safe-area-inset-bottom) + 4px)" } },
-          h("textarea", { value: input, onChange: function (e) { return setInput(e.target.value); }, rows: 1, placeholder: "说点什么…（可连发几条再点上面让 TA 回复）", style: { flex: 1, resize: "none", fontFamily: F_BODY, fontSize: 14, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 18, padding: "9px 14px", maxHeight: 100 },
+          h("textarea", { value: input, onChange: function (e) { return setInput(e.target.value); }, rows: 1, placeholder: "说点什么…发送后老师会直接回复", style: { flex: 1, resize: "none", fontFamily: F_BODY, fontSize: 14, color: t.ink, background: t.bg2, border: "1px solid " + t.line, borderRadius: 18, padding: "9px 14px", maxHeight: 100 },
             onKeyDown: function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } } }),
-          h("button", { onClick: send, disabled: !input.trim(), className: "shrink-0 active:opacity-70", style: { fontFamily: F_BODY, fontSize: 14, background: t.ink, color: t.bg2, borderRadius: 18, padding: "9px 16px", opacity: !input.trim() ? 0.5 : 1 } }, "发送"))));
+          h("button", { onClick: send, disabled: busy || !input.trim(), className: "shrink-0 active:opacity-70", style: { fontFamily: F_BODY, fontSize: 14, background: t.ink, color: t.bg2, borderRadius: 18, padding: "9px 16px", opacity: busy || !input.trim() ? 0.5 : 1 } }, busy ? "回复中…" : "发送"))));
   }
 
   // 顶层：三板分区 + 三级导航
