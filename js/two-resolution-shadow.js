@@ -92,7 +92,8 @@
       const rows = all.filter(x => x.source === "chat").slice(-(n || 200)), modes = {};
       rows.forEach(x => { modes[x.mode] = (modes[x.mode] || 0) + 1; });
       const avg = key => rows.length ? Math.round(rows.reduce((sum, x) => sum + (x[key] || 0), 0) * 10 / rows.length) / 10 : 0;
-      return { audits: rows.length, modes, resetReason: "v49.49 起只统计真实聊天，旧后台污染样本已排除", avgBaselineDetails: avg("baselineDetailCount"), avgProposedDetails: avg("proposedDetailCount"),
+      const firstObservedAt=rows.length?Number(rows[0].t)||null:null,lastObservedAt=rows.length?Number(rows[rows.length-1].t)||null:null;
+      return { audits: rows.length,firstObservedAt,lastObservedAt,spanHours:firstObservedAt&&lastObservedAt?Math.round((lastObservedAt-firstObservedAt)/36000)/100:0, modes, resetReason: "v49.49 起只统计真实聊天，旧后台污染样本已排除", avgBaselineDetails: avg("baselineDetailCount"), avgProposedDetails: avg("proposedDetailCount"),
         eventCoverage: rows.length ? Math.round(rows.filter(x => x.eventAvailable).length * 100 / rows.length) / 100 : 0, last: rows.slice(-5) };
     } catch (e) { return { error: "两分辨率召回审计读取失败" }; }
   }

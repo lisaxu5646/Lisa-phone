@@ -12,7 +12,7 @@
   const cleanPersonality = report => {
     if (!report || report.error) return report;
     return {
-      cards: report.cards, types: report.types, dimensions: report.dimensions,
+      cards: report.cards, firstObservedAt: report.firstObservedAt, lastObservedAt: report.lastObservedAt, spanHours: report.spanHours, types: report.types, dimensions: report.dimensions,
       tenDayMismatches: report.tenDayMismatches, conflictingTraits: report.conflictingTraits,
       recent: (report.last || []).map(x => ({
         fingerprint: x.fingerprint, charHash: x.charHash, type: x.type, dimension: x.dimension,
@@ -72,4 +72,3 @@
   }
   window.ShadowReview = Object.freeze({ build, download });
 })();
-

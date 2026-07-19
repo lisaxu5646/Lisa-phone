@@ -63,7 +63,8 @@
       const rows = all.filter(x => x.auditVersion === 2).slice(-(n || 200)), actions = {};
       rows.forEach(x => { actions[x.kind] = (actions[x.kind] || 0) + 1; });
       const invalidByKind = {}; rows.filter(x => !x.valid).forEach(x => { invalidByKind[x.kind] = (invalidByKind[x.kind] || 0) + 1; });
-      return { audits: rows.length, actions, resetReason: "v2 起正常编辑不再算异常，旧样本已排除", invalid: rows.filter(x => !x.valid).length, invalidByKind,
+      const firstObservedAt=rows.length?Number(rows[0].t)||null:null,lastObservedAt=rows.length?Number(rows[rows.length-1].t)||null:null;
+      return { audits: rows.length,firstObservedAt,lastObservedAt,spanHours:firstObservedAt&&lastObservedAt?Math.round((lastObservedAt-firstObservedAt)/36000)/100:0, actions, resetReason: "v2 起正常编辑不再算异常，旧样本已排除", invalid: rows.filter(x => !x.valid).length, invalidByKind,
         danglingTail: rows.filter(x => x.tailSurvived).length, last: rows.slice(-10) };
     } catch (e) { return { error: "有效消息分支审计读取失败" }; }
   }

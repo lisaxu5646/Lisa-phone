@@ -5,7 +5,7 @@
 // ============================================================
 (function () {
   "use strict";
-  const DB_NAME = "lisa_experience_gate_shadow_v1", DB_VERSION = 1, CAP = 500;
+  const DB_NAME = "lisa_experience_gate_shadow_v1", DB_VERSION = 1, CAP = 500, AUDIT_VERSION = 2;
   let dbPromise = null;
   const lastByChar = new Map();
   const hash = value => { let h = 5381; const s = String(value == null ? "" : value); for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; return h.toString(36); };
@@ -34,9 +34,11 @@
     else if (has(first, "心情") || has(first, "好感度")) { key = "derived_state"; source = "derived_state"; }
     else if (has(first, "角色人设") || has(first, "设定") || has(first, "关系网") || has(first, "世界书") || has(first, "情侣")) { key = "configuration"; source = "configuration"; }
     else if (has(first, "你是谁") || has(first, "准则") || has(first, "要求")) { key = "instruction"; source = "instruction"; }
-    const claimsExperience = /真实发生|亲历|此刻在做|你都看到了|自己清楚|你记得/.test(s.slice(0, 500));
+    const body=s.split("\n").slice(1).join("\n").slice(0,500),claimRe=/真实发生|亲历|此刻在做|你都看到了|自己清楚|你记得/;
+    const headerClaims=claimRe.test(first),bodyClaims=claimRe.test(body),claimsExperience=headerClaims||bodyClaims;
     const truthClaimRisk = (source === "simulation" || source === "mixed_generated") && claimsExperience;
-    return { key, source, chars: s.length, claimsExperience, truthClaimRisk };
+    const riskReason=!truthClaimRisk?null:(bodyClaims?"assertive_body":"header_label_only");
+    return { auditVersion:AUDIT_VERSION,key,source,chars:s.length,claimsExperience,truthClaimRisk,riskReason };
   }
 
   function openDB() {
@@ -58,7 +60,7 @@
       lastByChar.set(charHash, now);
       const blocks = (Array.isArray(input && input.parts) ? input.parts : []).map(classify);
       const db = await openDB(), tx = db.transaction("audits", "readwrite"), store = tx.objectStore("audits");
-      store.add({ t: now, charHash, blocks, riskCount: blocks.filter(x => x.truthClaimRisk).length, totalChars: blocks.reduce((n, x) => n + x.chars, 0) });
+      store.add({ auditVersion:AUDIT_VERSION,t: now, charHash, blocks, riskCount: blocks.filter(x => x.truthClaimRisk).length, totalChars: blocks.reduce((n, x) => n + x.chars, 0) });
       await done(tx);
       if (Math.random() < 0.08) {
         const tx2 = db.transaction("audits", "readwrite"), s2 = tx2.objectStore("audits"), keys = await rq(s2.getAllKeys());
@@ -69,12 +71,13 @@
   async function report(n) {
     try {
       const db = await openDB(), tx = db.transaction("audits", "readonly"), all = await rq(tx.objectStore("audits").getAll()); await done(tx);
-      const rows = all.slice(-(n || 200)), sources = {}, keys = {}, risky = {};
+      const selected=all.slice(-(n || 200)),legacySamples=selected.filter(x=>Number(x.auditVersion||1)<AUDIT_VERSION).length,rows=selected.filter(x=>Number(x.auditVersion||1)===AUDIT_VERSION), sources = {}, keys = {}, risky = {},riskReasons={};
       rows.flatMap(x => x.blocks || []).forEach(b => {
         sources[b.source] = (sources[b.source] || 0) + 1; keys[b.key] = (keys[b.key] || 0) + 1;
-        if (b.truthClaimRisk) risky[b.key] = (risky[b.key] || 0) + 1;
+        if (b.truthClaimRisk) {risky[b.key] = (risky[b.key] || 0) + 1;const reason=b.riskReason||"legacy_unknown";riskReasons[reason]=(riskReasons[reason]||0)+1;}
       });
-      return { audits: rows.length, sources, blocks: keys, riskyBlocks: risky,
+      const firstObservedAt=rows.length?Number(rows[0].t)||null:null,lastObservedAt=rows.length?Number(rows[rows.length-1].t)||null:null;
+      return { auditVersion:AUDIT_VERSION,audits: rows.length,legacySamples,firstObservedAt,lastObservedAt,spanHours:firstObservedAt&&lastObservedAt?Math.round((lastObservedAt-firstObservedAt)/36000)/100:0,sources,blocks: keys,riskyBlocks: risky,riskReasons,
         callsWithRisk: rows.filter(x => x.riskCount > 0).length, last: rows.slice(-5) };
     } catch (e) { return { error: "Experience Gate 审计读取失败" }; }
   }

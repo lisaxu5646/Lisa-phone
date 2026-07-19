@@ -236,7 +236,7 @@
       const kinds = {}, outlets = {}; diagnostics.forEach(r => { kinds[r.kind] = (kinds[r.kind] || 0) + 1; if (r.outlet) outlets[r.outlet] = (outlets[r.outlet] || 0) + 1; });
       return {
         generatedAt: now, tidal: tidal ? { state: tidal.state, signalKind: tidal.signalKind, updatedTs: tidal.updatedTs } : null,
-        diagnostics: diagnostics.length, kinds, outlets,
+        diagnostics: diagnostics.length, firstObservedAt:diagnostics.length?Number(diagnostics[0].t)||null:null,lastObservedAt:diagnostics.length?Number(diagnostics[diagnostics.length-1].t)||null:null,spanHours:diagnostics.length>1?Math.round((Number(diagnostics[diagnostics.length-1].t)-Number(diagnostics[0].t))/36000)/100:0,kinds, outlets,
         packets: packets.map(p => ({ charHash: p.charHash, valid: isValid(p, now), createdTs: p.createdTs, expiresTs: p.expiresTs, threadCount: (p.unfinishedThreads || []).length, shadowWouldSurfaceAt: p.shadowWouldSurfaceAt || null })),
         invariants: { sessionOpenWoke: diagnostics.filter(r => r.kind === "tidal_transition" && r.triggerRule === "session_open" && r.toState === "awake").length, writesExperience: packets.filter(p => p.writesExperience !== false).length },
         nightWatchCoverage: "waiting_for_cloud_tidal_row"

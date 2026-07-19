@@ -61,7 +61,8 @@
       const db = await openDB(), tx = db.transaction("batches", "readonly"), all = await rq(tx.objectStore("batches").getAll()); await done(tx);
       const batches = all.slice(-(n || 200)), rows = batches.flatMap(x => x.rows || []);
       const rate = key => rows.length ? Math.round(rows.filter(x => x[key]).length * 100 / rows.length) / 100 : 0;
-      return { batches: batches.length, candidates: rows.length, readyRate: rate("ready"), validQuoteRate: rate("quoteValid"),
+      const firstObservedAt=batches.length?Number(batches[0].t)||null:null,lastObservedAt=batches.length?Number(batches[batches.length-1].t)||null:null;
+      return { batches: batches.length,firstObservedAt,lastObservedAt,spanHours:firstObservedAt&&lastObservedAt?Math.round((lastObservedAt-firstObservedAt)/36000)/100:0, candidates: rows.length, readyRate: rate("ready"), validQuoteRate: rate("quoteValid"),
         derivationRate: rate("derivationPresent"), turningPointRate: rate("turningPointPresent"),
         ordinaryMemoryLeakRate: rate("leakedIntoMemory"), last: rows.slice(-10) };
     } catch (e) { return { error: "独立洞察候选审计读取失败" }; }

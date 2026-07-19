@@ -118,7 +118,8 @@
         Object.entries(counts).forEach(([k, v]) => { types[k] = (types[k] || 0) + Number(v || 0); });
         dimensions[x.dimension] = (dimensions[x.dimension] || 0) + 1;
       });
-      return { cards: rows.length, types, dimensions, tenDayMismatches: rows.filter(x => x.eligibleAfterTenDays).length,
+      const firstObservedAt=rows.length?Math.min(...rows.map(x=>Number(x.firstSeenAt)||Infinity)):null,lastObservedAt=rows.length?Math.max(...rows.map(x=>Number(x.lastSeenAt)||0)):null;
+      return { cards: rows.length,firstObservedAt:Number.isFinite(firstObservedAt)?firstObservedAt:null,lastObservedAt:lastObservedAt||null,spanHours:Number.isFinite(firstObservedAt)&&lastObservedAt?Math.round((lastObservedAt-firstObservedAt)/36000)/100:0, types, dimensions, tenDayMismatches: rows.filter(x => x.eligibleAfterTenDays).length,
         conflictingTraits: rows.filter(x => x.hasConflict).length,
         last: rows.sort((a, b) => Number(b.lastSeenAt || 0) - Number(a.lastSeenAt || 0)).slice(0, 20) };
     } catch (e) { return { error: "人格旁路报表读取失败" }; }

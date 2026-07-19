@@ -817,9 +817,18 @@ function retrieveMemories(lib, charId, queryText, opts = {}) {
         const winMax = pool[1].s;
         wsize = pool.slice(1, Math.max(1, limit)).filter(x => x.s >= winMax * 0.95).length;
       }
-      RS.observe({ c: RS.charHash(charId), turn, k: baseIds.length, b: baseIds, p: propIds,
+      const cooledIds = new Set(cooled.map(x => x.id));
+      RS.observe({ auditVersion: 2, c: RS.charHash(charId), turn, k: baseIds.length, b: baseIds, p: propIds,
         bkt: pool.slice(0, limit).map(x => Math.round(x.s * 10) / 10),
-        repeats, replaced, cooled, wsize, empty: relevant.length === 0, touch: opts.touch !== false });
+        repeats, replaced, cooled, wsize, empty: relevant.length === 0, touch: opts.touch !== false,
+        exemptions: {
+          pinnedCoolingCandidates: pinned.filter(e => RS.isCooling(charId, e.id)).length,
+          openCoolingCandidates: pool.filter(x => x.e.open && RS.isCooling(charId, x.e.id)).length,
+          top1CoolingCandidate: top1 && RS.isCooling(charId, top1.id) ? 1 : 0,
+          pinnedCooledViolations: pinned.filter(e => cooledIds.has(e.id)).length,
+          openCooledViolations: pool.filter(x => x.e.open && cooledIds.has(x.e.id)).length,
+          top1CooledViolations: top1 && cooledIds.has(top1.id) ? 1 : 0
+        } });
       if (opts.touch !== false && relevant.length) RS.noteSurfaced(charId, relevant.map(e => e.id));
     }
   } catch (eShadow) {/* 旁路绝不影响召回 */}

@@ -122,7 +122,7 @@
       const db = await openDB(), tx = db.transaction("diag", "readonly");
       const all = await rq(tx.objectStore("diag").getAll());
       await done(tx);
-      const recent = all.slice(-(n || 200));
+      const recent = all.slice(-(n || 200)), invariantRows = recent.filter(x => Number(x.auditVersion || 1) >= 2);
       const agg = { observations: recent.length, empty: 0, repeatSum: 0, replaceSum: 0, cooledSum: 0, kSum: 0, wSum: 0, wNarrow: 0, wN: 0 };
       recent.forEach(r => {
         if (r.empty) agg.empty++;
@@ -133,9 +133,13 @@
         if (typeof r.wsize === "number") { agg.wN++; agg.wSum += r.wsize; if (r.wsize <= 1) agg.wNarrow++; }
       });
       const denom = Math.max(1, agg.kSum);
+      const exemptionAudit = { samples: invariantRows.length, legacySamples: recent.length - invariantRows.length, pinnedCoolingCandidates:0,openCoolingCandidates:0,top1CoolingCandidates:0,pinnedCooledViolations:0,openCooledViolations:0,top1CooledViolations:0 };
+      invariantRows.forEach(r=>Object.keys(exemptionAudit).filter(k=>!['samples','legacySamples'].includes(k)).forEach(k=>{exemptionAudit[k]+=Number(r.exemptions&&r.exemptions[k]||0);}));
+      const firstObservedAt=recent.length?Number(recent[0].t)||null:null,lastObservedAt=recent.length?Number(recent[recent.length-1].t)||null:null;
       return {
         enabled: !off(),
         observations: recent.length,
+        firstObservedAt,lastObservedAt,spanHours:firstObservedAt&&lastObservedAt?+((lastObservedAt-firstObservedAt)/3600000).toFixed(2):0,
         emptyRate: recent.length ? +(agg.empty / recent.length).toFixed(3) : 0,
         repeatRate: +(agg.repeatSum / denom).toFixed(3),      // 连续重复率：topK 里 4 轮内刚浮现过的占比
         proposedReplaceRate: +(agg.replaceSum / denom).toFixed(3), // 冷却版会换掉的比例（旁路预测）
@@ -143,6 +147,7 @@
         // P0-3 决策数据：95% 同分窗口平均宽度 + 窗口≤1 的占比（占比高=随机没意义，保持确定排序）
         avgWindowSize: agg.wN ? +(agg.wSum / agg.wN).toFixed(2) : 0,
         narrowWindowRate: agg.wN ? +(agg.wNarrow / agg.wN).toFixed(3) : 0,
+        exemptionAudit,
         rings: [...rings.entries()].map(([k, v]) => ({ char: charHash(k), ring: v.length, turn: turnOf(k) })),
         last: recent.slice(-5)
       };

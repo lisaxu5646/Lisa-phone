@@ -20,3 +20,10 @@ test("正常原位编辑保留后文不再被消息分支仪表判异常",()=>{
   const out=M.inspectMutation({kind:"edit",targetIndex:0,before:[a,b],after:[{id:"a",content:"改"},b]});
   assert.equal(out.valid,true);assert.equal(out.tailSurvived,false);
 });
+
+test("Experience Gate 区分标题标签与正文冒充亲历",()=>{
+  const E=loadWindowModule("../js/experience-gate-shadow.js","ExperienceGateShadow");
+  const header=E.classify("【此刻在做什么】\n日程模拟结果"),body=E.classify("【今天的行程】\n你都看到了，这是真实发生的");
+  assert.equal(header.truthClaimRisk,true);assert.equal(header.riskReason,"header_label_only");
+  assert.equal(body.truthClaimRisk,true);assert.equal(body.riskReason,"assertive_body");
+});

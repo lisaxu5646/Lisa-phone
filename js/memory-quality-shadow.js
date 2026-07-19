@@ -32,18 +32,24 @@
         const ids = Array.isArray(x.evidence_message_ids) ? x.evidence_message_ids.map(String) : [];
         const quotes = Array.isArray(x.evidence_quotes) ? x.evidence_quotes.map(String) : [];
         const aligned = ids.length > 0 && ids.length === quotes.length;
-        const evidenceValid = aligned && ids.every((id, i) => byId.has(id) && quotes[i].trim().length > 0 && byId.get(id).indexOf(quotes[i]) >= 0);
+        let evidenceInvalidReason = null;
+        if (!ids.length) evidenceInvalidReason = "missing_ids";
+        else if (ids.length !== quotes.length) evidenceInvalidReason = "misaligned_arrays";
+        else if (quotes.some(q => !q.trim())) evidenceInvalidReason = "empty_quote";
+        else if (ids.some(id => !byId.has(id))) evidenceInvalidReason = "missing_message";
+        else if (ids.some((id,i) => byId.get(id).indexOf(quotes[i]) < 0)) evidenceInvalidReason = "quote_mismatch";
+        const evidenceValid = aligned && evidenceInvalidReason === null;
         const kind = ["fact","promise","relationship","insight","temperature"].includes(x.kind) ? x.kind : "unknown";
         const proposed = ["accept","candidate","reject"].includes(x.proposed_action) ? x.proposed_action : "unknown";
         const milestoneViolation = kind === "temperature" && (milestone(x.text) || quotes.some(milestone));
         return {
           kind, proposed, confidenceBucket: typeof x.confidence === "number" ? Math.round(Math.max(0, Math.min(1, x.confidence)) * 10) / 10 : null,
-          evidenceCount: ids.length, evidenceValid, milestoneViolation,
+          auditVersion:2,evidenceCount: ids.length, evidenceValid,evidenceInvalidReason, milestoneViolation,
           actualAccepted: accepted.has(String(x.text).trim()), messageIdHashes: ids.map(hash)
         };
       });
       const db = await openDB(), tx = db.transaction("diag", "readwrite"), store = tx.objectStore("diag");
-      store.add({ t: Date.now(), char: hash(input && input.charId), candidateCount: rows.length, rows });
+      store.add({ auditVersion:2,t: Date.now(), char: hash(input && input.charId), candidateCount: rows.length, rows });
       await done(tx);
       if (Math.random() < 0.1) {
         const tx2 = db.transaction("diag", "readwrite"), s = tx2.objectStore("diag");
@@ -57,10 +63,14 @@
   async function report(n) {
     try {
       const db = await openDB(), tx = db.transaction("diag", "readonly"), all = await rq(tx.objectStore("diag").getAll()); await done(tx);
-      const batches = all.slice(-(n || 200)), rows = batches.flatMap(b => b.rows || []), kinds = {}, proposed = {};
+      const batches = all.slice(-(n || 200)), rows = batches.flatMap(b => b.rows || []), kinds = {}, proposed = {},invalidEvidenceReasons={};
       rows.forEach(r => { kinds[r.kind] = (kinds[r.kind] || 0) + 1; proposed[r.proposed] = (proposed[r.proposed] || 0) + 1; });
+      rows.filter(r=>!r.evidenceValid).forEach(r=>{const reason=r.evidenceInvalidReason||"legacy_unknown";invalidEvidenceReasons[reason]=(invalidEvidenceReasons[reason]||0)+1;});
+      const firstObservedAt=batches.length?Number(batches[0].t)||null:null,lastObservedAt=batches.length?Number(batches[batches.length-1].t)||null:null;
       return { batches: batches.length, candidates: rows.length, kinds, proposed,
+        firstObservedAt,lastObservedAt,spanHours:firstObservedAt&&lastObservedAt?Math.round((lastObservedAt-firstObservedAt)/36000)/100:0,
         evidenceValidRate: rows.length ? rows.filter(r => r.evidenceValid).length / rows.length : 0,
+        invalidEvidenceCount:rows.filter(r=>!r.evidenceValid).length,invalidEvidenceReasons,
         milestoneViolations: rows.filter(r => r.milestoneViolation).length,
         proposedRejectButAccepted: rows.filter(r => r.actualAccepted && r.proposed === "reject").length,
         temperatureAccepted: rows.filter(r => r.actualAccepted && r.kind === "temperature").length };

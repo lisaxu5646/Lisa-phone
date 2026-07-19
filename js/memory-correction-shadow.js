@@ -69,8 +69,10 @@
       const db = await openDB(), tx = db.transaction("pairs", "readonly"), rows = await rq(tx.objectStore("pairs").getAll());
       await done(tx);
       rows.sort((a, b) => Number(b.lastSeenAt || 0) - Number(a.lastSeenAt || 0));
+      const firstObservedAt=rows.length?Math.min(...rows.map(x=>Number(x.firstSeenAt)||Infinity)):null,lastObservedAt=rows.length?Math.max(...rows.map(x=>Number(x.lastSeenAt)||0)):null;
       return {
         pairs: rows.length,
+        firstObservedAt:Number.isFinite(firstObservedAt)?firstObservedAt:null,lastObservedAt:lastObservedAt||null,spanHours:Number.isFinite(firstObservedAt)&&lastObservedAt?Math.round((lastObservedAt-firstObservedAt)/36000)/100:0,
         currentWouldPrune: rows.filter(x => x.currentWouldPrune).length,
         protectedPinned: rows.filter(x => x.oldPinned).length,
         protectedOpen: rows.filter(x => x.oldOpen).length,

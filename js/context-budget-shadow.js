@@ -84,7 +84,8 @@
       });
       const avg = key => rows.length ? Math.round(rows.reduce((sum, x) => sum + (x[key] || 0), 0) / rows.length) : 0;
       Object.keys(categoryChars).forEach(k => { categoryChars[k] = rows.length ? Math.round(categoryChars[k] / rows.length) : 0; });
-      return { audits: rows.length, softBudget: SOFT_BUDGET, avgTotalChars: avg("totalChars"), avgProposedChars: avg("proposedTotal"),
+      const firstObservedAt=rows.length?Number(rows[0].t)||null:null,lastObservedAt=rows.length?Number(rows[rows.length-1].t)||null:null;
+      return { audits: rows.length,firstObservedAt,lastObservedAt,spanHours:firstObservedAt&&lastObservedAt?Math.round((lastObservedAt-firstObservedAt)/36000)/100:0, softBudget: SOFT_BUDGET, avgTotalChars: avg("totalChars"), avgProposedChars: avg("proposedTotal"),
         pressureRate: rows.length ? Math.round(rows.filter(x => x.pressure).length * 100 / rows.length) / 100 : 0,
         avgCategoryChars: categoryChars, largestCategory: largest, last: rows.slice(-5) };
     } catch (e) { return { error: "统一候选预算审计读取失败" }; }

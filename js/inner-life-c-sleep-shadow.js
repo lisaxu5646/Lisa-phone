@@ -142,6 +142,7 @@
       const all = (await rq(tx.objectStore("diag").getAll())).slice(-(n || 300));
       await done(tx);
       const agg = { observations: all.length, wouldHold: {}, transitions: 0, failOpen: 0, exempt: 0 };
+      agg.firstObservedAt=all.length?Number(all[0].t)||null:null;agg.lastObservedAt=all.length?Number(all[all.length-1].t)||null:null;agg.spanHours=agg.firstObservedAt&&agg.lastObservedAt?Math.round((agg.lastObservedAt-agg.firstObservedAt)/36000)/100:0;
       all.forEach(r => {
         if (r.kind === "would_hold") agg.wouldHold[r.outlet || "?"] = (agg.wouldHold[r.outlet || "?"] || 0) + 1;
         if (r.kind === "tidal_transition") agg.transitions++;
