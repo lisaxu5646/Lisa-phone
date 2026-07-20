@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.74";
+const APP_VERSION = "v49.75";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -134,6 +134,8 @@ function App() {
   const [moods, setMoods] = useState({});
   const [states, setStates] = useState({});
   const [stateHist, setStateHist] = useState({});
+  const statesRef = useRef(states); statesRef.current = states;
+  const stateHistRef = useRef(stateHist); stateHistRef.current = stateHist;
   const [directives, setDirectives] = useState({}); // {charId:[{id,text,ts}]} 用户经 OOC 立的长期行为准则
   const [desires, setDesires] = useState({}); // {charId:{list,log,lastMuse}} 欲望盒子（内容只有角色落笔，js 只干体力活，见 js/desire.js）
   const desiresRef = useRef(desires);
@@ -744,6 +746,7 @@ function App() {
     const pl = p[id] || [];
     const n = typeof u === "function" ? u(pl) : u;
     saveJSON("x_chat:" + id, n);
+    chatsRef.current = { ...p, [id]: n };
     // 未读红点：新增的角色消息若此刻没在看这个聊天，累加未读条数（推到微任务里，别在 reducer 里改别的 state）
     if (n.length > pl.length) {
       const ledgerAdded = n.slice(pl.length);
@@ -1009,6 +1012,7 @@ function App() {
       ...p,
       [id]: s
     };
+    statesRef.current = n;
     saveJSON("x_states", n);
     return n;
   });
@@ -1020,6 +1024,9 @@ function App() {
       const last = prev[0];
       if (last && last.thought === s.thought) return p; // 同一条不重复
       const n = { ...p, [id]: [{ thought: s.thought, mood: s.mood, wearing: s.wearing, action: s.action, ts: s.ts || Date.now() }, ...prev].slice(0, 40) };
+      n[id][0].turnId = s.turnId || null;
+      n[id][0].affinityBefore = s.affinityBefore;
+      stateHistRef.current = n;
       saveJSON("x_stateHist", n);
       return n;
     });
@@ -1570,9 +1577,12 @@ function App() {
       const batchSeen = [];
       // 审查修：resolveOpen 用 == null 判（空串/0 也是 resolveOpen 元素），且必须真有 text——
       // 否则 {"resolveOpen":""} 会漏进来变成一条 text="undefined" 的垃圾记忆入库上云
-      const entries = items.filter(it => it && it.resolveOpen == null && it.text).map((it, i) => ({
+      // 抽取期间若用户 reroll 掉旧分支，旧结果即使稍后返回也不得落库。
+      const liveMessages = (chatsRef.current[charId] || []).filter(m => !m.recalled && m.kind !== "offlinelog" && !isOocMsg(m));
+      const entries = items.filter(it => it && it.resolveOpen == null && it.text && window.RerollBranch && window.RerollBranch.candidateStillLive(it, liveMessages)).map((it, i) => ({
         id: uniqMemId(now, i), text: String(it.text).trim(), tags: Array.isArray(it.tags) ? it.tags : [], charIds: [charId], ts: now, source: "auto", pinned: false,
-        v: clampInt(it.v, -5, 5, 0), a: clampInt(it.a, 0, 5, 1), open: !!it.open
+        v: clampInt(it.v, -5, 5, 0), a: clampInt(it.a, 0, 5, 1), open: !!it.open,
+        evidenceMessageIds: Array.isArray(it.evidence_message_ids) ? it.evidence_message_ids.map(String) : []
       })).filter(x => x.text).filter(x => {
         if (isDupMem(x.text, [charId])) return false;            // 和库里已有重复
         if (isDupMem(x.text, [charId], batchSeen)) return false; // 和本批已收的重复
@@ -1582,7 +1592,15 @@ function App() {
       try { window.MemoryQualityShadow && window.MemoryQualityShadow.observeBatch({ charId, candidates: items, acceptedTexts: entries.map(e => e.text), messages: msgs }); } catch (e) {}
       // InsightCapture shadow：复用本次已经产出的 insight 分类，不另叫 AI；只评估独立洞察四段结构是否够格。
       try { window.InsightCandidateShadow && window.InsightCandidateShadow.observeBatch({ charId, candidates: items, acceptedTexts: entries.map(e => e.text), messages: msgs }); } catch (e) {}
-      if (entries.length) saveMemLib([...entries, ...pruneSubsumed(memLibRef.current, entries)]);
+      if (entries.length) {
+        saveMemLib([...entries, ...pruneSubsumed(memLibRef.current, entries)]);
+        const assignments = window.RerollBranch ? window.RerollBranch.journalAssignments(entries, msgs) : {};
+        if (Object.keys(assignments).length) {
+          const journal = loadJSON("x_rerollMemoryJournal", {});
+          Object.entries(assignments).forEach(([turn, ids]) => { const k = charId + "|" + turn; journal[k] = [...new Set([...(journal[k] || []), ...ids])]; });
+          saveJSON("x_rerollMemoryJournal", journal);
+        }
+      }
       return entries.length;
     } finally {
       memExtractInflightRef.current[charId] = false;
@@ -2816,7 +2834,7 @@ function App() {
       thoughtCtrRef.current[charId] = tctr;
       try { saveJSON("x_thoughtCtr", thoughtCtrRef.current); } catch (e) {}
       const mustThought = tctr === 1 || gapReopen;
-      const lastThought = (states[charId] && states[charId].thought) || "";
+      const lastThought = (statesRef.current[charId] && statesRef.current[charId].thought) || "";
       const thoughtNoRepeat = lastThought ? "上一条心声是「" + String(lastThought).replace(/\s+/g, " ").slice(0, 50) + "」——这次【不许重复它、也不许原地打转说同一件事】，要反映最新的进展或转念。" : "";
       const thoughtSpec = (mustThought
         ? "此刻没说出口的真实心声——【这一轮必须写，不许填 null、不许留空】写一句此刻脑子里真实的、往前走了的新念头（对刚聊的/对 TA/对当下处境的想法、情绪、吐槽、小心思都行）。"
@@ -3197,6 +3215,7 @@ function App() {
       }
       // 动态保底：每轮回复计数，很久没发就强制补一条（不影响本轮已自发的）
       if (!opts.proactive) tickAmbient(charId, { moment: !!mo, whisper: ambWhisper, forum: ambForum });
+      const affinityBefore = affOf(charId);
       if (typeof parsed.affinityDelta === "number") bumpAff(charId, parsed.affinityDelta, parsed.mood && parsed.mood.label);
       // jiwen 阶段二（v48.80）：把这轮互动的好感增量反喂进积温——聊得好 valence 涨、聊崩了 valence 掉，情绪真的被聊天推动（不只自然回归）。封顶 ±0.25 防单轮暴冲。
       try { if (typeof parsed.affinityDelta === "number" && parsed.affinityDelta !== 0) { const eng = getJiwen(char); if (eng) eng.applyDelta({ valence: Math.max(-0.25, Math.min(0.25, parsed.affinityDelta * 0.05)) }); } } catch (e) {}
@@ -3213,7 +3232,8 @@ function App() {
       if (parsed.action) st.action = parsed.action;
       if (parsed.thought && String(parsed.thought).toLowerCase() !== "null") st.thought = parsed.thought;
       if (Object.keys(st).length) {
-        const ns = { ...(states[charId] || {}), ...st, mood: parsed.mood && parsed.mood.label ? parsed.mood.label : (states[charId] || {}).mood, ts: Date.now() };
+        const liveState = statesRef.current[charId] || {};
+        const ns = { ...liveState, ...st, mood: parsed.mood && parsed.mood.label ? parsed.mood.label : liveState.mood, ts: Date.now(), turnId, affinityBefore };
         setStateFor(charId, ns);
         pushStateHist(charId, ns);
       }
@@ -3332,6 +3352,29 @@ function App() {
       }
       const turnId = m.turnId;
       if (turnId) {
+        const removed = msgs.filter(x => x && x.turnId === turnId);
+        // 共享账本也只做软删；离线时进入专用 outbox，联网后补盖 deleted_at。
+        try {
+          const y = ledgerYanqiu();
+          if (y && String(y.id) === String(activeChar.id) && window.ChatLedgerShadow) window.ChatLedgerShadow.invalidate({ charId: y.id, threadType: "private", threadId: y.id }, removed);
+        } catch (e) {}
+        // 旧分支副作用回滚：只撤销“证据全部来自该角色旧 turn”的自动记忆；数据库同步为软删。
+        const journal = loadJSON("x_rerollMemoryJournal", {}), journalKey = activeChar.id + "|" + turnId;
+        const doomed = new Set(journal[journalKey] || []);
+        if (doomed.size) saveMemLib(memLibRef.current.filter(e => !doomed.has(String(e && e.id))));
+        if (journal[journalKey]) { delete journal[journalKey]; saveJSON("x_rerollMemoryJournal", journal); }
+        // 心声/心情/动作/穿着恢复到该 turn 之前；新回复随后从这份真实状态继续。
+        if (window.RerollBranch) {
+          const stateBeforeReroll = statesRef.current[activeChar.id];
+          const rolled = window.RerollBranch.rollbackState(stateBeforeReroll, stateHistRef.current[activeChar.id] || [], turnId);
+          setStateHist(p => { const n = { ...p, [activeChar.id]: rolled.history }; stateHistRef.current = n; saveJSON("x_stateHist", n); return n; });
+          setStates(p => { const n = { ...p }; if (rolled.state) n[activeChar.id] = rolled.state; else delete n[activeChar.id]; statesRef.current = n; saveJSON("x_states", n); return n; });
+          setMoods(p => { const n = { ...p }; if (rolled.state && rolled.state.mood) n[activeChar.id] = { label: rolled.state.mood, ts: Date.now() }; else delete n[activeChar.id]; saveJSON("x_moods", n); return n; });
+          if (stateBeforeReroll && typeof stateBeforeReroll.affinityBefore === "number") setAff(activeChar.id, stateBeforeReroll.affinityBefore);
+        }
+        // 抽取书签退回旧分支之前，让新分支能重新参加自动抽取。
+        const firstTs = Math.min(...removed.map(x => Number(x.ts) || Date.now()));
+        if (Number.isFinite(firstTs)) memExtractMarkRef.current[activeChar.id] = Math.min(memExtractMarkRef.current[activeChar.id] || firstTs, firstTs - 1);
         // 正常回合：删掉这一轮 AI 回复（保留用户最后一条）重生成
         pChat(activeChar.id, p => {
           const next = p.filter(x => x.turnId !== turnId);

@@ -60,3 +60,19 @@ test("断网保留 outbox，恢复后幂等清空；重复 enqueue 不堆双份"
   manager.clearLocal();
   assert.equal(manager.status().outbox.length, 0);
 });
+
+test("reroll 软删离线排队，恢复后只提交幂等键", async () => {
+  const s = storage(); let online = false, removed = [], uploaded = [];
+  const manager = Ledger.createManager({ storage: s, now: () => 1000, upload: async rows => { if (!online) throw new Error("offline"); uploaded.push(...rows); }, remove: async keys => { if (!online) throw new Error("offline"); removed.push(...keys); } });
+  const context = { charId: "y", threadType: "private", threadId: "y" };
+  const old = [{ role: "assistant", content: "旧泡", ts: 10, turnId: "old" }];
+  await manager.enqueue(context, old);
+  assert.equal(manager.status().outbox.length, 1);
+  await manager.invalidate(context, old);
+  assert.equal(manager.status().outbox.length, 0);
+  assert.equal(manager.status().deleteOutbox.length, 1);
+  online = true; await manager.flush();
+  assert.equal(manager.status().deleteOutbox.length, 0);
+  assert.equal(removed.length, 1);
+  assert.equal(uploaded.length, 0);
+});

@@ -8,6 +8,7 @@
   "use strict";
 
   const OUTBOX_KEY = "chat_ledger_outbox_v1"; // 无 x_ 前缀：不混进整份 saves
+  const DELETE_OUTBOX_KEY = "chat_ledger_delete_outbox_v1";
   const DIAG_KEY = "chat_ledger_shadow_diag_v1";
   const THREAD_TYPES = new Set(["private", "offline", "group", "group_offline"]);
   const BLOCKED_KINDS = new Set(["system", "ooc", "thought", "thinking", "cot", "silence", "offlinelog"]);
@@ -136,6 +137,10 @@
       if (!root.Cloud || typeof root.Cloud.chatMessagesUpsert !== "function") throw new Error("chat ledger cloud unavailable");
       return root.Cloud.chatMessagesUpsert(rows);
     });
+    const deleter = options.remove || (async keys => {
+      if (!root.Cloud || typeof root.Cloud.chatMessagesSoftDelete !== "function") throw new Error("chat ledger delete unavailable");
+      return root.Cloud.chatMessagesSoftDelete(keys);
+    });
     let chain = Promise.resolve();
 
     const diagnostic = patch => {
@@ -143,8 +148,20 @@
       write(storage, DIAG_KEY, { ...old, ...patch, updated_at: new Date(clock()).toISOString() });
     };
     const internalFlush = async () => {
+      const deletes = parse(storage, DELETE_OUTBOX_KEY, []);
+      if (deletes.length) {
+        const batchKeys = deletes.slice(0, 50);
+        try {
+          await deleter(batchKeys);
+          const done = new Set(batchKeys), currentDeletes = parse(storage, DELETE_OUTBOX_KEY, []);
+          write(storage, DELETE_OUTBOX_KEY, currentDeletes.filter(k => !done.has(k)));
+        } catch (error) {
+          diagnostic({ last_error: String(error && error.message || error), pending_deletes: deletes.length });
+          return { sent: 0, pending: parse(storage, OUTBOX_KEY, []).length, pendingDeletes: deletes.length, error };
+        }
+      }
       const outbox = parse(storage, OUTBOX_KEY, []);
-      if (!outbox.length) return { sent: 0, pending: 0 };
+      if (!outbox.length) return { sent: 0, pending: 0, pendingDeletes: parse(storage, DELETE_OUTBOX_KEY, []).length };
       const batch = outbox.slice(0, 50);
       try {
         await uploader(batch);
@@ -175,17 +192,31 @@
       });
       return chain;
     };
+    const invalidate = (context, messages) => {
+      chain = chain.catch(() => {}).then(async () => {
+        const rows = await rowsFor(context, messages, clock());
+        const keys = new Set(rows.map(r => r.message_key));
+        // 若旧泡还在“待新增”队列，先撤销新增；否则恢复联网时会先删空气、再把旧泡重新插回。
+        const pendingRows = parse(storage, OUTBOX_KEY, []);
+        write(storage, OUTBOX_KEY, pendingRows.filter(r => !keys.has(r.message_key)));
+        const current = parse(storage, DELETE_OUTBOX_KEY, []);
+        write(storage, DELETE_OUTBOX_KEY, [...new Set([...current, ...keys])]);
+        return internalFlush();
+      });
+      return chain;
+    };
     const flush = () => { chain = chain.catch(() => {}).then(internalFlush); return chain; };
-    const status = () => ({ outbox: parse(storage, OUTBOX_KEY, []), diagnostic: parse(storage, DIAG_KEY, {}) });
-    const clearLocal = () => { storage.removeItem(OUTBOX_KEY); storage.removeItem(DIAG_KEY); };
-    return { enqueue, flush, status, clearLocal };
+    const status = () => ({ outbox: parse(storage, OUTBOX_KEY, []), deleteOutbox: parse(storage, DELETE_OUTBOX_KEY, []), diagnostic: parse(storage, DIAG_KEY, {}) });
+    const clearLocal = () => { storage.removeItem(OUTBOX_KEY); storage.removeItem(DELETE_OUTBOX_KEY); storage.removeItem(DIAG_KEY); };
+    return { enqueue, invalidate, flush, status, clearLocal };
   }
 
   const manager = root.localStorage ? createManager() : null;
   return {
-    OUTBOX_KEY, DIAG_KEY, findYanqiu, eligibleContext, isRealMessage, speakerFor,
+    OUTBOX_KEY, DELETE_OUTBOX_KEY, DIAG_KEY, findYanqiu, eligibleContext, isRealMessage, speakerFor,
     rowsFor, addedSessionMessages, createManager,
     enqueue: manager ? manager.enqueue : async () => ({ queued: 0, pending: 0 }),
+    invalidate: manager ? manager.invalidate : async () => ({ sent: 0, pending: 0 }),
     flush: manager ? manager.flush : async () => ({ sent: 0, pending: 0 }),
     status: manager ? manager.status : () => ({ outbox: [], diagnostic: {} }),
     clearLocal: manager ? manager.clearLocal : () => {}

@@ -219,6 +219,18 @@
       if (error) throw error;
       return payload.length;
     },
+    async chatMessagesSoftDelete(messageKeys) {
+      if (!client) throw new Error("云服务未就绪");
+      const user = await this.getUser();
+      if (!user) throw new Error("未登录");
+      const keys = [...new Set((messageKeys || []).map(String).filter(Boolean))];
+      if (!keys.length) return 0;
+      const { error } = await client.from("chat_messages")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("user_id", user.id).in("message_key", keys);
+      if (error) throw error;
+      return keys.length;
+    },
 
     // ---- 服务器信箱（server_inbox 表，v48.32 第八课）：云端定时任务替角色写的信，app 开机取走投进聊天 ----
     // 取未消费的信（RLS 保证只取到自己的）；未登录/未就绪安静返回空
