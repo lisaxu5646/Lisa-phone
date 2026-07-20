@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.80";
+const APP_VERSION = "v49.81";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -4404,7 +4404,7 @@ function App() {
   };
   // 日记写的是【昨天】——那天已经过完，角色在【那天晚上睡前】写下当天的日记（对写的人来说那天就是"今天"）。
   // 时刻定在那晚 22:xx，别沿用手动刷新的当前时刻（否则会显示成 6号7:20 这种刷新时间）。一天一篇，按目标日去重。
-  const diaryTargetTs = () => { const d = new Date(Date.now() - 86400000); d.setHours(22, Math.floor(Math.random() * 50), 0, 0); return d.getTime(); };
+  const diaryTargetTs = () => { const d = new Date(); d.setDate(d.getDate() - 1); d.setHours(22, Math.floor(Math.random() * 50), 0, 0); return d.getTime(); };
   const diaryWroteFor = (id, dayTs) => (diariesRef.current[id] || []).some(e => diarySameDay(e.ts, dayTs));
   const genDiary = async (charId, opts = {}) => {
     const char = characters.find(c => c.id === charId);
@@ -4419,19 +4419,44 @@ function App() {
       const mood = moods[charId];
       // 素材只截【目标那一天】的聊天（0点~24点），别让最近3天的旧事跨天被反复回炉
       const dayStart = new Date(targetTs); dayStart.setHours(0, 0, 0, 0);
-      const ds = dayStart.getTime(), de = ds + 86400000;
-      const dayMsgs = (chatsRef.current[charId] || []).filter(m => !m.recalled && m.content && !isOocMsg(m) && (m.ts || 0) >= ds && (m.ts || 0) < de);
-      const dayChatText = dayMsgs.map(m => (m.role === "user" ? (profile.name || "用户") : char.name) + ": " + m.content).join("\n");
+      const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
+      const ds = dayStart.getTime(), de = dayEnd.getTime();
+      // 四路当天账本：私聊/群聊/单人线下/群线下严格落在 [当天00:00, 次日00:00)。
+      // 聊天若已裁到云端，先把云归档与本机幂等合并；云端明明有归档却拉失败时不拿残缺素材硬写。
+      const mergeMsgs = (a, b) => { const seen = new Set(), out = []; [...(a || []), ...(b || [])].forEach(m => { const k = m && m.id ? "id:" + m.id : "v:" + [m && m.ts, m && m.role, m && m.senderId, m && m.content].join("|"); if (!m || seen.has(k)) return; seen.add(k); out.push(m); }); return out.sort((x, y) => Number(x.ts || 0) - Number(y.ts || 0)); };
+      const diaryChats = { [charId]: chatsRef.current[charId] || [] }, diaryGroupChats = {}, diaryGroupOfflines = {};
+      const memberGroups = (groups || []).filter(g => (g.memberIds || []).includes(charId));
+      memberGroups.forEach(g => { diaryGroupChats[g.id] = groupChatsRef.current[g.id] || []; diaryGroupOfflines[g.id] = groupOfflinesRef.current[g.id] || loadJSON("x_goffline:" + g.id, []); });
+      if (Number(chatArch[charId] || 0) > 0) {
+        if (!(window.Cloud && window.Cloud.ready())) throw new Error("昨天有私聊在云归档里，但当前无法读取；联网后再生成，避免漏写");
+        diaryChats[charId] = mergeMsgs(await window.Cloud.chatArchiveGet(charId), diaryChats[charId]);
+      }
+      for (const g of memberGroups) {
+        const archKey = "g_" + g.id;
+        if (Number(chatArch[archKey] || 0) > 0) {
+          if (!(window.Cloud && window.Cloud.ready())) throw new Error("昨天有群聊在云归档里，但当前无法读取；联网后再生成，避免漏写");
+          diaryGroupChats[g.id] = mergeMsgs(await window.Cloud.chatArchiveGet(archKey), diaryGroupChats[g.id]);
+        }
+      }
+      const dayRows = window.AmbientMaterial ? window.AmbientMaterial.collect(charId, {
+        chats: diaryChats,
+        offlines: { [charId]: offlinesRef.current[charId] || loadJSON("x_offline:" + charId, []) },
+        groups: memberGroups,
+        groupChats: diaryGroupChats,
+        groupOfflines: diaryGroupOfflines
+      }, { fromTs: ds, untilTs: de, limit: 0, userName: profile.name || "用户", charName: char.name }) : [];
+      const clock = ts => { const d = new Date(ts); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); };
+      const dayChatText = dayRows.map(r => "[" + clock(r.ts) + "]【" + r.source + "】" + r.speaker + "：" + r.text).join("\n");
       // 上一篇日记（目标日之前最近的一篇）——喂给模型当「别重复」参照
       const prevD = (diariesRef.current[charId] || []).filter(e => (e.ts || 0) < targetTs).sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
       const prevDiary = prevD ? ((prevD.titleZh || prevD.titleEn || "") + "｜" + (prevD.paras || []).map(p => p.text).join(" ").slice(0, 220)) : "";
-      const ctx = { ...ctxFor(char), moodLabel: mood && (mood.label || mood) || null, worldbook: loreFor(char, "diary"), recentChat: dayChatText };
+      const ctx = { ...ctxFor(char), moodLabel: mood && (mood.label || mood) || null, worldbook: loreFor(char, "diary"), recentChat: dayChatText, memory: "", groupEcho: "", offlineNow: "", schedNow: "" };
       const dateStr = new Date(targetTs).toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" });
       // 当天钱包流水（日常购物/转账/礼物）喂给日记当素材——日程/钱包/日记三联动的最后一环
       const wRec = charWalletRef.current[charId];
       const walletText = wRec && Array.isArray(wRec.ledger) ? wRec.ledger.filter(e => (e.ts || 0) >= ds && (e.ts || 0) < de && e.kind !== "monthly").slice(0, 8).map(e => "· " + (e.label || "") + "（" + (e.delta > 0 ? "+" : "") + e.delta + "）").join("\n") : "";
       // 日记跟随该角色的 API 线路（v48.36，她点名）：选了专属配置（如小克接 fable）就用那条写日记，没选自动回退主模型 active（不是便宜后台池）
-      const d = await generateDiary(apiFor(charId), leanWriteCtx(ctx), { scheduleText: scheduleTextFor(char, targetKey), walletText: walletText, dateStr: dateStr, noChatMaterial: dayMsgs.length < 2, prevDiary: prevDiary, digital: !!settingsFor(charId).engineerEyes });
+      const d = await generateDiary(apiFor(charId), leanWriteCtx(ctx), { scheduleText: scheduleTextFor(char, targetKey), walletText: walletText, dateStr: dateStr, noChatMaterial: dayRows.length < 2, prevDiary: prevDiary, digital: !!settingsFor(charId).engineerEyes });
       const entry = {
         id: "d_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
         ts: targetTs,
