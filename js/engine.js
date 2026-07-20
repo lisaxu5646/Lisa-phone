@@ -851,7 +851,8 @@ function formatMemLib(entries) {
   const body = arr.map(e => {
     const tags = (e.tags && e.tags.length) ? "（" + e.tags.join("、") + "）" : "";
     const openMark = e.open ? "〔还没了结·你心里还惦记着〕" : "";
-    return "· " + e.text + openMark + tags;
+    const dateAnchor = window.TemporalAnchor ? window.TemporalAnchor.anchor(e.text, e.ts) : "";
+    return "· " + e.text + openMark + tags + (dateAnchor ? " " + dateAnchor : "");
   }).join("\n");
   // ⭐开环别误读成爽约（她 2026-07-18 报的老 bug）：标〔还没了结〕的事，角色老自己脑补成"她说要来却放我鸽子"、几小时后主动消息+心声冲她生气。
   //   真相=她没"不来"、只是【还没来】，"今天"还没过完、软性的"我来找你"更不是签字的约会。给一句读法指引，四条注入路(主聊/线下/群/通话)全覆盖。
@@ -1439,7 +1440,9 @@ function offlineHistory(msgs, userName, charName) {
       const c = m.content || "";
       if (l && l.role === "assistant") l.content += "\n" + c; else g.push({ role: "assistant", content: c });
     } else {
-      const c = m.role === "narration" ? "【场景设定】" + (m.content || "") : (m.content || "");
+      const raw = m.content || "";
+      const dateAnchor = window.TemporalAnchor ? window.TemporalAnchor.anchor(raw, m.ts) : "";
+      const c = (m.role === "narration" ? "【场景设定】" + raw : raw) + (dateAnchor ? dateAnchor : "");
       const l = g[g.length - 1];
       if (l && l.role === "user") l.content += "\n" + c; else g.push({ role: "user", content: c });
     }
@@ -1521,7 +1524,9 @@ function offlineGroupHistory(msgs, userName) {
       const l = g[g.length - 1];
       if (l && l.role === "assistant") l.content += "\n" + c; else g.push({ role: "assistant", content: c });
     } else {
-      const c = m.role === "narration" ? "【场景设定】" + (m.content || "") : userName + "：" + (m.content || "");
+      const raw = m.content || "";
+      const dateAnchor = window.TemporalAnchor ? window.TemporalAnchor.anchor(raw, m.ts) : "";
+      const c = (m.role === "narration" ? "【场景设定】" + raw : userName + "：" + raw) + (dateAnchor ? dateAnchor : "");
       const l = g[g.length - 1];
       if (l && l.role === "user") l.content += "\n" + c; else g.push({ role: "user", content: c });
     }
