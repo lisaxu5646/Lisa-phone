@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.79";
+const APP_VERSION = "v49.80";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -659,7 +659,7 @@ function App() {
           const result = window.JiwenEmotionA.applyEvent(state, { affinityDelta: Number.isFinite(Number(affinityDelta)) ? Number(affinityDelta) : 0, moodLabel: moodLabel || "" }, now);
           const saved = await window.InnerLifeAShadow.put(ownerId, charId, result.state); if (!saved) return;
           const projection = window.JiwenEmotionA.displayProjection(saved);
-          await window.InnerLifeAShadow.addDiagnostic(ownerId, charId, { t: now, dictionaryVersion: result.audit.moodDictionaryVersion, items: projection.items, tokenEstimate: projection.tokenEstimate, moodMatched: result.audit.moodMatched, clippedAxis: result.audit.clippedAxis, scaledTotal: result.audit.scaledTotal });
+          await window.InnerLifeAShadow.addDiagnostic(ownerId, charId, { t: now, dictionaryVersion: result.audit.moodDictionaryVersion, items: projection.items, tokenEstimate: projection.tokenEstimate, moodMatched: result.audit.moodMatched, moodLabel: result.audit.moodLabel, clippedAxis: result.audit.clippedAxis, scaledTotal: result.audit.scaledTotal });
           if (activeChar && activeChar.id === charId) { const report = await window.InnerLifeAShadow.report(ownerId, charId); setAShadowPanel({ state: saved, projection, report }); }
         } catch (e) {}
       }, 0);

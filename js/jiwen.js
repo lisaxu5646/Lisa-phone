@@ -765,16 +765,19 @@ const A_AXES = Object.freeze({
 });
 const A_DEFAULT_BASELINE = Object.freeze({ connection:0,pride:0,valence:0,arousal:0,immersion:0,hurt:0,anger:0,anxiety:0,warmth:.35,fatigue:.25 });
 const A_REGRESS_PER_MIN = Object.freeze({ connection:0,pride:.003,valence:.005,arousal:.005,immersion:.010,hurt:.001,anger:.004,anxiety:.002,warmth:.0015,fatigue:.001 });
-const A_MOOD_DICTIONARY_VERSION = 2;
+const A_MOOD_DICTIONARY_VERSION = 3;
 const A_MOOD_RULES = Object.freeze([
-  ["hurt",/(?:委屈|受伤|失落|难过|伤心|低落|沮丧|心碎|孤独)/,{hurt:.18,valence:-.10,warmth:-.04}],
-  ["anger",/(?:生气|愤怒|恼火|烦躁|火大|气恼|无语|厌烦)/,{anger:.18,arousal:.12,valence:-.08}],
-  ["anxiety",/(?:焦虑|害怕|不安|担心|紧张|恐惧|忐忑|慌|动摇|動揺)/,{anxiety:.18,arousal:.10,valence:-.06}],
-  ["warmth",/(?:温柔|心软|安心|柔软|甜|幸福|感动|暖|亲昵|宠溺)/,{warmth:.18,valence:.10,anxiety:-.06}],
-  ["fatigue",/(?:累|疲惫|困倦|乏力|倦|没精神|精疲力尽)/,{fatigue:.18,arousal:-.10,immersion:-.05}],
-  ["positive_valence",/(?:松快|轻松|放松|舒畅|愉快|开心|高兴|快乐|满足|欣慰|雀跃|窃喜|欢喜)/,{valence:.14,warmth:.05,anxiety:-.04}],
-  ["low_valence",/(?:郁闷|鬱悶|压抑|消沉|闷闷不乐)/,{valence:-.14,arousal:-.04,hurt:.05}],
+  ["hurt",/(?:委屈|受伤|失落|难过|伤心|低落|沮丧|心碎|孤独|落寞|心酸|酸涩|惆怅|遗憾)/,{hurt:.18,valence:-.10,warmth:-.04}],
+  ["anger",/(?:生气|愤怒|恼火|烦躁|火大|气恼|无语|厌烦|不悦|恼怒|烦闷)/,{anger:.18,arousal:.12,valence:-.08}],
+  ["anxiety",/(?:焦虑|害怕|不安|担心|紧张|恐惧|忐忑|慌|动摇|動揺|警惕|戒备|犹豫|忐忑)/,{anxiety:.18,arousal:.10,valence:-.06}],
+  ["warmth",/(?:温柔|心软|安心|柔软|甜|幸福|感动|暖|亲昵|宠溺|心疼|怜爱|眷恋|爱意|柔和|亲近|关切)/,{warmth:.18,valence:.10,anxiety:-.06}],
+  ["fatigue",/(?:累|疲惫|困倦|乏力|倦|没精神|精疲力尽|疲倦|倦怠|慵懒|困乏|犯困)/,{fatigue:.18,arousal:-.10,immersion:-.05}],
+  ["positive_valence",/(?:松快|轻松|放松|舒畅|愉快|开心|高兴|快乐|满足|欣慰|雀跃|窃喜|欢喜|期待|得意|骄傲|自豪|喜悦|欣喜|畅快|惬意)/,{valence:.14,warmth:.05,anxiety:-.04}],
+  ["low_valence",/(?:郁闷|鬱悶|压抑|消沉|闷闷不乐|无奈|尴尬|窘迫)/,{valence:-.14,arousal:-.04,hurt:.05}],
   ["high_arousal",/(?:激动|兴奋|振奋|亢奋|热血)/,{arousal:.16,valence:.06}],
+  ["playful",/(?:调皮|戏谑|促狭|逗弄|顽皮|玩味|坏笑|淘气)/,{valence:.06,arousal:.04,warmth:.04}],
+  ["shy",/(?:害羞|羞涩|腼腆|羞赧)/,{anxiety:.05,warmth:.04}],
+  ["calm",/(?:平静|平和|淡定|从容|安定|安宁|踏实|释然|专注|认真|好奇|若有所思|沉思|克制|谨慎)/,{}],
   ["cold",/(?:冷酷|冷淡|冷漠|疏冷)/,{warmth:-.14,valence:-.06}]
 ]);
 const aClone = value => JSON.parse(JSON.stringify(value));
@@ -888,8 +891,8 @@ function applyEmotionAEvent(rawState,event,nowValue) {
       after[k]=aClampAxis(k,cur+move);
     });
     const at=aFinite(nowValue,Date.now()); state.emotion.current=after;state.emotion.lastMoodLabel=mood.label;state.emotion.lastEventTs=at;state.updatedTs=at;state.revision=aFinite(state.revision,1)+1;
-    return {state,audit:{sources,summed:capped.summed,applied:Object.fromEntries(Object.keys(after).filter(k=>after[k]!==before[k]).map(k=>[k,after[k]-before[k]])),clippedAxis:capped.clippedAxis,scaledTotal:capped.scaledTotal,totalScale:capped.scale,moodMatched:mood.matched,moodRules:mood.rules,moodDictionaryVersion:A_MOOD_DICTIONARY_VERSION}};
-  }catch(_){return {state:rawState,audit:{error:"emotion_event_failed",moodMatched:false,moodRules:[],moodDictionaryVersion:A_MOOD_DICTIONARY_VERSION}};}
+    return {state,audit:{sources,summed:capped.summed,applied:Object.fromEntries(Object.keys(after).filter(k=>after[k]!==before[k]).map(k=>[k,after[k]-before[k]])),clippedAxis:capped.clippedAxis,scaledTotal:capped.scaledTotal,totalScale:capped.scale,moodMatched:mood.matched,moodLabel:mood.label,moodRules:mood.rules,moodDictionaryVersion:A_MOOD_DICTIONARY_VERSION}};
+  }catch(_){return {state:rawState,audit:{error:"emotion_event_failed",moodMatched:false,moodLabel:"",moodRules:[],moodDictionaryVersion:A_MOOD_DICTIONARY_VERSION}};}
 }
 
 function regressEmotionA(rawState,minutesValue,nowValue) {

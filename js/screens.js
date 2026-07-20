@@ -4912,6 +4912,7 @@ function InnerLifeADiagnosticSheet({ characters, onClose }) {
         : h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog } }, "无状态（引擎还没为 TA 演算过）"),
       line("投影采样 / mood未匹配 / 被钳制", (r.sampleCount || 0) + " / " + (r.unmatchedMoodCount || 0) + " / " + (r.clippedCount || 0)),
       r.dictionaryVersion ? line("固定词典版本 / 旧版留档样本", "v" + r.dictionaryVersion + " / " + (r.legacySampleCount || 0)) : null,
+      r.topUnmatchedMoods && r.topUnmatchedMoods.length ? line("本版未识别 mood", r.topUnmatchedMoods.map(x => x.label + "×" + x.count).join("、")) : null,
       r.dimensionCounts && Object.keys(r.dimensionCounts).length ? line("投影维度分布", Object.entries(r.dimensionCounts).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, n]) => (AXIS_ZH[k] || k) + "×" + n).join(" ")) : null)),
     h("button", { onClick: load, className: "w-full mt-3 py-2.5 active:opacity-70", style: { borderRadius: 9, border: "1px solid " + t.line, fontFamily: F_BODY, fontSize: 12, color: t.sub } }, "刷新诊断"));
 }
