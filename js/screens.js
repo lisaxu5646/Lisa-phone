@@ -634,6 +634,8 @@ function RelComposer({ comp, setComp, characters, profile, me, nameOf, valid, on
 // 行程 Lifestyle —— 仿日记大图 + swipe 换角色 + 周 timeline + 每日时间线（偏差红框/碎碎念回看）
 // ============================================================
 function schedDayKey(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+function schedLocalDayKey(char, at) { return window.ScheduleClock ? window.ScheduleClock.dayKey(char, at || Date.now(), -new Date().getTimezoneOffset()) : schedDayKey(new Date(at || Date.now())); }
+function schedShiftDayKey(key, days) { return window.ScheduleClock ? window.ScheduleClock.shiftDayKey(key, days) : schedDayKey(new Date(schedParseKey(key).getTime() + Number(days || 0) * 86400000)); }
 function schedParseKey(k) { const a = String(k).split("-").map(Number); return new Date(a[0], a[1] - 1, a[2]); }
 const SCHED_DOW_EN = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 const SCHED_DOW_ZH = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
@@ -641,10 +643,10 @@ function schedDateParts(k) {
   const d = schedParseKey(k), dow = d.getDay();
   return { date: d, md: (d.getMonth() + 1) + "月" + d.getDate() + "日", dowEn: SCHED_DOW_EN[dow], dowZh: SCHED_DOW_ZH[dow], dateNum: String(d.getDate()).padStart(2, "0") };
 }
-function schedWeek(today) {
+function schedWeek(today, localTodayKey) {
   const d = new Date(today), dow = (d.getDay() + 6) % 7; // 周一=0
   const mon = new Date(d); mon.setDate(d.getDate() - dow); mon.setHours(0, 0, 0, 0);
-  const tk = schedDayKey(new Date()); // 相对「真实今天」判定过去/今天/未来
+  const tk = localTodayKey || schedDayKey(new Date()); // 相对所选角色的当地今天判定过去/今天/未来
   return Array.from({ length: 7 }, (_, i) => {
     const dd = new Date(mon); dd.setDate(mon.getDate() + i);
     const key = schedDayKey(dd);
@@ -672,11 +674,12 @@ function schedDisplaySeqs(char, seqs) {
     const my = cm == null ? null : (((cm - shift) % 1440) + 1440) % 1440;
     return Object.assign({}, s, { _charTime: s.time || "", _myMin: my, _myLabel: my == null ? (s.time || "") : pad2(Math.floor(my / 60)) + ":" + pad2(my % 60), _shifted: shift !== 0 });
   });
-  if (shift !== 0) arr.sort((a, b) => (a._myMin == null ? 99999 : a._myMin) - (b._myMin == null ? 99999 : b._myMin));
+  // 保留角色生活时间线原顺序；换算到我方后可能跨午夜，按钟面重排会把清晨/深夜颠倒。
   return arr;
 }
-function schedCurrentSeqIdx(seqs, isToday) {
+function schedCurrentSeqIdx(seqs, isToday, char) {
   if (!isToday) return -1;
+  if (window.ScheduleClock && char) return window.ScheduleClock.currentSeqIdx(seqs, window.ScheduleClock.localMinute(char, Date.now(), -new Date().getTimezoneOffset()));
   const now = new Date(), cur = now.getHours() * 60 + now.getMinutes();
   let idx = -1, prev = -1;
   // 单调化时间：**只有真正跨过午夜**（深夜→凌晨、回退超过 12h）才 +24h，保证末尾的「00:20 睡觉」排在最后。
@@ -698,7 +701,7 @@ function schedCurrentSeqIdx(seqs, isToday) {
 function LifeDay({ char, dayKey, plan, busy, onGen, onBack }) {
   const t = useTheme();
   const dp = schedDateParts(dayKey);
-  const isToday = dayKey === schedDayKey(new Date());
+  const isToday = dayKey === schedLocalDayKey(char);
   const [openMurmur, setOpenMurmur] = useState(false);
   useEffect(() => {
     if (plan) return;
@@ -720,7 +723,7 @@ function LifeDay({ char, dayKey, plan, busy, onGen, onBack }) {
   // 异地：把角色本地日程换算到我这边的时间轴并重排（框架=我的时间）
   const seqs = schedDisplaySeqs(char, plan.seqs || []);
   const tzShifted = seqs.length && seqs[0]._shifted;
-  const curIdx = schedCurrentSeqIdx(seqs, isToday);
+  const curIdx = schedCurrentSeqIdx(seqs, isToday, char);
   const murmurs = plan.murmurs || [];
   const seqState = i => !isToday ? "done" : i < curIdx ? "done" : i === curIdx ? "current" : "future";
   return h("div", { className: "h-full flex flex-col", style: { background: t.bg } }, head,
@@ -770,15 +773,15 @@ function Lifestyle({ characters, schedules, selId, busyKey, onBack, onSel, onGen
   const idx = Math.max(0, characters.findIndex(c => c.id === selId));
   const char = characters[idx] || characters[0];
   if (!char) return h("div", { className: "h-full flex flex-col" }, h(Head, { zh: "行程", en: "Lifestyle", onBack }), h(Empty, { text: "还没有角色", sub: "先去名录录入一位" }));
-  const todayKey = schedDayKey(new Date());
+  const todayKey = schedLocalDayKey(char);
   const plans = schedules[char.id] || {};
-  const todayPlan = plans[todayKey];
+  const todayPlan = plans[todayKey] || plans[schedDayKey(new Date())]; // 旧设备日键只作显示兜底，新当地日程生成后自动接管
   const go = dir => { const ni = idx + dir; if (ni >= 0 && ni < characters.length) onSel(characters[ni].id); };
   const openDay = key => { setDayKey(key); setView("day"); };
   const onTS = e => { const p = e.touches[0]; tp.current = { x: p.clientX, y: p.clientY }; };
   const onTE = e => { if (!tp.current) return; const p = e.changedTouches[0]; const dx = p.clientX - tp.current.x, dy = p.clientY - tp.current.y; tp.current = null; if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) go(dx < 0 ? 1 : -1); };
 
-  if (view === "day" && dayKey) return h(LifeDay, { char, dayKey, plan: plans[dayKey], busy: busyKey === char.id + "|" + dayKey, onGen: onGenDay, onBack: () => setView("brief") });
+  if (view === "day" && dayKey) return h(LifeDay, { char, dayKey, plan: plans[dayKey] || (dayKey === todayKey ? todayPlan : null), busy: busyKey === char.id + "|" + dayKey, onGen: onGenDay, onBack: () => setView("brief") });
 
   if (view === "index") return h("div", { className: "h-full flex flex-col" },
     h(Head, { zh: "名册", en: "Roster · 选择角色", onBack: () => setView("browser") }),
@@ -796,8 +799,8 @@ function Lifestyle({ characters, schedules, selId, busyKey, onBack, onSel, onGen
 
   // —— brief：选中角色的日程（周条 + 今日简报 + 上一周历史）——
   if (view === "brief") {
-    const base = new Date(Date.now() + weekOff * 7 * 86400000);
-    const week = schedWeek(base);
+    const base = new Date(schedParseKey(todayKey).getTime() + weekOff * 7 * 86400000);
+    const week = schedWeek(base, todayKey);
     const dev0 = todayPlan && (todayPlan.seqs || []).map(s => s.deviation).find(Boolean);
     const weekLabel = weekOff === 0 ? "本周" : weekOff === -1 ? "上一周" : Math.abs(weekOff) + " 周前";
     const bandBg = char.avatarImage

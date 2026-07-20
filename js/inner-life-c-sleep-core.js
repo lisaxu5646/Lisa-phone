@@ -84,17 +84,19 @@
     const plans = schedules && typeof schedules === "object" ? schedules : {};
     const windows = [], starts = [];
     for (const delta of [-1, 0]) {
-      const deviceKey = shiftDayKey(deviceToday, delta), roleKey = shiftDayKey(roleToday, delta), nextDeviceKey = shiftDayKey(deviceKey, 1);
-      for (const sleep of sleepStarts(plans[deviceKey])) {
+      const deviceKey = shiftDayKey(deviceToday, delta), roleKey = shiftDayKey(roleToday, delta), nextDeviceKey = shiftDayKey(deviceKey, 1), nextRoleKey = shiftDayKey(roleKey, 1);
+      const plan = plans[roleKey] || plans[deviceKey]; // v49.72 起角色当地日键权威；右侧兼容旧设备日键
+      const nextPlan = plans[nextRoleKey] || plans[nextDeviceKey];
+      for (const sleep of sleepStarts(plan)) {
         const sleepKey = shiftDayKey(roleKey, sleep.dayOffset), start = localTimeToUtc(sleepKey, sleep.time, utcOffsetMinutes);
-        const wakeSpec = wakeAfter(plans[deviceKey], sleep, plans[nextDeviceKey]);
+        const wakeSpec = wakeAfter(plan, sleep, nextPlan);
         const wake = wakeSpec ? localTimeToUtc(shiftDayKey(roleKey, wakeSpec.dayOffset), wakeSpec.time, utcOffsetMinutes) : null;
         starts.push(start);
         if (Number.isFinite(start) && Number.isFinite(wake) && wake > start) windows.push({ start, wake });
       }
     }
     const tomorrowDevice = shiftDayKey(deviceToday, 1), tomorrowRole = shiftDayKey(roleToday, 1);
-    for (const sleep of sleepStarts(plans[tomorrowDevice])) starts.push(localTimeToUtc(shiftDayKey(tomorrowRole, sleep.dayOffset), sleep.time, utcOffsetMinutes));
+    for (const sleep of sleepStarts(plans[tomorrowRole] || plans[tomorrowDevice])) starts.push(localTimeToUtc(shiftDayKey(tomorrowRole, sleep.dayOffset), sleep.time, utcOffsetMinutes));
     const validStarts = starts.filter(Number.isFinite).sort((a, b) => a - b);
     const currentWindow = windows.find(x => now >= x.start && now < x.wake) || null;
     const lastWake = windows.filter(x => x.wake <= now).sort((a, b) => b.wake - a.wake)[0] || null;
@@ -108,9 +110,9 @@
       phase = "drowsy"; sleepStartTs = nextSleep; nextTransitionTs = nextSleep;
     }
     const reliable = windows.length > 0 || validStarts.length > 0;
-    const deviceKeys = [-1, 0, 1].map(delta => shiftDayKey(deviceToday, delta));
-    const serial = deviceKeys.map(key => [key, normalizedSeqs(plans[key]).map(x => [x.item.time, x.item.type])]);
-    return { phase, reliable, sleepStartTs, wakeAtTs, nextTransitionTs, scheduleFingerprint: fingerprint(JSON.stringify(serial)), today: roleToday, scheduleDayKey: deviceToday };
+    const auditKeys = [...new Set([-1, 0, 1].flatMap(delta => [shiftDayKey(roleToday, delta), shiftDayKey(deviceToday, delta)]))];
+    const serial = auditKeys.map(key => [key, normalizedSeqs(plans[key]).map(x => [x.item.time, x.item.type])]);
+    return { phase, reliable, sleepStartTs, wakeAtTs, nextTransitionTs, scheduleFingerprint: fingerprint(JSON.stringify(serial)), today: roleToday, scheduleDayKey: plans[roleToday] ? roleToday : deviceToday };
   }
 
   function createSleepState(now) {

@@ -31,10 +31,12 @@ test("角色时区用当地日程，不拿设备时钟硬套", () => {
   assert.equal(plusEight.wakeAtTs, at("2026-07-17T00:00:00Z"));
 });
 
-test("设备日键与角色当地日期分开：有时差仍能找到 x_schedules", () => {
+test("角色当地日键权威，并兼容旧设备日键", () => {
   const devicePlans = { "2026-07-15": plan(), "2026-07-16": plan(), "2026-07-17": plan() };
   const d = C.deriveSchedule(at("2026-07-16T18:00:00Z"), 480, devicePlans, 0);
-  assert.equal(d.scheduleDayKey, "2026-07-16"); assert.equal(d.today, "2026-07-17"); assert.equal(d.phase, "asleep");
+  assert.equal(d.scheduleDayKey, "2026-07-17"); assert.equal(d.today, "2026-07-17"); assert.equal(d.phase, "asleep");
+  const legacy = C.deriveSchedule(at("2026-07-16T18:00:00Z"), 480, { "2026-07-16": plan() }, 0);
+  assert.equal(legacy.scheduleDayKey, "2026-07-16");
 });
 
 test("日程中段小睡只睡到同日下一段，不吞掉整个下午", () => {

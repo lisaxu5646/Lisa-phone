@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.71";
+const APP_VERSION = "v49.72";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -1622,11 +1622,12 @@ function App() {
   });
   // 角色此刻的行程（给聊天/心情联动用）
   const schedNowFor = char => {
-    const s = (schedulesRef.current[char.id] || {})[schedDayKey(new Date())];
+    const plans = schedulesRef.current[char.id] || {};
+    const s = plans[schedLocalDayKey(char)] || plans[schedDayKey(new Date())]; // 右侧仅兼容 v49.71 前旧日键，生成新当地日程后自然退出
     if (!s || !Array.isArray(s.seqs) || !s.seqs.length) return "";
     // 换算到我这边时间轴以正确判「此刻」，但给角色的文案仍用 TA 当地时刻（角色按自己时区想事情）
     const disp = schedDisplaySeqs(char, s.seqs);
-    const idx = schedCurrentSeqIdx(disp, true);
+    const idx = schedCurrentSeqIdx(disp, true, char);
     const cur = idx >= 0 ? disp[idx] : null;
     const next = disp[idx + 1];
     let out = "今日安排（负荷 " + (s.load || "") + "）：\n" + disp.map(x => (x._charTime || x.time || "") + " " + x.title + (x.location ? "（" + x.location + "）" : "") + (x.deviation ? "［临时改动：" + (x.deviation.reason || "") + "］" : "")).join("\n");
@@ -1648,10 +1649,11 @@ function App() {
   // 结构化「此刻在做什么/在哪」——给聊天顶栏用（联动今日日程）。没今日日程就返回 null。顶栏在我这边，用我这边时刻。
   const schedNowBriefFor = char => {
     if (!char) return null;
-    const s = (schedulesRef.current[char.id] || {})[schedDayKey(new Date())];
+    const plans = schedulesRef.current[char.id] || {};
+    const s = plans[schedLocalDayKey(char)] || plans[schedDayKey(new Date())];
     if (!s || !Array.isArray(s.seqs) || !s.seqs.length) return null;
     const disp = schedDisplaySeqs(char, s.seqs);
-    const idx = schedCurrentSeqIdx(disp, true);
+    const idx = schedCurrentSeqIdx(disp, true, char);
     const cur = idx >= 0 ? disp[idx] : null;
     if (!cur) return { time: "", title: "还没开始今天的安排", location: "", dev: false };
     return { time: cur._myLabel || cur.time || "", title: cur.title || "", location: cur.location || "", type: cur.type || "other", dev: !!cur.deviation };
@@ -1929,7 +1931,8 @@ function App() {
   };
   // 从今日日程取起床/就寝时刻（角色本地，分钟）；没日程返回 null
   const schedWakeSleep = char => {
-    const s = (schedulesRef.current[char.id] || {})[schedDayKey(new Date())];
+    const plans = schedulesRef.current[char.id] || {};
+    const s = plans[schedLocalDayKey(char)] || plans[schedDayKey(new Date())];
     if (!s || !Array.isArray(s.seqs) || !s.seqs.length) return null;
     const toMin = t => { const m = /(\d{1,2}):(\d{2})/.exec(String(t || "")); return m ? (+m[1]) * 60 + (+m[2]) : null; };
     let sleep = null;
@@ -4055,7 +4058,7 @@ function App() {
   });
   const genScheduleDay = async (char, dayKey) => {
     if (!active) { toast("请先到设置配置 API"); return false; }
-    const today = schedDayKey(new Date());
+    const today = schedLocalDayKey(char);
     const retro = dayKey < today;
     const dp = schedDateParts(dayKey);
     // 数字生命/驻场 AI 角色（开了「眼睛」开关）：没肉身、不在现实城市、不吃饭睡觉花钱——日程改成「存在时间线」，不套真人作息（她 2026-07-13 点名的割裂）
@@ -4077,7 +4080,7 @@ function App() {
       const carryRule = retro ? "" : "\n【别复读昨天·重要】昨天或更早【已经发生并结束】的事——尤其你和用户之间【已经做过的经历、已兑现的约定】——绝不要当成今天还没做、还要再来一遍，排进今天的时间线或未来时段。今天的安排只基于 Ta【今天】的身份作息与此刻处境，不是重演昨天发生过的事。";
       // 碎碎念改成【回溯】：今天还没过完，不写今天的（否则像能看到未来）。
       // 生成今天日程的同时，顺手根据聊天记录把【昨天】的碎碎念补上——一次调用搞定，不进聊天prompt、也不多花 api。
-      const yKey = schedDayKey(new Date(Date.now() - 86400000));
+      const yKey = schedShiftDayKey(today, -1);
       const yPlan = (schedulesRef.current[char.id] || {})[yKey] || null;
       const needY = !retro && yPlan && !((yPlan.murmurs || []).length); // 只在生成今天、且昨天有日程还没写过碎碎念时补
       const ydp = needY ? schedDateParts(yKey) : null;
@@ -4137,12 +4140,11 @@ function App() {
   const schedGenAllToday = async () => {
     if (schedRunRef.current) return; // 防并发：同一次生成过程里别重复触发
     if (!active) return;
-    const today = schedDayKey(new Date());
-    const todo = characters.filter(c => !(schedulesRef.current[c.id] || {})[today]);
+    const todo = characters.filter(c => !(schedulesRef.current[c.id] || {})[schedLocalDayKey(c)]);
     if (!todo.length) return;
     schedRunRef.current = true;
     try {
-      for (const c of todo) await genScheduleDay(c, today);
+      for (const c of todo) await genScheduleDay(c, schedLocalDayKey(c));
     } finally {
       schedRunRef.current = false;
     }
@@ -4152,10 +4154,10 @@ function App() {
   const schedSelfRevRef = useRef(false);
   const schedMaybeSelfRevise = async () => {
     if (schedSelfRevRef.current || !active || !characters.length) return;
-    const today = schedDayKey(new Date());
     schedSelfRevRef.current = true;
     try {
       for (const c of characters) {
+        const today = schedLocalDayKey(c);
         const plan = (schedulesRef.current[c.id] || {})[today];
         if (!plan || !Array.isArray(plan.seqs) || !plan.seqs.length || plan.selfRevCheck) continue;
         const tzShiftMin = schedTzShiftMin(c);
@@ -4245,7 +4247,7 @@ function App() {
   };
   // ---- 日记（Diary）----
   const scheduleTextFor = (char, dayKey) => {
-    const key = dayKey || schedDayKey(new Date());
+    const key = dayKey || schedLocalDayKey(char);
     const s = (schedules[char.id] || {})[key];
     if (!s || !Array.isArray(s.seqs) || !s.seqs.length) return "";
     return s.seqs.map(it => (it.time || "") + " " + (it.title || "") + (it.location ? "（" + it.location + "）" : "") + (it.deviation ? "［偏差：" + (it.deviation.reason || "") + "］" : "")).join("\n");
@@ -4540,9 +4542,9 @@ function App() {
     return () => { document.removeEventListener("visibilitychange", kick); window.removeEventListener("focus", kick); };
   }, [loaded, active, characters.length]);
   // 跨天（app 一直开着没关）：日期一变就补新一天的行程
-  const schedDayRef = useRef(schedDayKey(new Date()));
+  const schedDayRef = useRef("");
   useEffect(() => {
-    const k = schedDayKey(new Date());
+    const k = characters.map(c => c.id + ":" + schedLocalDayKey(c)).join("|");
     if (k !== schedDayRef.current) { schedDayRef.current = k; if (active && characters.length) { deliverServerInbox(); deliverDeskLog(); schedGenAllToday().then(() => schedMaybeSelfRevise()).then(() => desireMuseAllToday()).then(() => desireTendAllToday()); }; }
   }, [now]);
 
