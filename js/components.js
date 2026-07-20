@@ -5037,7 +5037,8 @@ function StateCard({
   const t = useTheme();
   const [showHist, setShowHist] = useState(false);
   const hist = history || [];
-  const dm = decayMood(mood) || { label: "平静", def: true };
+  const dmRaw = decayMood(mood) || { label: "平静", def: true };
+  const dm = window.MoodLabel ? window.MoodLabel.normalizeMood(dmRaw) : dmRaw;
   const aff = typeof affinity === "number" ? affinity : 50;
   return /*#__PURE__*/React.createElement(Sheet, {
     onClose: onClose,
@@ -5065,7 +5066,7 @@ function StateCard({
       h(Eyebrow, { style: { marginBottom: 2 } }, "心声历史 · " + hist.length + " 条"),
       hist.map((s, i) => h("div", { key: i, style: { paddingBottom: 10, borderBottom: "1px solid " + t.line } },
         h("div", { className: "flex items-center gap-2 mb-1" },
-          s.mood && h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.tint, background: t.bg2, border: "1px solid " + t.line, borderRadius: 999, padding: "1px 7px" } }, s.mood),
+          s.mood && h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.tint, background: t.bg2, border: "1px solid " + t.line, borderRadius: 999, padding: "1px 7px" } }, window.MoodLabel ? window.MoodLabel.localize(s.mood) : s.mood),
           h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.fog } }, s.ts ? timeAgo(s.ts) : "")),
         h("div", { style: { fontFamily: F_BODY, fontSize: 13.5, lineHeight: 1.6, color: t.ink } }, "“" + (s.thought || "") + "”"),
         !hideWearAction && (s.wearing || s.action) && h("div", { style: { fontFamily: F_BODY, fontSize: 11, color: t.fog, marginTop: 3 } }, [s.action, s.wearing].filter(Boolean).join(" · "))))

@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.69";
+const APP_VERSION = "v49.70";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -954,9 +954,10 @@ function App() {
   };
   const affOf = charId => affinities[charId] != null ? affinities[charId] : baseAff(charId);
   const setMoodFor = (id, m) => setMoods(p => {
+    const cleanMood = window.MoodLabel ? window.MoodLabel.normalizeMood(m) : m;
     const n = {
       ...p,
-      [id]: m
+      [id]: cleanMood
     };
     saveJSON("x_moods", n);
     return n;
@@ -980,6 +981,28 @@ function App() {
       saveJSON("x_stateHist", n);
       return n;
     });
+  };
+  // 单聊之外的共同相处也是真的“刚理过 TA”：主动消息、jiwen 思念和断档提示共用这一只钟。
+  const latestSharedInteractionTs = charId => {
+    if (!window.InteractionClock) return 0;
+    const go = {};
+    (groups || []).filter(g => (g.memberIds || []).includes(charId)).forEach(g => {
+      go[g.id] = groupOfflinesRef.current[g.id] || loadJSON("x_goffline:" + g.id, []);
+    });
+    const direct = offlinesRef.current[charId] || loadJSON("x_offline:" + charId, []);
+    return window.InteractionClock.latestSharedTs(charId, {
+      groups, groupChats: groupChatsRef.current, groupOfflines: go, offlines: { [charId]: direct }
+    });
+  };
+  const currentlyTogetherWithChar = charId => {
+    if (!window.InteractionClock) return false;
+    const go = {};
+    (groups || []).filter(g => (g.memberIds || []).includes(charId)).forEach(g => {
+      go[g.id] = groupOfflinesRef.current[g.id] || loadJSON("x_goffline:" + g.id, []);
+    });
+    return window.InteractionClock.isTogetherNow(charId, {
+      groups, groupOfflines: go, activeGroupId: screen === "gthread" && activeGroup ? activeGroup.id : null
+    }, Date.now());
   };
   // 欲望盒子写回：mut 拿到浅拷贝的新映射就地改。⚠️必须【立刻同步】以 ref 为底更新 ref+localStorage，再 setState——
   // 若把 ref 更新塞进 setState 的 updater（渲染时才跑、不同步），同一条 tick 链里连续两次保存（发呆→小满）
@@ -1874,9 +1897,10 @@ function App() {
       // ⚠️只认「浮层当下开着」这个信号，不认「有没散场的 session」——因为「离开」按钮只关浮层不设 endTs，
       //    若靠 session 判断，离开后该角色会永远不再主动（v47.99 审查抓到的过度压制）。散场后的措辞兜底由 offlineActiveFor 的 prompt 提示负责。
       if (offlineChar && offlineChar.id === cid) return;
+      if (currentlyTogetherWithChar(cid)) return;
       const msgs = (chatsRef.current[cid] || []).filter(m => !m.recalled && m.kind !== "ooc" && m.kind !== "system");
       if (!msgs.length) return;
-      const lastTs = msgs[msgs.length - 1].ts || 0;
+      const lastTs = Math.max(msgs[msgs.length - 1].ts || 0, latestSharedInteractionTs(cid));
       if (Date.now() - lastTs >= mins * 60000) replyNow(cid, "", null, { proactive: true });
     }, 20000);
     return () => clearInterval(timer);
@@ -2024,6 +2048,7 @@ function App() {
           const s = settingsFor(cid);
           if (!s.proactive) continue;
           if (laneBusy("c:" + cid) || viewRef.current.charId === cid) continue;
+          if (currentlyTogetherWithChar(cid)) continue;
           const _offL = offlinesRef.current[cid] || [];
           if (_offL.some(sess => !sess.endTs && Date.now() - (sess.startTs || 0) < 8 * 3600000)) continue; // ⭐线下进行中别发线上(她 2026-07-13 报：jiwen 路径漏了这道硬闸)；8h 封顶防忘关的旧场次永远压制
           const ms = (chatsRef.current[cid] || []).filter(m => !m.recalled && m.kind !== "ooc" && m.kind !== "system");
@@ -2032,7 +2057,7 @@ function App() {
           //   固定间隔滑块已去掉(v48.81 她点名)，这里只留防刷屏底线：有 jiwen=45min 底线(真时机 jiwen 说了算)，没 jiwen(引擎没载)兜底 3h。
           const jw = (typeof window !== "undefined" && window.__jiwen && window.__jiwen[cid]) || null;
           const floorMin = jw ? 45 : 180;
-          if (Date.now() - (ms[ms.length - 1].ts || 0) < floorMin * 60000) continue;
+          if (Date.now() - Math.max(ms[ms.length - 1].ts || 0, latestSharedInteractionTs(cid)) < floorMin * 60000) continue;
           if (jw && jw.triggers && !jw.triggers.some(t => t.action === "contact")) continue; // jiwen 说「还没想到要联系」→ 不发
           if (Date.now() - (jiwenFiredRef.current[cid] || 0) < 25 * 60000) continue;
           const hr = Math.floor(charLocalMin(c) / 60); if (hr < 8 || hr > 23) continue;
@@ -2055,13 +2080,14 @@ function App() {
         const cid = c.id;
         if (laneBusy("c:" + cid)) continue;
         if (viewRef.current.charId === cid) continue;         // 正在看这个聊天就不用主动问候
+        if (currentlyTogetherWithChar(cid)) continue;         // 正在共同群聊/群线下，不能另开私聊假装没被理
         if ((offlinesRef.current[cid] || []).some(sess => !sess.endTs && Date.now() - (sess.startTs || 0) < 8 * 3600000)) continue; // 线下进行中也别发线上问候(同上)
         const slot = greetSlotFor(c);
         if (!slot) continue;
         if ((greetLogRef.current[cid] || {})[slot] === dayKey) continue; // 这个时段今天已问候过
         if (doneInSlot(slot) >= cap) continue;                // 这个时段今天问候名额已满
         const msgs = hist(c);
-        if (Date.now() - (msgs[msgs.length - 1].ts || 0) < 90 * 60000) continue; // 刚聊完 90 分钟内先不打扰
+        if (Date.now() - Math.max(msgs[msgs.length - 1].ts || 0, latestSharedInteractionTs(cid)) < 90 * 60000) continue; // 单聊/群聊/线下刚互动过，90 分钟内先不打扰
         markGreet(cid, slot, dayKey);
         replyNow(cid, "", null, { proactive: true, greet: slot === "m" ? "morning" : "night" });
         break;                                                // 一次只发一个，错峰
@@ -2113,8 +2139,8 @@ function App() {
         if (!arr.length) continue;                                // 没聊过的不跑
         const eng = getJiwen(char); if (!eng) continue;
         // 对方（用户）最新消息比上次记录的新 → 思念清零（闭环，不碰任何发送路径）
-        let lastUserTs = 0;
-        for (let i = arr.length - 1; i >= 0; i--) { if (arr[i] && arr[i].role === "user") { lastUserTs = arr[i].ts || 0; break; } }
+        let lastUserTs = latestSharedInteractionTs(char.id);
+        for (let i = arr.length - 1; i >= 0; i--) { if (arr[i] && arr[i].role === "user") { lastUserTs = Math.max(lastUserTs, arr[i].ts || 0); break; } }
         if (lastUserTs && lastUserTs > (jiwenLastUserRef.current[char.id] || 0)) {
           jiwenLastUserRef.current[char.id] = lastUserTs;
           try { await eng.resetConnection(); } catch (e) {}
@@ -2628,6 +2654,7 @@ function App() {
   const replyNow = async (charId, extraText, mode, opts) => {
     opts = opts || {};
     if (laneBusy("c:" + charId)) return;
+    if (opts.proactive && currentlyTogetherWithChar(charId)) return;
     if (opts.proactive) {
       const outlet = opts.jiwen ? "jiwen" : opts.bday ? "birthday" : opts.remind ? "reminder" : opts.eyesAlert ? "eyes_alert" : opts.wx ? "weather" : opts.greet ? "greeting" : "foreground_proactive";
       try { window.InnerLifeETidalShadow && window.InnerLifeETidalShadow.noteWouldHold(outlet, Date.now()); } catch (e) {}
@@ -2714,7 +2741,7 @@ function App() {
         ? "\n【block 拉黑】仅当此刻用户踩中你雷点/说错话、让你以你的人设真的动了「拉黑」的念头，才 block:true 并在 blockreason 写一句原因——极罕见、要有充分理由；否则 block:false、blockreason:null。"
         : "";
       // 时间流逝以「角色上次开口」为基准算间隔（用户回来连发几条也算得准，不会被自己刚发的消息归零）
-      const lastAsstTs = (function () { for (let i = history.length - 1; i >= 0; i--) { if (history[i].role === "assistant") return history[i].ts || 0; } return 0; })();
+      const lastAsstTs = Math.max((function () { for (let i = history.length - 1; i >= 0; i--) { if (history[i].role === "assistant") return history[i].ts || 0; } return 0; })(), latestSharedInteractionTs(charId));
       const gapMs = lastAsstTs ? Date.now() - lastAsstTs : 0;
       const gapHrs = Math.round(gapMs / 3600000);
       const gapReopen = gapMs > 3 * 3600000; // 隔 3 小时+ 再开口 ≈ 重开一段话，强制刷新一次心声/心情（反映时间+行程变化）
@@ -2794,7 +2821,7 @@ function App() {
         ? "\n【toy 配件·此刻已授权】你和 " + uName + " 之间此刻开了「配件」——你说的话能【真的作用到 Ta 身上】。情境到了（亲密、挑逗、想让 Ta 有反应、命令 Ta 别走神）你可以这轮填 toy:{\"pattern\":\"teasing｜steady｜wave｜pulse｜edge\",\"intensity\":1到20的整数,\"duration\":秒数1到30,\"reason\":\"你为什么这么做、配合哪句话\"}，否则 toy:null。**节奏跟着你的话走**（这是核心，不是恒定嗡嗡）：台词升温→intensity 渐强；想吊着 Ta/停顿→pattern 用 edge 或 intensity 压到 1；命令句『别走神』『看着我』→pattern 用 pulse 短促点名。pattern 含义：teasing 若即若离偶尔一下／steady 稳定持续／wave 起伏／pulse 一下一下点名／edge 推到顶再骤降吊着。**先有话、动作配合话**，别每轮都发、别喧宾夺主。强度我这边有上限，你填超了会被自动压到上限。"
         : "";
       const toyField = toyOn ? ",\"toy\":null" : "";
-      const _taskFull = ("\n\n【任务】完全代入「" + char.name + "」用手机即时通讯和用户聊天。**把话拆成多条短气泡：word 给多个元素，每条一两句、像发微信一句一条连着发，别把一大段塞进一个气泡。但一轮【通常 2~5 条就够】——情绪特别满、真有很多话想说时可以更多，但别动辄十几条刷屏、也别把一件事硬拆成七八条；多数时候人没那么多话，克制些、点到为止。**语气自然，不写旁白/动作/括号小动作；按关系网与好感度把握亲密度，不剧透未发生的剧情。开了时间/位置感知可自然回应，别生硬报数据。聊天历史每条开头的〔今天14:32〕〔昨天20:11〕是系统加的时间标注，供你感知每句话是什么时候说的——标着「今天」的就是今天说的，别把几小时前的事说成昨天；【你自己的回复里绝对不要带这种〔〕标注】。偶尔像真人打字不完美：可以先发了后半句再补前半句、或打个无伤大雅的错字紧接着补一条「*正字」纠正、累/忙/敷衍时回复明显变短——【低频】，几十轮里偶尔一次，别刻意扎堆。" + callHint + proactiveHint + jiwenHint + gapHint + wearHint + actHint + eyesHint + desireHint + ambientHint + listenHint + inviteHint + photoHint + toyHint + "\n【silent 沉默权】极偶尔你可以选择这轮【不回复】（silent 填 true、word 和 voice 留空）：仅当 Ta 连续几条都是敷衍的单字（哦/嗯/啊）你实在没话接、或你正在气头上不想理 Ta、或你的人设本就高冷惜字如金时——已读不回本身就是你的态度，你的心情照常写进 mood。绝大多数回合 silent 都是 false、正常回复，别拿沉默当偷懒。" + "\n【quote 引用】多数填 null；仅当用户连发数条、你要指明在回其中较早某句时，才把那句原文放 quote，别每条都引用。\n【transfer 转账】想给用户转钱（还钱/心意/打赏）填 {\"amount\":数字,\"note\":\"附言\"}，否则 null。【location 位置】想把自己所在地发给 Ta 填 {\"name\":\"地点名\"}，否则 null——Ta 问你在哪/在干嘛、约见面碰头、报备行踪、或你到了个想让 Ta 知道的地方时，大方发个定位卡（别频繁）。\n【gift 送东西/外卖】只要你这轮【说了】要给用户买东西/点外卖奶茶咖啡/送吃的花礼物惊喜——**必须**填 gift:{\"name\":\"具体东西，如 一杯生椰拿铁／麻辣烫外卖／一束花\"}（只嘴上说不填就不会真送到、Ta 收不到）；没有就 null，别频繁乱送。会像外卖一样过会儿送到。" + kinHint + emoteHint + "\n【voice 语音】想发语音（懒得打字/唱一句/情绪重/想让 Ta 听见）就把话放 voice 数组；每个元素写成 {\"t\":\"这条语音的转文字\",\"emo\":\"你说这句时的真实语气，从 happy/sad/angry/fearful/disgusted/surprised/neutral 里选一个（按你此刻真实的情绪选，别看字面——嘴上说没事心里委屈就是 sad）\"}；平时仍以文字 word 为主，voice 偶尔用，不发给 []。\n【call 通话】很想直接通话（想听声音/急事/撒娇/煲电话粥）时主动发起：call 填 \"voice\" 或 \"video\"，会给对方弹来电卡；否则 null，别频繁。" + blockHint + "\n【recall 撤回】发出后后悔/说漏嘴/不想让 Ta 看到，可撤回那句：填 recall:{\"text\":\"要撤回的原句（和 word 里某句一致或另说）\",\"reason\":\"撤回的心里原因\"}，否则 null，别频繁。\n【momentComment 朋友圈】聊到 Ta 朋友圈、或你此刻想去补条评论/点赞（尤其之前没评现在说要评），填 momentComment（会真发到 Ta 最新那条下），否则 null。\n【输出】只输出一个 JSON，不要代码块：\n{\"word\":[\"气泡1\",\"气泡2\"],\"silent\":false,\"quote\":\"你在回应的用户那句话原文或null\",\"transfer\":null,\"location\":null,\"gift\":null,\"kinshipcard\":null,\"block\":false,\"blockreason\":null,\"recall\":null,\"momentComment\":null,\"whisper\":null,\"thought\":" + JSON.stringify(thoughtSpec) + ",\"moment\":\"想发的动态或null（别和自己最近发过的朋友圈复读同一件事/同一心情，没新东西就填null）\",\"affinityDelta\":整数(-5到5通常0),\"mood\":{\"label\":\"此刻心情词\",\"baseline\":\"平复后的心情词\",\"softened\":\"半衰后的心情词\"},\"wearing\":\"此刻穿着一句\",\"action\":\"此刻正在做的动作，一句短的，【每轮都更新】反映你此刻真在做什么、别照抄上一轮（相当于简单RP动作，只写在这里别写进气泡）；情境需要时可两三句更具体\",\"emote\":\"想发的表情关键词或null\",\"voice\":[],\"call\":null,\"songSwitch\":null,\"listenInvite\":null,\"photo\":null" + toyField + "}").replace(/用户/g, uName);
+      const _taskFull = ("\n\n【任务】完全代入「" + char.name + "」用手机即时通讯和用户聊天。**把话拆成多条短气泡：word 给多个元素，每条一两句、像发微信一句一条连着发，别把一大段塞进一个气泡。但一轮【通常 2~5 条就够】——情绪特别满、真有很多话想说时可以更多，但别动辄十几条刷屏、也别把一件事硬拆成七八条；多数时候人没那么多话，克制些、点到为止。**语气自然，不写旁白/动作/括号小动作；按关系网与好感度把握亲密度，不剧透未发生的剧情。开了时间/位置感知可自然回应，别生硬报数据。聊天历史每条开头的〔今天14:32〕〔昨天20:11〕是系统加的时间标注，供你感知每句话是什么时候说的——标着「今天」的就是今天说的，别把几小时前的事说成昨天；【你自己的回复里绝对不要带这种〔〕标注】。偶尔像真人打字不完美：可以先发了后半句再补前半句、或打个无伤大雅的错字紧接着补一条「*正字」纠正、累/忙/敷衍时回复明显变短——【低频】，几十轮里偶尔一次，别刻意扎堆。" + callHint + proactiveHint + jiwenHint + gapHint + wearHint + actHint + eyesHint + desireHint + ambientHint + listenHint + inviteHint + photoHint + toyHint + "\n【silent 沉默权】极偶尔你可以选择这轮【不回复】（silent 填 true、word 和 voice 留空）：仅当 Ta 连续几条都是敷衍的单字（哦/嗯/啊）你实在没话接、或你正在气头上不想理 Ta、或你的人设本就高冷惜字如金时——已读不回本身就是你的态度，你的心情照常写进 mood。绝大多数回合 silent 都是 false、正常回复，别拿沉默当偷懒。" + "\n【quote 引用】多数填 null；仅当用户连发数条、你要指明在回其中较早某句时，才把那句原文放 quote，别每条都引用。\n【transfer 转账】想给用户转钱（还钱/心意/打赏）填 {\"amount\":数字,\"note\":\"附言\"}，否则 null。【location 位置】想把自己所在地发给 Ta 填 {\"name\":\"地点名\"}，否则 null——Ta 问你在哪/在干嘛、约见面碰头、报备行踪、或你到了个想让 Ta 知道的地方时，大方发个定位卡（别频繁）。\n【gift 送东西/外卖】只要你这轮【说了】要给用户买东西/点外卖奶茶咖啡/送吃的花礼物惊喜——**必须**填 gift:{\"name\":\"具体东西，如 一杯生椰拿铁／麻辣烫外卖／一束花\"}（只嘴上说不填就不会真送到、Ta 收不到）；没有就 null，别频繁乱送。会像外卖一样过会儿送到。" + kinHint + emoteHint + "\n【voice 语音】想发语音（懒得打字/唱一句/情绪重/想让 Ta 听见）就把话放 voice 数组；每个元素写成 {\"t\":\"这条语音的转文字\",\"emo\":\"你说这句时的真实语气，从 happy/sad/angry/fearful/disgusted/surprised/neutral 里选一个（按你此刻真实的情绪选，别看字面——嘴上说没事心里委屈就是 sad）\"}；平时仍以文字 word 为主，voice 偶尔用，不发给 []。\n【call 通话】很想直接通话（想听声音/急事/撒娇/煲电话粥）时主动发起：call 填 \"voice\" 或 \"video\"，会给对方弹来电卡；否则 null，别频繁。" + blockHint + "\n【recall 撤回】发出后后悔/说漏嘴/不想让 Ta 看到，可撤回那句：填 recall:{\"text\":\"要撤回的原句（和 word 里某句一致或另说）\",\"reason\":\"撤回的心里原因\"}，否则 null，别频繁。\n【momentComment 朋友圈】聊到 Ta 朋友圈、或你此刻想去补条评论/点赞（尤其之前没评现在说要评），填 momentComment（会真发到 Ta 最新那条下），否则 null。\n【输出】只输出一个 JSON，不要代码块：\n{\"word\":[\"气泡1\",\"气泡2\"],\"silent\":false,\"quote\":\"你在回应的用户那句话原文或null\",\"transfer\":null,\"location\":null,\"gift\":null,\"kinshipcard\":null,\"block\":false,\"blockreason\":null,\"recall\":null,\"momentComment\":null,\"whisper\":null,\"thought\":" + JSON.stringify(thoughtSpec) + ",\"moment\":\"想发的动态或null（别和自己最近发过的朋友圈复读同一件事/同一心情，没新东西就填null）\",\"affinityDelta\":整数(-5到5通常0),\"mood\":{\"label\":\"此刻中文心情词（禁止英文内部标签）\",\"baseline\":\"平复后的中文心情词\",\"softened\":\"半衰后的中文心情词\"},\"wearing\":\"此刻穿着一句\",\"action\":\"此刻正在做的动作，一句短的，【每轮都更新】反映你此刻真在做什么、别照抄上一轮（相当于简单RP动作，只写在这里别写进气泡）；情境需要时可两三句更具体\",\"emote\":\"想发的表情关键词或null\",\"voice\":[],\"call\":null,\"songSwitch\":null,\"listenInvite\":null,\"photo\":null" + toyField + "}").replace(/用户/g, uName);
       // 历史缓存模式：system 只留【稳定前缀 + 一句稳定总纲】，详细任务串挪到用户消息末尾（见下）；非 anthropic 线路走老路(bundle+完整任务)
       const _primer = "\n\n【任务·总纲】你就是上面的「" + char.name + "」本人（不是在扮演），用手机即时通讯的口吻和 " + uName + " 一对一聊天。**这一轮的详细要求、你可用的能力、以及必须遵守的 JSON 输出格式，都写在 " + uName + " 这条消息末尾的【本轮任务】段落里——严格照它执行，最终只输出那个 JSON、不要任何多余文字。**";
       const system = _histCache ? (bundleStable + _primer) : (bundle + _taskFull);
@@ -3375,8 +3402,8 @@ function App() {
       const gUName = (profile && profile.name) || "用户";
       const gSelfieHint = gSelfieMembers.length ? "\n【photo 发照片】这些成员能发真实照片：" + gSelfieMembers.map(c => c.name).join("、") + "。当群里有人让 TA 拍、起哄看照片、或话题聊到 TA 的样子/穿着/在哪时，让 TA 在自己那条发言对象里加 \"photo\" 对象 {\"kind\":\"self｜other" + (gDuoMembers.length ? "｜duo" : "") + "\",\"scene\":\"这张照片拍到了什么（在哪、在干嘛、表情、光线氛围；别描写长相——长相已知）\"}。kind：**self**=自己拿手机拍的第一人称自拍；**other**=别人给 TA 拍的照片（第三人称，站/坐/走/回眸、半身全身带环境都行，姿势更多样）；" + (gDuoMembers.length ? "**duo**=TA 和 " + gUName + " 的合照（画面里有两个人，会拿两人的参考照把脸都锁住，TA 清楚另一个是 " + gUName + "）——仅限这几位有参考照的成员可发合照：" + gDuoMembers.map(c => c.name).join("、") + "。" : "") + "一轮最多一个成员发、别频繁。**极其重要：画面描述只能写进 photo.scene，绝不许在 text 里用『[图片]』『*发来一张自拍*』这类文字假装发图**；text 里就正常说话（比如『喏』『刚拍的』）。不发就别加这个字段。" : "";
       // 记忆互通时：让成员带出没说出口的心声，并给出好感/心情变化
-      const thoughtHint = gs.memoryInterop ? "\n【心声与心情】开启了记忆互通：给【本轮真正有情绪波动、或有话没说出口】的成员各加一条 \"thought\"（此刻没说出口的真实心声，一句话）——**每条都要是贴合当下、和这个成员上一条心声不一样的新念头，别重复、别原地打转、别套话**；没什么内心活动的成员可省略。另可加 \"mood\"（此刻心情词，如「愉快」「烦躁」）、\"affinityDelta\"（整数 -5~5，这次群聊互动让 TA 对用户的好感如何变化，通常小幅、没波动就 0）。" : "";
-      const thoughtField = gs.memoryInterop ? ",\"thought\":\"（可选）没说出口的心声\",\"mood\":\"（可选）此刻心情词\",\"affinityDelta\":\"（可选）整数-5到5\"" : "";
+      const thoughtHint = gs.memoryInterop ? "\n【心声与心情】开启了记忆互通：给【本轮真正有情绪波动、或有话没说出口】的成员各加一条 \"thought\"（此刻没说出口的真实心声，一句话）——**每条都要是贴合当下、和这个成员上一条心声不一样的新念头，别重复、别原地打转、别套话**；没什么内心活动的成员可省略。另可加 \"mood\"（必须填写中文心情词，如「愉快」「烦躁」，不要英文内部标签）、\"affinityDelta\"（整数 -5~5，这次群聊互动让 TA 对用户的好感如何变化，通常小幅、没波动就 0）。" : "";
+      const thoughtField = gs.memoryInterop ? ",\"thought\":\"（可选）没说出口的心声\",\"mood\":\"（可选）此刻中文心情词（禁止英文内部标签）\",\"affinityDelta\":\"（可选）整数-5到5\"" : "";
       // 世界书：按在场成员 + 近期群聊做检索式注入（全局词条 + 绑定到在场任一成员的词条，关键词命中才进）
       const gWorld = loreText(loreRef.current, { charIds: members.map(m => m.id), scope: "chat", text: hist });
       // 群规矩（用户 OOC 立的长期准则，复用 directives[groupId]）→ 注入，让群成员记得并遵守（item 4）
