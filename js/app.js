@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.76";
+const APP_VERSION = "v49.77";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2322,6 +2322,7 @@ function App() {
         thought: res.thought,
         cot: res.cot || null,
         ts: Date.now(),
+        generated: true,
         turnId: offTurnId
       });
       // 配件·触发（线下）：再核一遍激活态才下发（她可能刚按急停）
@@ -2375,7 +2376,8 @@ function App() {
       pushOffMsg(charId, um);
       msgs = [...msgs, um];
     }
-    await genOfflineFrom(charId, { ...sess, msgs });
+    const autonomousContinue = !!(window.OfflineContinuation && window.OfflineContinuation.isAutonomousContinuation(msgs));
+    await genOfflineFrom(charId, { ...sess, msgs, autonomousContinue });
   };
   // 线下 OOC：跳出角色和模型直说（问状态 / 肘击 / 立长期准则），把这段线下经过一起喂给它
   const offlineOOC = async (charId, text) => {
@@ -2540,6 +2542,7 @@ function App() {
           thought: b.thought,
           cot: b.cot || null,
           ts: Date.now(),
+          generated: true,
           turnId: goTurnId
         });
         // 多人线下也影响各角色对用户的好感与心情
@@ -2591,7 +2594,8 @@ function App() {
       pushGOffMsg(groupId, um);
       msgs = [...msgs, um];
     }
-    await genGroupOfflineFrom(group, { ...sess, msgs });
+    const autonomousContinue = !!(window.OfflineContinuation && window.OfflineContinuation.isAutonomousContinuation(msgs));
+    await genGroupOfflineFrom(group, { ...sess, msgs, autonomousContinue });
   };
   const groupOfflineEditMsg = (groupId, msgId, text) => pGOffline(groupId, list => list.map(s => !s.endTs ? { ...s, msgs: s.msgs.map(m => m.id === msgId ? { ...m, content: text } : m) } : s));
   const groupOfflineDelMsg = (groupId, msgId) => pGOffline(groupId, list => list.map(s => !s.endTs ? { ...s, msgs: s.msgs.filter(m => m.id !== msgId) } : s));
