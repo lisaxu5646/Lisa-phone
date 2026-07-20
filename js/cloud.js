@@ -100,6 +100,7 @@
       localStorage.removeItem("memory_table_authority_v1");
       const { data, error } = await client.auth.signUp({ email, password });
       if (error) throw error;
+      try { if (window.ChatLedgerShadow) window.ChatLedgerShadow.clearLocal(); } catch (e) {}
       return data;
     },
 
@@ -111,12 +112,15 @@
         password,
       });
       if (error) throw error;
+      try { if (window.ChatLedgerShadow) window.ChatLedgerShadow.clearLocal(); } catch (e) {}
       return data;
     },
 
     async signOut() {
       // 退出前先把最新存档推到云端（确保数据在云上有备份，登录回来能拉回）
       try { await this.autoPush(); } catch (e) {}
+      // 共享聊天账本 outbox 不属于 x_ saves：先尽力投递，随后清本机队列，绝不把旧账号消息带给下个账号。
+      try { if (window.ChatLedgerShadow) await window.ChatLedgerShadow.flush(); } catch (e) {}
       if (client) await client.auth.signOut();
       // 清空本地所有 x_ 存档：退出＝回到初始空账号，数据只在云端。挂起同步避免删除触发 push
       suspend = true;
@@ -124,6 +128,7 @@
         Object.keys(localStorage).filter(function (k) { return k.startsWith("x_"); }).forEach(function (k) { localStorage.removeItem(k); });
         localStorage.removeItem(MARK);
         localStorage.removeItem("memory_table_authority_v1"); // 切表批准只属于当前账号在当前设备；退出后不带给下一个账号
+        try { if (window.ChatLedgerShadow) window.ChatLedgerShadow.clearLocal(); } catch (e) {}
       } finally { suspend = false; }
       // 事件书架镜像立即清空（不等下次 ensureOwner）——未登录不许看到上一个账号的事件标题/梗概
       try { if (window.MemoryEvents && window.MemoryEvents.clearAll) await window.MemoryEvents.clearAll(); } catch (e) {}
@@ -197,6 +202,22 @@
       });
       if (error) throw error;
       return merged.length;
+    },
+
+    // ---- App → CC 共享聊天账本（第 3 步 shadow）：只追加，不回读 ----
+    // message_key 在客户端已按来源/线程/原消息确定；冲突时 DO NOTHING，重试不会造双份。
+    async chatMessagesUpsert(rows) {
+      if (!client) throw new Error("云服务未就绪");
+      const user = await this.getUser();
+      if (!user) throw new Error("未登录");
+      const payload = (Array.isArray(rows) ? rows : []).map(row => ({ ...row, user_id: user.id }));
+      if (!payload.length) return 0;
+      const { error } = await client.from("chat_messages").upsert(payload, {
+        onConflict: "user_id,message_key",
+        ignoreDuplicates: true
+      });
+      if (error) throw error;
+      return payload.length;
     },
 
     // ---- 服务器信箱（server_inbox 表，v48.32 第八课）：云端定时任务替角色写的信，app 开机取走投进聊天 ----

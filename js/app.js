@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.72";
+const APP_VERSION = "v49.73";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -667,6 +667,24 @@ function App() {
     sumThresh: 150,
     sumBuffer: 20
   };
+  // App→CC 聊天账本 shadow：本地落盘永远在前；旁路失败/离线只留 outbox，不影响任何聊天行为。
+  const ledgerYanqiu = () => window.ChatLedgerShadow && window.ChatLedgerShadow.findYanqiu(characters, chatSettings);
+  const queueLedger = (threadType, threadId, messages, group) => {
+    try {
+      const y = ledgerYanqiu();
+      if (!y || !window.ChatLedgerShadow) return;
+      const context = { charId: y.id, threadType, threadId };
+      if (group) { context.groupMemberIds = group.memberIds || []; context.groupName = group.name || ""; }
+      setTimeout(() => { try { window.ChatLedgerShadow.enqueue(context, messages); } catch (e) {} }, 0);
+    } catch (e) {}
+  };
+  useEffect(() => {
+    const flush = () => { try { window.ChatLedgerShadow && window.ChatLedgerShadow.flush(); } catch (e) {} };
+    const visible = () => { if (document.visibilityState === "visible") flush(); };
+    window.addEventListener("online", flush); window.addEventListener("focus", flush); document.addEventListener("visibilitychange", visible);
+    const timer = setInterval(flush, 60000); setTimeout(flush, 3000);
+    return () => { window.removeEventListener("online", flush); window.removeEventListener("focus", flush); document.removeEventListener("visibilitychange", visible); clearInterval(timer); };
+  }, []);
   // E 潮汐 shadow：旁路记状态，任何失败都不能影响消息落盘或角色回复。
   const noteTidalUser = (text, ts) => { try { window.InnerLifeETidalShadow && window.InnerLifeETidalShadow.onUserMessage(text, ts); } catch (e) {} };
   useEffect(() => {
@@ -708,6 +726,8 @@ function App() {
     saveJSON("x_chat:" + id, n);
     // 未读红点：新增的角色消息若此刻没在看这个聊天，累加未读条数（推到微任务里，别在 reducer 里改别的 state）
     if (n.length > pl.length) {
+      const ledgerAdded = n.slice(pl.length);
+      const y = ledgerYanqiu(); if (y && String(y.id) === String(id)) queueLedger("private", id, ledgerAdded);
       n.slice(pl.length).filter(m => m && m.role === "user" && m.content).forEach(m => setTimeout(() => noteTidalUser(m.content, m.ts), 0));
       if (n.slice(pl.length).some(m => m && (m.role === "user" || m.role === "assistant") && m.content)) setTimeout(() => { try { window.InnerLifeETidalShadow && window.InnerLifeETidalShadow.scheduleAfterglow(id, n, moods[id], Date.now()); } catch (e) {} }, 0);
       const added = n.slice(pl.length).filter(m => m && m.role === "assistant" && m.kind !== "system" && m.kind !== "silence").length;
@@ -907,6 +927,8 @@ function App() {
     const n = typeof u === "function" ? u(pl) : u;
     saveJSON("x_gchat:" + id, n);
     if (n.length > pl.length) {
+      const ledgerAdded = n.slice(pl.length), group = groups.find(g => String(g.id) === String(id));
+      if (group) queueLedger("group", id, ledgerAdded, group);
       n.slice(pl.length).filter(m => m && m.role === "user" && m.content).forEach(m => setTimeout(() => noteTidalUser(m.content, m.ts), 0));
       const added = n.slice(pl.length).filter(m => m && m.role !== "user" && m.kind !== "system").length;
       const viewing = viewRef.current.screen === "gthread" && viewRef.current.charId === id;
@@ -2193,8 +2215,11 @@ function App() {
     offlinesRef.current = offlines;
   }, [offlines]);
   const pOffline = (charId, updater) => setOfflines(prev => {
-    const next = updater(prev[charId] || []);
+    const before = prev[charId] || [];
+    const next = updater(before);
     saveJSON("x_offline:" + charId, next);
+    const y = ledgerYanqiu();
+    if (y && String(y.id) === String(charId) && window.ChatLedgerShadow) queueLedger("offline", charId, window.ChatLedgerShadow.addedSessionMessages(before, next));
     const n = { ...prev, [charId]: next };
     offlinesRef.current = n;
     return n;
@@ -2406,8 +2431,11 @@ function App() {
     })()
   });
   const pGOffline = (groupId, updater) => setGroupOfflines(prev => {
-    const next = updater(prev[groupId] || []);
+    const before = prev[groupId] || [];
+    const next = updater(before);
     saveJSON("x_goffline:" + groupId, next);
+    const group = groups.find(g => String(g.id) === String(groupId));
+    if (group && window.ChatLedgerShadow) queueLedger("group_offline", groupId, window.ChatLedgerShadow.addedSessionMessages(before, next), group);
     const n = { ...prev, [groupId]: next };
     groupOfflinesRef.current = n;
     return n;
