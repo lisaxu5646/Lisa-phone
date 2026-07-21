@@ -977,6 +977,30 @@ function cotThink(names) {
   const userN = (names && names.user) || "用户";
   return c.think.replace(/\{\{char\}\}/g, charN).replace(/\{\{user\}\}/g, userN).trim();
 }
+// 有些模型在显式思维链模式下会正常 stop、却把正文留空。线下单聊/群聊共用兼容记录，
+// 避免同一个模型在两个入口各白付一次；旧群聊记录继续读取，自动平滑迁移。
+const OFFLINE_NO_COT_KEY = "x_offlineNoCotModels";
+function offlineCotModelKey(p) {
+  return String((p && (p.baseUrl || p.base || "")) + "|" + (p && p.model || ""));
+}
+function loadOfflineNoCotModels() {
+  const found = [];
+  [OFFLINE_NO_COT_KEY, "x_groupOfflineNoCotModels"].forEach(key => {
+    try {
+      const list = JSON.parse(localStorage.getItem(key) || "[]");
+      if (Array.isArray(list)) list.forEach(x => { if (x && !found.includes(x)) found.push(x); });
+    } catch (e) {}
+  });
+  return found.slice(-30);
+}
+function rememberOfflineNoCotModel(modelKey) {
+  const list = loadOfflineNoCotModels();
+  if (modelKey && !list.includes(modelKey)) list.push(modelKey);
+  try { localStorage.setItem(OFFLINE_NO_COT_KEY, JSON.stringify(list.slice(-30))); } catch (e) {}
+}
+function isOfflineEmptyStop(e) {
+  return /模型返回为空（停止原因：stop）/.test(String(e && e.message || ""));
+}
 // 给 system 追加的「落笔前先想」指令（think 为空 → ""）
 // 用分隔标记而非 JSON 字段——思考写在正文 JSON 之前、用【思考开始】…【思考结束】包住，
 // 代码再把这段抠出来当 cot、并从原文里剥掉，这样即使模型思考跑格式也不会污染正文 JSON。
@@ -1463,7 +1487,8 @@ async function generateOffline(p, ctx, session) {
   const userName = (ctx.profile && ctx.profile.name) || "用户";
   const styleText = session.stylePrompt != null ? session.stylePrompt : offlineStyleText(session.styleKey);
   const notes = (session.customNotes || []).filter(Boolean);
-  const cotT = cotThink({ char: char.name, user: userName });
+  const cotModelKey = offlineCotModelKey(p);
+  const cotT = loadOfflineNoCotModels().includes(cotModelKey) ? "" : cotThink({ char: char.name, user: userName });
   // 篇幅：设了下限（≥150）就别再暗示写短，否则「一小段2-6句」+尾部「宁可短」会把下限压没（她报的 bug）
   const wantLong = session.minWords && session.minWords >= 150;
   const lenGuide = wantLong ? "充分展开写足这一段——把动作、神态、心理、环境、对话都写够，别省笔墨" : "写成一小段（约2到6句）";
@@ -1490,8 +1515,21 @@ async function generateOffline(p, ctx, session) {
   const tailNudge = continueCue + "\n\n〔幕后提醒，绝不出现在正文里：①反陈词滥调清单全程生效——尤其禁通用小动作（挑眉/勾唇/垂眸/轻笑/喉结滚动）和空转大词；②这一段的【句式、开头方式、意象、节奏】不许和你上一段雷同——上一段用过的比喻和小动作这段一律换新的，长短句结构也换着来；③" + (wantLong ? "写够上面要求的篇幅，把这段写足写透，别注水凑字、也别偷懒写短" : "宁可短而准，别长而油") + "；" + (cotT ? "④cot 字段必填，先想后写。" : "") + "〕";
   if (hist.length && hist[hist.length - 1].role === "user") hist[hist.length - 1] = { role: "user", content: hist[hist.length - 1].content + tailNudge };
   else hist.push({ role: "user", content: "（继续）" + tailNudge });
-  const raw = await callAI(p, system, hist, { maxTokens: session.maxTokens || 1400 });
-  const sp = splitCot(raw, !!cotT);
+  let raw;
+  let usedCot = !!cotT;
+  try {
+    raw = await callAI(p, system, hist, { maxTokens: session.maxTokens || 1400 });
+  } catch (e) {
+    if (!cotT || !isOfflineEmptyStop(e)) throw e;
+    rememberOfflineNoCotModel(cotModelKey);
+    const plainSystem = system.replace(cotSystemBlock(cotT), "");
+    const plainHist = hist.map((m, i) => i === hist.length - 1
+      ? { ...m, content: String(m.content || "").replace(/；④cot 字段必填，先想后写。/g, "；") }
+      : m);
+    raw = await callAI(p, plainSystem, plainHist, { maxTokens: session.maxTokens || 1400 });
+    usedCot = false;
+  }
+  const sp = splitCot(raw, usedCot);
   const parsed = extractJSON(sp.clean) || { scene: sp.clean };
   const cln = v => v && String(v).toLowerCase() !== "null" ? String(v).trim() : null;
   return {
@@ -1548,10 +1586,8 @@ async function generateOfflineGroup(p, ctx, session) {
   const userName = (ctx.profile && ctx.profile.name) || "用户";
   const styleText = session.stylePrompt != null ? session.stylePrompt : offlineStyleText(session.styleKey);
   const notes = (session.customNotes || []).filter(Boolean);
-  const cotModelKey = String((p && (p.baseUrl || p.base || "")) + "|" + (p && p.model || ""));
-  let cotEmptyModels = [];
-  try { cotEmptyModels = JSON.parse(localStorage.getItem("x_groupOfflineNoCotModels") || "[]") || []; } catch (e) {}
-  const cotT = cotEmptyModels.includes(cotModelKey) ? "" : cotThink({ char: members.map(c => c.name).join("、") || "在场角色", user: userName });
+  const cotModelKey = offlineCotModelKey(p);
+  const cotT = loadOfflineNoCotModels().includes(cotModelKey) ? "" : cotThink({ char: members.map(c => c.name).join("、") || "在场角色", user: userName });
   const memberDesc = members.map(c => "【" + c.name + "】" + (c.persona || "（暂无设定）").slice(0, 260)).join("\n\n");
   const relLines = members.map(c => directedRelationLines(c, ctx.rels, ctx.chars, ctx.profile)).join("\n");
   // 群 OOC 立的长期规矩：线上 replyGroup 有，线下也必须带着（否则一进线下角色就把规矩全忘了）
@@ -1604,23 +1640,22 @@ async function generateOfflineGroup(p, ctx, session) {
   if (hist.length && hist[hist.length - 1].role === "user") hist[hist.length - 1] = { role: "user", content: hist[hist.length - 1].content + gTail };
   else hist.push({ role: "user", content: "（继续）" + gTail });
   let raw;
+  let usedCot = !!cotT;
   try {
     raw = await callAI(p, system, hist, { maxTokens: session.maxTokens || 1900 });
   } catch (e) {
     // 部分原生推理模型会把整次输出留在隐藏/显式思考区，随后 stop 却不给正文。
     // 仅在「启用了显式 cot + 正常 stop 空正文」这个窄条件下，无 cot 重试一次并按模型记忆；以后不再白付第一次。
-    if (!cotT || !/模型返回为空（停止原因：stop）/.test(String(e && e.message || ""))) throw e;
-    if (!cotEmptyModels.includes(cotModelKey)) {
-      cotEmptyModels.push(cotModelKey);
-      try { localStorage.setItem("x_groupOfflineNoCotModels", JSON.stringify(cotEmptyModels.slice(-30))); } catch (saveErr) {}
-    }
+    if (!cotT || !isOfflineEmptyStop(e)) throw e;
+    rememberOfflineNoCotModel(cotModelKey);
     const plainSystem = system.replace(cotSystemBlock(cotT), "");
     const plainHist = hist.map((m, i) => i === hist.length - 1
       ? { ...m, content: String(m.content || "").replace(/；④cot 字段必填，先想后写。/g, "；") }
       : m);
     raw = await callAI(p, plainSystem, plainHist, { maxTokens: session.maxTokens || 1900 });
+    usedCot = false;
   }
-  const sp = splitCot(raw, !!cotT);
+  const sp = splitCot(raw, usedCot);
   const parsed = extractJSON(sp.clean);
   let beats = parsed && Array.isArray(parsed.beats) ? parsed.beats : (Array.isArray(parsed) ? parsed : null);
   if (!beats) beats = [{ name: "旁白", scene: String(sp.clean || raw || "").trim() }];
