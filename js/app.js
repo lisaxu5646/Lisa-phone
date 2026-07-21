@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.87";
+const APP_VERSION = "v49.88";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2853,10 +2853,8 @@ function App() {
         const _cutTime = _bundleFull.indexOf("【当前真实时间】");
         if (_cutTime > 0) { bundleStable = _bundleFull.slice(0, _cutTime).replace(/\s+$/, ""); bundleVolatile = _bundleFull.slice(_cutTime).trim(); }
       }
-      const emoteHistory = autoEmoteHistoryFor(charId);
-      const emoteReady = !window.EmotePolicy || window.EmotePolicy.canAutoSend(emoteHistory, 8);
-      const emotes = emoteReady ? emotesForChar(charId) : [];
-      const emoteHint = emotes.length ? "\n【表情包】只有当你的人设本来就会用表情包、且此刻用图比打字更自然时，才偶尔甩一张；克制、正式、疏离或从来不用表情包的人就始终填 null。多数轮次不发，也绝不因为历史里出现过表情就模仿连发。可用关键词：" + emotes.map(e => e.keyword).join(" / ") + "。想发就把 emote 填成其中一个关键词（与上面列的完全一致），否则 null。" : "";
+      const emotes = emotesForChar(charId);
+      const emoteHint = emotes.length ? "\n【表情包】频率必须延续你这个角色已经形成的聊天习惯：本来爱发表情包的人可以自然地常发、兴头上连甩几张；本来很少发或从不发的人不要因为列表可用、也不要因为历史别处出现过表情就突然开始发。以人设和你自己过去的真实用法为准，不设统一频率。可用关键词：" + emotes.map(e => e.keyword).join(" / ") + "。要发就把 emote 填成其中一个关键词（与上面列的完全一致），否则 null。" : "";
       const callHint = mode === "voice" ? "\n\n【当前场景】你们正在语音通话。用口语化、连贯的短句自然对话，就像在打电话，别发一长串气泡。" : mode === "video" ? "\n\n【当前场景】你们正在视频通话。用口语化短句对话，并在气泡里自然带一点动作/神态描写（用括号，如（歪头笑））。" : "";
       const uName = profile && profile.name ? profile.name : "对方"; // 须在下面 bday/remind/wx/tf 等提示引用前声明（否则 TDZ：Cannot access 'uName' before initialization）
       const greetHint = opts.greet ? "\n\n【此刻·你主动问候】现在是" + (opts.greet === "morning" ? "早上" : "晚上") + "，你【主动】给 Ta 发一句" + (opts.greet === "morning" ? "问早/早安" : "道晚安") + "——结合你此刻的作息、行程、心情，自然又简短（1~2 条），像真人随手发的，别只干巴巴一句『早安』。**很重要：Ta 有自己的生活、可能在忙、可能没空回，这完全正常。语气要轻松不粘人——不许用『怎么不理我』『是不是不想理我』『冷落我』这类质问或愧疚绑架，也别摆被冷落的委屈脸。就是单纯想到 Ta、顺手送个问候，Ta 回不回都没关系。**" : "";
@@ -3572,7 +3570,7 @@ function App() {
       const nMax = Math.min(14, Math.max(5, members.length * 2));
       const common = "\n\n【很重要】角色不是轮流回答用户的话，而是会顺着彼此刚说的话发散、接梗、跑题、互相调侃或反驳，像真实群聊那样你一言我一语。不是每人每轮都要说话，按情境选合适的人发言，一次产出 " + nMin + "~" + nMax + " 条；现在群里在场 " + members.length + " 人，人多就多聊几个来回、让在场的人都有戏，别三两句就收场。";
       const gEmotes = emotesForGroup(group.memberIds);
-      const gEmoteHint = gEmotes.length ? "\n【表情包】只有人设本来就会用表情包的成员，才可在用图比打字更自然时偶尔发；克制、正式、疏离或从来不用的成员始终不要发，也别模仿历史里的表情。可用关键词：" + gEmotes.map(e => e.keyword).join(" / ") + "。要发就在该成员那条发言对象里加 emote 字段填一个关键词（与列出的完全一致），否则省略。" : "";
+      const gEmoteHint = gEmotes.length ? "\n【表情包】每个成员各自延续已经形成的聊天习惯：本来爱发的人可以常发或兴头上连发，本来很少发或从不发的人不要因为列表可用、也不要模仿别的成员或历史表情突然开始发；不存在全群统一频率。可用关键词：" + gEmotes.map(e => e.keyword).join(" / ") + "。要发就在该成员那条发言对象里加 emote 字段填一个关键词（与列出的完全一致），否则省略。" : "";
       // 群自拍：只有配了图像API且成员填了外貌/参考照才开放（按需注入，平时零 token）
       const gSelfieMembers = (typeof imgApiReady === "function" && imgApiReady()) ? members.filter(c => c.appearance || c.refPhoto) : [];
       // 合照只在【用户传了参考照 且 该成员也传了参考照】时才开放——两张脸都拿真照片喂，绝不一张真一张编
@@ -3717,7 +3715,7 @@ function App() {
           }
           // 成员甩表情：按关键词匹配 TA 可用的表情
           const ekw = item.emote && String(item.emote).toLowerCase() !== "null" ? String(item.emote).trim() : null;
-          if (ekw && (!window.EmotePolicy || window.EmotePolicy.canAutoSend(autoEmoteHistoryFor(spk.id), 8))) {
+          if (ekw) {
             const av = emotesForChar(spk.id);
             const mt = emoteMatch(av, ekw);
             if (mt) {
@@ -7541,15 +7539,6 @@ function App() {
     const out = [];
     (emotePacksRef.current || []).forEach(pk => { if (pk.global || (pk.charIds || []).includes(charId)) (pk.emotes || []).forEach(e => out.push(e)); });
     return out;
-  };
-  // 自动表情冷却跨私聊/群聊共用：最近发过后至少经过 8 个该角色回复轮次才能再发。
-  // 手动表情是 role=user，不进这里，因此完全不受限制。
-  const autoEmoteHistoryFor = charId => {
-    const rows = (chatsRef.current[charId] || []).filter(m => m && m.role === "assistant");
-    Object.values(groupChatsRef.current || {}).forEach(list => {
-      (list || []).forEach(m => { if (m && m.role === "assistant" && String(m.senderId || "") === String(charId)) rows.push(m); });
-    });
-    return rows.sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
   };
   // 表情宽松匹配（小克反馈）：去掉【】[]（）「」等括号/表情前后缀/空格再比，大小写无关；精确→归一相等→互相包含。
   // 匹配不到就返回 null（调用方不建任何气泡，绝不落文字气泡）。
