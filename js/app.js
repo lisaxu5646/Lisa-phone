@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v49.86";
+const APP_VERSION = "v49.87";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2508,7 +2508,16 @@ function App() {
           if (picked.length >= limit) break;
         }
       }
-      return picked;
+      // 记忆条数不是上下文预算：导入长文可能一条就有几千字。群成员增多后若裸灌，模型会把输出额度耗空并返回空正文。
+      // 单条 360 字、整包 2400 字双封顶；只裁本次 prompt 副本，记忆库原文一个字不改。
+      let charsLeft = 2400;
+      return picked.map(entry => {
+        if (charsLeft <= 0) return null;
+        const raw = String(entry.text || "").replace(/\s+/g, " ").trim();
+        const text = raw.slice(0, Math.min(360, charsLeft));
+        charsLeft -= text.length;
+        return text ? { ...entry, text: text + (text.length < raw.length ? "…" : "") } : null;
+      }).filter(Boolean);
     })()
   });
   const pGOffline = (groupId, updater) => setGroupOfflines(prev => {

@@ -358,7 +358,7 @@ async function callAI(p, system, messages, opts) {
       }
     } catch (e) {}
     const t = (d.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").trim();
-    if (!t) throw new Error("模型返回为空");
+    if (!t) throw new Error("模型返回为空" + (d.stop_reason ? "（停止原因：" + d.stop_reason + "）" : "（上游没有返回正文）"));
     return t;
   }
   if (fmt === "gemini") {
@@ -392,7 +392,11 @@ async function callAI(p, system, messages, opts) {
     if (d.error) throw new Error(d.error.message);
     const parts = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts || [];
     const t = parts.map(x => x.text || "").join("").trim();
-    if (!t) throw new Error("模型返回为空");
+    if (!t) {
+      const reason = d.candidates && d.candidates[0] && d.candidates[0].finishReason;
+      const blocked = d.promptFeedback && d.promptFeedback.blockReason;
+      throw new Error("模型返回为空" + (reason || blocked ? "（停止原因：" + (reason || blocked) + "）" : "（上游没有返回正文）"));
+    }
     return t;
   }
   const root = base.endsWith("/v1") ? base : base + "/v1";
@@ -415,8 +419,9 @@ async function callAI(p, system, messages, opts) {
     d = await postOpenAI(false);
   }
   if (d.error) throw new Error(d.error.message);
-  const t = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content || "").trim();
-  if (!t) throw new Error("模型返回为空");
+  const choice = d.choices && d.choices[0];
+  const t = (choice && choice.message && choice.message.content || "").trim();
+  if (!t) throw new Error("模型返回为空" + (choice && choice.finish_reason ? "（停止原因：" + choice.finish_reason + "）" : "（上游没有返回正文）"));
   return t;
 }
 function repairJSON(t) {

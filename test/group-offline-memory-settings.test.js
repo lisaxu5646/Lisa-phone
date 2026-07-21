@@ -10,5 +10,7 @@ assert(components.includes('maxTokens: sMax, minWords: sMinW, memN: sMemN, bg: s
 assert(app.includes('osFor("g_" + group.id).memN'), "group offline recall must read its saved memory count");
 assert(app.includes('pools.some(pool => rank < pool.length)'), "group offline recall must merge member pools instead of anchoring to the first member");
 assert(!app.includes('const anchor = (group.memberIds || [])[0];'), "group offline recall must not depend on first-member ordering");
+assert(app.includes('let charsLeft = 2400;'), "group offline memory prompt must have a total character budget");
+assert(app.includes('Math.min(360, charsLeft)'), "group offline memory prompt must cap each imported memory");
 
 console.log("group offline memory settings tests passed");
