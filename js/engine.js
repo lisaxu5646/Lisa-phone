@@ -1548,7 +1548,10 @@ async function generateOfflineGroup(p, ctx, session) {
   const userName = (ctx.profile && ctx.profile.name) || "用户";
   const styleText = session.stylePrompt != null ? session.stylePrompt : offlineStyleText(session.styleKey);
   const notes = (session.customNotes || []).filter(Boolean);
-  const cotT = cotThink({ char: members.map(c => c.name).join("、") || "在场角色", user: userName });
+  const cotModelKey = String((p && (p.baseUrl || p.base || "")) + "|" + (p && p.model || ""));
+  let cotEmptyModels = [];
+  try { cotEmptyModels = JSON.parse(localStorage.getItem("x_groupOfflineNoCotModels") || "[]") || []; } catch (e) {}
+  const cotT = cotEmptyModels.includes(cotModelKey) ? "" : cotThink({ char: members.map(c => c.name).join("、") || "在场角色", user: userName });
   const memberDesc = members.map(c => "【" + c.name + "】" + (c.persona || "（暂无设定）").slice(0, 260)).join("\n\n");
   const relLines = members.map(c => directedRelationLines(c, ctx.rels, ctx.chars, ctx.profile)).join("\n");
   // 群 OOC 立的长期规矩：线上 replyGroup 有，线下也必须带着（否则一进线下角色就把规矩全忘了）
@@ -1595,7 +1598,23 @@ async function generateOfflineGroup(p, ctx, session) {
   const gTail = gContinueCue + "\n\n〔幕后提醒，绝不出现在正文里：①反陈词滥调清单全程生效——禁通用小动作（挑眉/勾唇/垂眸/轻笑/喉结滚动）和空转大词；②各角色声纹别互相同化，这一轮的句式/意象/开头不许和上一轮雷同；③" + (gWantLong ? "写够上面要求的篇幅，把这几个 beat 写足写透，别注水也别偷懒写短" : "宁可短而准，别长而油") + "；" + (cotT ? "④cot 字段必填，先想后写。" : "") + "〕";
   if (hist.length && hist[hist.length - 1].role === "user") hist[hist.length - 1] = { role: "user", content: hist[hist.length - 1].content + gTail };
   else hist.push({ role: "user", content: "（继续）" + gTail });
-  const raw = await callAI(p, system, hist, { maxTokens: session.maxTokens || 1900 });
+  let raw;
+  try {
+    raw = await callAI(p, system, hist, { maxTokens: session.maxTokens || 1900 });
+  } catch (e) {
+    // 部分原生推理模型会把整次输出留在隐藏/显式思考区，随后 stop 却不给正文。
+    // 仅在「启用了显式 cot + 正常 stop 空正文」这个窄条件下，无 cot 重试一次并按模型记忆；以后不再白付第一次。
+    if (!cotT || !/模型返回为空（停止原因：stop）/.test(String(e && e.message || ""))) throw e;
+    if (!cotEmptyModels.includes(cotModelKey)) {
+      cotEmptyModels.push(cotModelKey);
+      try { localStorage.setItem("x_groupOfflineNoCotModels", JSON.stringify(cotEmptyModels.slice(-30))); } catch (saveErr) {}
+    }
+    const plainSystem = system.replace(cotSystemBlock(cotT), "");
+    const plainHist = hist.map((m, i) => i === hist.length - 1
+      ? { ...m, content: String(m.content || "").replace(/；④cot 字段必填，先想后写。/g, "；") }
+      : m);
+    raw = await callAI(p, plainSystem, plainHist, { maxTokens: session.maxTokens || 1900 });
+  }
   const sp = splitCot(raw, !!cotT);
   const parsed = extractJSON(sp.clean);
   let beats = parsed && Array.isArray(parsed.beats) ? parsed.beats : (Array.isArray(parsed) ? parsed : null);
