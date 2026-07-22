@@ -16,3 +16,8 @@ test("没有真实意识片段允许 null，不强迫每轮编转念", () => {
   assert.match(app, /不必为了显得有变化而硬编新的心理转折/);
   assert.doesNotMatch(app, /别懒——大多数有来有回的对话轮次/);
 });
+
+test("旧导演稿不再作为下一轮心声范文回喂", () => {
+  assert.match(app, /lastThoughtRaw/);
+  assert.match(app, /ThoughtVoiceGuard\.accept\(lastThoughtRaw\)/);
+});

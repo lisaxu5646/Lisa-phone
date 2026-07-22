@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.15";
+const APP_VERSION = "v50.16";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2950,7 +2950,9 @@ function App() {
       thoughtCtrRef.current[charId] = tctr;
       try { saveJSON("x_thoughtCtr", thoughtCtrRef.current); } catch (e) {}
       const mustThought = tctr === 1 || gapReopen;
-      const lastThought = (statesRef.current[charId] && statesRef.current[charId].thought) || "";
+      const lastThoughtRaw = (statesRef.current[charId] && statesRef.current[charId].thought) || "";
+      // 旧版已经存下的导演稿只留档，不再作为下一轮范文回喂；否则单个角色会被自己的坏心声持续教坏。
+      const lastThought = window.ThoughtVoiceGuard ? (window.ThoughtVoiceGuard.accept(lastThoughtRaw) || "") : lastThoughtRaw;
       const thoughtNoRepeat = lastThought ? "上一条心声是「" + String(lastThought).replace(/\s+/g, " ").slice(0, 50) + "」——把它当作刚才真实存在过的内在背景；别逐字复读，但也不必为了显得有变化而硬编新的心理转折。" : "";
       const innerVoiceRule = "【心声是正在发生的意识，不是角色分析报告】直接写这个角色此刻脑内冒出来的声音，用其本人自然的第一人称内在语气；可以是碎片、跑神、感官、联想、欲望、吐槽、矛盾或没说出口的冲动，不必句句完整理性。不要站到角色头顶复盘对方的行为、给互动下定义、解释自己为何产生某种情绪，或制定接下来该怎样回复/安抚的策略；那是导演笔记，不是心声。";
       const thoughtSpec = (mustThought
