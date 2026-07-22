@@ -16,18 +16,12 @@ test("自主续说保持一到两泡", () => {
   assert.deepEqual(Pacing.band([], { continueMode: true }), { min: 1, max: 2, kind: "self_continue" });
 });
 
-test("整体提示阻止标准安慰客服链和同义自证", () => {
-  const prompt = Pacing.guidance([{ role: "user", content: "你是不是不想我" }]);
-  assert.match(prompt, /别写成安慰客服流程/);
-  assert.match(prompt, /怎么会呢/);
-  assert.match(prompt, /我怎么会不想你/);
-  assert.match(prompt, /只挑最符合这个角色的一两个真实反应/);
-});
-
-test("整体提示先区分撒娇反话和真实难过", () => {
-  const prompt = Pacing.guidance([{ role: "user", content: "你都不想我了呜呜" }]);
-  assert.match(prompt, /先分清撒娇还是求救/);
-  assert.match(prompt, /默认按轻松的亲密邀约接/);
-  assert.match(prompt, /别突然严肃追问/);
-  assert.match(prompt, /只有对方明确表示是真的难受/);
+test("整体提示用通用交际目的与情绪重量原则，不堆具体案例", () => {
+  const prompt = Pacing.guidance([{ role: "user", content: "随便一句话" }]);
+  assert.match(prompt, /先理解这句话在做什么/);
+  assert.match(prompt, /撒娇、玩笑、求确认、普通分享、吐槽、真实倾诉还是争执/);
+  assert.match(prompt, /匹配对方实际给出的情绪重量/);
+  assert.match(prompt, /证据不足时保持轻量/);
+  assert.match(prompt, /角色差异优先于统一的高情商模板/);
+  assert.doesNotMatch(prompt, /怎么会呢|我怎么会不想你|好几天没见你了|你是不是今天太累/);
 });
