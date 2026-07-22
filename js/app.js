@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.16";
+const APP_VERSION = "v50.17";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -3078,13 +3078,27 @@ function App() {
         g[_i] = { role: "user", content: (bundleVolatile ? "【此刻的实时背景（只服务这一轮，不是历史）】\n" + bundleVolatile + "\n\n———\n" : "") + g[_i].content + _taskFull };
         break;
       } } }
-      const raw = await callAI(apiFor(charId), system, g.map(({
+      const aiMessages = g.map(({
         role,
         content
       }) => ({
         role,
         content
-      })), { maxTokens: 6000, cacheHistory: _histCache, timeout: 180000 });
+      }));
+      let raw;
+      try {
+        raw = await callAI(apiFor(charId), system, aiMessages, { maxTokens: 6000, cacheHistory: _histCache, timeout: 180000 });
+      } catch (firstErr) {
+        // 有些推理线路偶尔把整次预算花在内部思考、最终不给正文。只对这个窄错误静默补试一次；
+        // 不读取/展示隐藏思考，也不对超时和普通上游错误重复扣调用。
+        if (!/模型返回为空/.test(String(firstErr && firstErr.message || ""))) throw firstErr;
+        const retryMessages = aiMessages.map(m => ({ ...m }));
+        for (let i = retryMessages.length - 1; i >= 0; i--) if (retryMessages[i].role === "user") {
+          retryMessages[i].content += "\n\n【空正文重试】上一次没有产生可展示正文。不要输出分析过程；现在直接完成本轮任务，只输出要求的 JSON 正文。";
+          break;
+        }
+        raw = await callAI(apiFor(charId), system, retryMessages, { maxTokens: 6000, cacheHistory: _histCache, timeout: 180000 });
+      }
       // 从坏掉的 JSON 里【只】抠出 word 气泡，绝不把整段原始 JSON（含 thought 心声等内部字段）当消息发出去
       const salvageWords = () => {
         const s = String(raw || "");
@@ -3367,6 +3381,7 @@ function App() {
     } catch (e) {
       pChat(charId, p => [...p, {
         role: "assistant",
+        kind: "system",
         content: "（发送失败：" + e.message + "）",
         ts: Date.now(),
         turnId: "e_" + Date.now()
