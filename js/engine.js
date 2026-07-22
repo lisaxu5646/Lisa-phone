@@ -648,6 +648,7 @@ function buildBundle(ctx, opts) {
   // 用户通过 OOC 立下的长期行为准则：高优先，凌驾于日常演绎习惯，但不得违背核心人设
   const dirs = (ctx.directives || []).map(d => (typeof d === "string" ? d : d && d.text) || "").filter(s => s.trim());
   if (dirs.length) parts.push("【用户对你说话/行为方式的长期要求（高优先·务必长期保持）】\n这些是用户明确要求你保持的准则，优先级高于一般演绎习惯；在不违背核心人设的前提下务必遵守：\n" + dirs.map((s, i) => (i + 1) + ". " + s.trim()).join("\n"));
+  if (typeof ContentBoundaries !== "undefined") parts.push(ContentBoundaries.prompt);
   // ⭐时间块（易变·每分钟变）先在这算好，但【推迟到人设/关系之后再拼入 system】——让缓存切点(【当前真实时间】)下移、
   //   前缀能一路缓住 反八股+守则+整个人设+关系网(大头)，命中时省得多。她 2026-07-13 授权移时间；活人感影响忽略不计。
   const timeBlock = [];
@@ -1615,6 +1616,7 @@ async function generateOfflineGroup(p, ctx, session) {
     ANTI_CLICHE +
     "\n\n" + INTIMATE_ANTI_CLICHE +
     "\n\n" + NARRATIVE_ANTI_CLICHE +
+    (typeof ContentBoundaries !== "undefined" ? "\n\n" + ContentBoundaries.prompt : "") +
     (ctx.worldbook && ctx.worldbook.trim() ? "\n\n" + WORLDBOOK_RULE : "") +
     "\n\n" + CHARCARD_RULE +
     timeBlock +
