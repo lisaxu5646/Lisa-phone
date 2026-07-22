@@ -23,3 +23,11 @@ test("整体提示阻止标准安慰客服链和同义自证", () => {
   assert.match(prompt, /我怎么会不想你/);
   assert.match(prompt, /只挑最符合这个角色的一两个真实反应/);
 });
+
+test("整体提示先区分撒娇反话和真实难过", () => {
+  const prompt = Pacing.guidance([{ role: "user", content: "你都不想我了呜呜" }]);
+  assert.match(prompt, /先分清撒娇还是求救/);
+  assert.match(prompt, /默认按轻松的亲密邀约接/);
+  assert.match(prompt, /别突然严肃追问/);
+  assert.match(prompt, /只有对方明确表示是真的难受/);
+});
