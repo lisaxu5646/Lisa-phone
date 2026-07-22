@@ -6215,8 +6215,37 @@ function GroupThread({
     }, m.desc || "照片"))));
     const isU = m.role === "user";
     const c = m.senderId ? memberById(m.senderId) : null;
+    const toGroupTime = value => {
+      if (value == null || value === "") return NaN;
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) return numeric;
+      const parsed = Date.parse(value);
+      return Number.isFinite(parsed) ? parsed : NaN;
+    };
+    let previousTimed = null;
+    for (let j = i - 1; j >= 0; j--) {
+      if (messages[j] && Number.isFinite(toGroupTime(messages[j].ts))) { previousTimed = messages[j]; break; }
+    }
+    const currentTime = toGroupTime(m.ts);
+    const previousTime = previousTimed ? toGroupTime(previousTimed.ts) : NaN;
+    const currentDate = Number.isFinite(currentTime) ? new Date(currentTime) : null;
+    const previousDate = Number.isFinite(previousTime) ? new Date(previousTime) : null;
+    const crossedDay = currentDate && previousDate && (currentDate.getFullYear() !== previousDate.getFullYear() || currentDate.getMonth() !== previousDate.getMonth() || currentDate.getDate() !== previousDate.getDate());
+    const sameTurn = previousTimed && previousTimed.turnId && m.turnId && previousTimed.turnId === m.turnId;
+    const showGroupTime = !!previousTimed && !sameTurn && currentTime > previousTime && (crossedDay || currentTime - previousTime >= 30 * 60 * 1000);
+    let groupTimeLabel = "";
+    if (showGroupTime) {
+      const now = new Date(), pad = n => String(n).padStart(2, "0");
+      const sameToday = currentDate.getFullYear() === now.getFullYear() && currentDate.getMonth() === now.getMonth() && currentDate.getDate() === now.getDate();
+      const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      const sameYesterday = currentDate.getFullYear() === yesterday.getFullYear() && currentDate.getMonth() === yesterday.getMonth() && currentDate.getDate() === yesterday.getDate();
+      const clock = pad(currentDate.getHours()) + ":" + pad(currentDate.getMinutes());
+      groupTimeLabel = sameToday ? clock : sameYesterday ? "昨天 " + clock : (currentDate.getFullYear() === now.getFullYear() ? "" : currentDate.getFullYear() + "年") + (currentDate.getMonth() + 1) + "月" + currentDate.getDate() + "日 " + clock;
+    }
     return h("div", {
       key: i,
+    }, showGroupTime && h("div", { className: "flex justify-center", style: { margin: "13px 0 8px" } },
+      h("span", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, letterSpacing: "0.02em" } }, groupTimeLabel)), h("div", {
       className: "flex items-start gap-2 " + (isU ? "justify-end" : "justify-start")
     }, !isU && mAvatar(c), h("div", {
       className: "flex flex-col",
@@ -6273,7 +6302,7 @@ function GroupThread({
         WebkitUserSelect: "none",
         WebkitTouchCallout: "none"
       }
-    }, bubbleSticker(isU), m.content), !m.recalled && subLine(m) && h("span", { style: { fontFamily: F_BODY, fontSize: 9.5, color: t.fog, marginTop: 2 } }, subLine(m))), isU && gsp.showMyAvatar && h(Avatar, { character: meAv, size: 34, radius: 8 }));
+    }, bubbleSticker(isU), m.content), !m.recalled && subLine(m) && h("span", { style: { fontFamily: F_BODY, fontSize: 9.5, color: t.fog, marginTop: 2 } }, subLine(m))), isU && gsp.showMyAvatar && h(Avatar, { character: meAv, size: 34, radius: 8 })));
   }), sending && h("div", {
     className: "flex items-center gap-2"
   }, h("div", {
