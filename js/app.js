@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.34";
+const APP_VERSION = "v50.35";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2149,6 +2149,22 @@ function App() {
     }, 20000);
     return () => clearInterval(timer);
   }, [screen, activeGroup, groupSettings, sending, offlineGroup]);
+  // ---- 默认进线下（她 2026-07-23，方便同居/常在一起的角色：默认基本上都在一起）----
+  // 点进开了「默认进线下」的单聊，直接进线下相处；随时可「离开」跳回线上。只在【进入这个聊天】那一下
+  // 触发一次——跳回线上后不再自动弹（尊重你主动离开）；下次从列表重新进这个聊天才会再默认开。
+  const autoOfflineRef = useRef(null);
+  useEffect(() => {
+    if (screen !== "thread" || !activeChar) { autoOfflineRef.current = null; return; }
+    const cid = activeChar.id;
+    if (autoOfflineRef.current === cid) return;
+    autoOfflineRef.current = cid;
+    if (!settingsFor(cid).defaultOffline) return;
+    if (offlineChar || offlineGroup) return;
+    const list = offlinesRef.current[cid] || loadJSON("x_offline:" + cid, []);
+    const hasActive = (list || []).some(s => s && !s.endTs);
+    openOffline(activeChar);
+    if (!hasActive) startOffline(cid, {});
+  }, [screen, activeChar]);
   // ---- 角色主动早晚安：扫所有【在聊的】角色，到各自作息的早/晚，主动发一句问候，落成未读红点，你随缘回 ----
   // 只在 app 打开时跑（静态站无后台推送）；一次只发一个错峰；一天早/晚各一次；刚聊完/正在看的不打扰。
   // 角色当地"此刻几点几分"（分钟数）——按 tz 偏移，无 tz 用设备本地

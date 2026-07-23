@@ -7181,6 +7181,7 @@ function ChatSettings({
   const [sumBuffer, setSumBuffer] = useState(settings.sumBuffer || 20);
   const [autoMoment, setAutoMoment] = useState(!!settings.autoMoment);
   const [proactive, setProactive] = useState(!!settings.proactive);
+  const [defaultOffline, setDefaultOffline] = useState(!!settings.defaultOffline);
   const [proactiveHr, setProactiveHr] = useState(Math.max(1, Math.round((settings.proactiveMin || 120) / 60)));
   const [wipeMemToo, setWipeMemToo] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -7242,7 +7243,8 @@ function ChatSettings({
       chatBg,
       apiId,
       engineerEyes,
-      toyEnabled
+      toyEnabled,
+      defaultOffline
     })
   }, /*#__PURE__*/React.createElement(ICheck, {
     size: 19,
@@ -7395,7 +7397,7 @@ function ChatSettings({
     className: "pt-3"
   }, h("div", {
     style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, lineHeight: 1.6 }
-  }, "什么时候来找你，由 TA 此刻的心情决定——你越久没理 TA、TA 越想你，才会主动开口（不再是死板的固定间隔）。你好好道过晚安 TA 涨得慢，敷衍两句 TA 更快想你。⚠️手机彻底杀掉后台期间发不出，但你重开时 TA 会补上这段想念。"))), h(SettingSection, { title: "记忆与上下文", ...sec("mem") }, /*#__PURE__*/React.createElement("div", {
+  }, "什么时候来找你，由 TA 此刻的心情决定——你越久没理 TA、TA 越想你，才会主动开口（不再是死板的固定间隔）。你好好道过晚安 TA 涨得慢，敷衍两句 TA 更快想你。⚠️手机彻底杀掉后台期间发不出，但你重开时 TA 会补上这段想念。"))), h(SettingSection, { title: "线下相处 · 默认在一起", ...sec("off") }, h("div", { className: "flex items-center justify-between pt-5" }, h("div", { style: { paddingRight: 12 } }, h("div", { style: { fontFamily: F_DISPLAY, fontSize: 14, color: t.sub } }, "默认进线下（同居 / 常在一起）"), h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, lineHeight: 1.5, color: t.fog, marginTop: 2 } }, "点进这个聊天默认直接进线下相处（面对面叙事），随时可跳回线上；关着就跟以前一样默认线上。适合同居 / 几乎总在一起的 TA。")), h("button", { onClick: () => setDefaultOffline(v => !v), className: "shrink-0", style: { width: 46, height: 27, borderRadius: 999, background: defaultOffline ? t.tint : t.line, position: "relative", transition: "background .2s" } }, h("span", { style: { position: "absolute", top: 3, left: defaultOffline ? 22 : 3, width: 21, height: 21, borderRadius: 999, background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" } })))), h(SettingSection, { title: "记忆与上下文", ...sec("mem") }, /*#__PURE__*/React.createElement("div", {
     className: "pt-6"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-baseline justify-between mb-1"
