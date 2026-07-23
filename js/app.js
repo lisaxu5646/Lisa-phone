@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.21";
+const APP_VERSION = "v50.22";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2963,6 +2963,11 @@ function App() {
       base = [...base, um];
     }
     const history = base.filter(m => !m.recalled && m.kind !== "ooc" && m.kind !== "system");
+    // CC 原话回流后，本地聊天可以很长；记录仍完整保留，但每次请求只携带最近一扇窗口，
+    // 避免专线把整份历史重复上传而在浏览器侧直接 Load failed。
+    const promptHistory = window.ChatContextWindow
+      ? window.ChatContextWindow.select(history, { maxChars: 14000, maxMessages: 80 })
+      : history.slice(-80);
     if (!opts.proactive && history.length === 0) {
       toast("先发条消息再让 TA 回复");
       return;
@@ -3119,7 +3124,7 @@ function App() {
       const _primer = "\n\n【任务·总纲】你就是上面的「" + char.name + "」本人（不是在扮演），用手机即时通讯的口吻和 " + uName + " 一对一聊天。**这一轮的详细要求、你可用的能力、以及必须遵守的 JSON 输出格式，都写在 " + uName + " 这条消息末尾的【本轮任务】段落里——严格照它执行，最终只输出那个 JSON、不要任何多余文字。**";
       const system = _histCache ? (bundleStable + _primer) : (bundle + _taskFull);
       const g = [];
-      for (const m of history) {
+      for (const m of promptHistory) {
         // 每条历史带时间标注〔今天14:32〕（v47.83 她点名单聊也要）：裸消息模型会把几小时前的事说成昨天
         const stp = m.ts && typeof fmtStampAI === "function" ? "〔" + fmtStampAI(m.ts) + "〕" : "";
         if (m.kind === "offlinelog") {
