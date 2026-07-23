@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.36";
+const APP_VERSION = "v50.37";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2165,23 +2165,6 @@ function App() {
     openOffline(activeChar);
     if (!hasActive) startOffline(cid, {});
   }, [screen, activeChar]);
-  // ---- 线下 idle 自发（她 2026-07-23）：开着线下浮层、开了「允许主动」、闲置到点，角色自己往下演一拍 ----
-  //   = "主动消息落线下卡片"。防跑飞：距你最后一句自发太多拍(≥8)就歇、等你再动；只在浮层开着(前台)时跑。
-  useEffect(() => {
-    if (!offlineChar) return;
-    const cid = offlineChar.id;
-    if (!settingsFor(cid).proactive) return;
-    const timer = setInterval(() => {
-      if (laneBusy("c:" + cid)) return;
-      const sess = (offlinesRef.current[cid] || []).find(s => s && !s.endTs);
-      if (!sess || !(sess.msgs || []).length) return;
-      let sinceUser = 0; for (let i = sess.msgs.length - 1; i >= 0; i--) { if (sess.msgs[i].role === "user") break; sinceUser++; }
-      if (sinceUser >= 8) return;
-      const lastTs = sess.msgs[sess.msgs.length - 1].ts || 0;
-      if (Date.now() - lastTs >= 120000) offlineReply(cid);
-    }, 20000);
-    return () => clearInterval(timer);
-  }, [offlineChar, chatSettings, sending]);
   // ---- 角色主动早晚安：扫所有【在聊的】角色，到各自作息的早/晚，主动发一句问候，落成未读红点，你随缘回 ----
   // 只在 app 打开时跑（静态站无后台推送）；一次只发一个错峰；一天早/晚各一次；刚聊完/正在看的不打扰。
   // 角色当地"此刻几点几分"（分钟数）——按 tz 偏移，无 tz 用设备本地
@@ -2325,24 +2308,32 @@ function App() {
           const cid = c.id;
           const s = settingsFor(cid);
           if (!s.proactive) continue;
-          if (laneBusy("c:" + cid) || viewRef.current.charId === cid) continue;
+          if (laneBusy("c:" + cid)) continue;
           if (currentlyTogetherWithChar(cid)) continue;
+          // 有没有一场进行中的线下（同居/常在一起）。有【正在演的场景】→ 把「思念攒够→主动」落成【线下一拍】而不是线上消息（她 2026-07-23）。
           const _offL = offlinesRef.current[cid] || [];
-          if (_offL.some(sess => !sess.endTs && Date.now() - (sess.startTs || 0) < 8 * 3600000)) continue; // ⭐线下进行中别发线上(她 2026-07-13 报：jiwen 路径漏了这道硬闸)；8h 封顶防忘关的旧场次永远压制
+          const activeOff = _offL.find(sess => sess && !sess.endTs && Date.now() - (sess.startTs || 0) < 8 * 3600000);
+          const activeOffScene = activeOff && (activeOff.msgs || []).length > 0 ? activeOff : null;
+          // 线上路径：正在看这个聊天就不发；线下路径（有场景）：她看着/离开都能自己动（她要"从线上变线下"）。
+          if (!activeOffScene && viewRef.current.charId === cid) continue;
+          if (activeOff && !activeOffScene) continue; // 线下开着但还没开演：不发线上、也没得演，跳过
           const ms = (chatsRef.current[cid] || []).filter(m => !m.recalled && m.kind !== "ooc" && m.kind !== "system");
-          if (!ms.length) continue;
-          // ⭐jiwen 阶段二（v48.80/81）：有 jiwen 就【由心理动机决定开口】——思念漂到 contact 阈值才发，时机全交给它；
+          if (!activeOffScene && !ms.length) continue;
+          // ⭐jiwen 阶段二（v48.80/81）：有 jiwen 就【由心理动机决定开口】——思念漂到 contact 阈值才主动，时机全交给它（线上线下同一套门槛）；
           //   固定间隔滑块已去掉(v48.81 她点名)，这里只留防刷屏底线：有 jiwen=45min 底线(真时机 jiwen 说了算)，没 jiwen(引擎没载)兜底 3h。
           const jw = (typeof window !== "undefined" && window.__jiwen && window.__jiwen[cid]) || null;
           const floorMin = jw ? 45 : 180;
-          if (Date.now() - Math.max(ms[ms.length - 1].ts || 0, latestSharedInteractionTs(cid)) < floorMin * 60000) continue;
-          if (jw && jw.triggers && !jw.triggers.some(t => t.action === "contact")) continue; // jiwen 说「还没想到要联系」→ 不发
+          const offMsgs = activeOffScene ? (activeOffScene.msgs || []) : [];
+          const lastInteract = Math.max(ms.length ? (ms[ms.length - 1].ts || 0) : 0, latestSharedInteractionTs(cid), offMsgs.length ? (offMsgs[offMsgs.length - 1].ts || 0) : 0);
+          if (Date.now() - lastInteract < floorMin * 60000) continue;
+          if (jw && jw.triggers && !jw.triggers.some(t => t.action === "contact")) continue; // jiwen 说「还没想到要联系」→ 不动
           if (Date.now() - (jiwenFiredRef.current[cid] || 0) < 25 * 60000) continue;
           const hr = Math.floor(charLocalMin(c) / 60); if (hr < 8 || hr > 23) continue;
           jiwenFiredRef.current[cid] = Date.now();
           let jwStyle = "";
           try { const eng = getJiwen(c); if (eng && jw) { jwStyle = (eng.getStyleGuidance() + "\n" + eng.getPromptContext()).trim(); eng.applyDelta({ connection: -0.28 }); } } catch (e) {} // 注入当前五轴语气 + 发完泄一点思念(别下一tick又触发)
-          replyNow(cid, "", null, { proactive: true, jiwen: jwStyle });
+          if (activeOffScene) offlineReply(cid);                                 // 思念攒够 → 线下自己动一拍
+          else replyNow(cid, "", null, { proactive: true, jiwen: jwStyle });     // → 线上主动一条
           return; // 一次一个，错峰（本轮不再顺带问候，下一轮 tick 再说）
         }
       } catch (e) {}
