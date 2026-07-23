@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.23";
+const APP_VERSION = "v50.24";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -4793,7 +4793,14 @@ function App() {
   };
   const forceAmbient = async (char, type) => {
     try {
-      if (type === "moment") { await genMoment(char); notifyApp("moments"); toast(char.name + " 发了条朋友圈"); if (window.Notify) window.Notify.push({ title: char.name + " 发了条朋友圈", body: "去朋友圈看看吧", tag: "mom-" + char.id, charId: char.id }); }
+      if (type === "moment") {
+        const posted = await genMoment(char);
+        if (posted) {
+          notifyApp("moments");
+          toast(char.name + " 发了条朋友圈");
+          if (window.Notify) window.Notify.push({ title: char.name + " 发了条朋友圈", body: "去朋友圈看看吧", tag: "mom-" + char.id, charId: char.id });
+        }
+      }
       else if (type === "whisper") { await genWhisper(char); notifyApp("whisper"); toast(char.name + " 给你留了句悄悄话"); if (window.Notify) window.Notify.push({ title: char.name + " 给你留了句悄悄话", body: "点开看看", tag: "wh-" + char.id, charId: char.id }); }
       else if (type === "forum") { await autoForumForChar(char); }
     } catch (e) {}
@@ -5633,18 +5640,22 @@ function App() {
         instruction: "以「" + char.name + "」身份发一条朋友圈：心情/日常/感想，1-4句，有角色味道，不暴露隐藏剧情。优先从你真正参与的近期相处里自然长出内容，但不要逐句复述或把私密细节直接公开。**大约一半概率配一张图**——如果这条适合配图，就在 image 里写一句这张图的画面描述（如「窗台上的多肉，逆光」「深夜便利店的关东煮」），不配图就填 null。再生成认识的其他角色对这条的 0-3 条评论（评论者从关系网里挑）。**绝对不要替用户本人（" + meName + "）生成任何评论或回复——用户会自己去评论。**" + (livedMaterial ? "\n\n【你最近亲历的共同相处（含私聊、群聊与线上/线下）】\n" + livedMaterial : "") + noRepeat,
         schemaHint: "{\"content\":\"朋友圈正文\",\"image\":\"配图描述或null\",\"comments\":[{\"author\":\"评论者名\",\"text\":\"评论\"}]}"
       });
+      const content = String(d && d.content || "").trim();
+      if (!content) throw new Error("模型没有返回朋友圈正文");
       pMom(p => [{
         id: "m_" + Date.now(),
         characterId: char.id,
-        content: d.content,
+        content,
         image: d.image && String(d.image).toLowerCase() !== "null" ? String(d.image) : null,
         ts: Date.now(),
         liked: false,
         likeCount: 0,
         comments: (d.comments || []).filter(c => c && c.author && c.author !== meName && c.author !== "我" && c.author !== "用户")
       }, ...p]);
+      return true;
     } catch (e) {
       toast("失败：" + e.message);
+      return false;
     } finally {
       setGen(g => ({
         ...g,
