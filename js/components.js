@@ -3125,7 +3125,14 @@ function ChatThread({
   }, archView === "loading" ? "加载中…" : ("☁ 更早的 " + archCount + " 条聊天在云端 · 点开查看")) : null,
   messages.length === 0 && /*#__PURE__*/React.createElement(Empty, {
     text: "和 " + character.name + " 的对话由此开始"
-  }), messages.map((m, i) => {
+  }), messages.flatMap((m, i) => {
+    // 账本回流（CC/Stack-chan）的一行可能是逐字摘录的长段落：显示时按空行拆成多个气泡，数据不动
+    if (m && m.ledgerImported && !m.recalled && !m.kind && typeof m.content === "string" && /\n\s*\n/.test(m.content)) {
+      const parts = m.content.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean);
+      if (parts.length > 1) return parts.map((p, k) => ({ m: { ...m, content: p }, i, part: k, last: k === parts.length - 1 }));
+    }
+    return [{ m, i, part: 0, last: true }];
+  }).map(({ m, i, part, last }) => {
     if (m.recalled) return /*#__PURE__*/React.createElement("div", {
       key: i,
       className: "text-center py-1.5"
@@ -3300,9 +3307,9 @@ function ChatThread({
         h("button", { onClick: () => onAcceptListen && onAcceptListen(character.id, m.song || ""), className: "w-full active:opacity-80", style: { background: "#fff", color: "#17171b", fontFamily: F_DISPLAY, fontSize: 14, padding: "8px", borderRadius: 10 } }, "和 TA 一起听 →")));
     const isU = m.role === "user";
     return /*#__PURE__*/React.createElement("div", {
-      key: i,
+      key: part ? i + ":" + part : i,
       className: "py-1"
-    }, i === 0 || messages[i - 1].turnId !== m.turnId || m.ts - (messages[i - 1].ts || 0) > 180000 ? /*#__PURE__*/React.createElement("div", {
+    }, part === 0 && (i === 0 || messages[i - 1].turnId !== m.turnId || m.ts - (messages[i - 1].ts || 0) > 180000) ? /*#__PURE__*/React.createElement("div", {
       className: "text-center mb-1"
     }, /*#__PURE__*/React.createElement("span", {
       style: {
@@ -3421,7 +3428,7 @@ function ChatThread({
         fontSize: 10.5,
         opacity: 0.7
       }
-    }, m.dir === "toChar" ? "转账" : "转账给你"))) : m.content), !selMode && !m.kind && subLine(m) && /*#__PURE__*/React.createElement("span", {
+    }, m.dir === "toChar" ? "转账" : "转账给你"))) : m.content), !selMode && !m.kind && last && subLine(m) && /*#__PURE__*/React.createElement("span", {
       style: {
         fontFamily: F_BODY,
         fontSize: 9.5,
