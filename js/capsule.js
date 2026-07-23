@@ -25,19 +25,22 @@
     const uName = (props.profile && props.profile.name) || "我";
     const charOf = id => chars.find(c => c.id === id);
 
-    // 反向胶囊：你埋给 TA 时，TA 有时（约四成）也悄悄埋一颗——内容以 TA 此刻的心境当场写好、封存到同一天
+    // 反向胶囊：你埋给 TA 时，TA 也悄悄埋一颗——内容以 TA 此刻的心境当场写好、封存到同一天。
+    // 每个角色【第一次】给 TA 埋时必回埋一颗（保证你至少见到一次）；之后 70% 概率。失败给提示、不再静默。
     const maybeBuryBack = async (char, openTs) => {
-      if (!props.active || Math.random() > 0.45) return;
+      if (!props.active) return;
+      const everBuried = load().some(c => c && c.dir === "fromChar" && c.charId === char.id);
+      if (everBuried && Math.random() > 0.7) return;
       try {
         const sys = buildBundle(props.ctxFor(char)) +
           "\n\n【任务】" + uName + " 刚埋下一颗写给你的时光胶囊（内容保密），约定 " + fmtD(openTs) + " 才能拆。你心里一动，决定也悄悄埋一颗给 Ta——写下你【此刻】想对「拆开信的那天的 Ta」说的话（2-6 句，第一人称，贴你的人设与此刻心情，可以有没说出口过的话；别客套、别落款）。只输出 JSON：{\"letter\":\"信的正文\"}";
         const raw = await callAI(props.apiFor ? props.apiFor(char.id) : props.active, sys, [{ role: "user", content: "写吧。" }], { maxTokens: 1200 }); // 反向埋胶囊=TA 亲笔，跟随专线（v48.37）
         const d = extractJSON(raw);
-        if (!d || !d.letter) return;
+        if (!d || !d.letter) { props.toast && props.toast(char.name + " 想回埋一颗但没写成，回头再说～"); return; }
         const entry = { id: uid(), dir: "fromChar", charId: char.id, charName: char.name, text: String(d.letter).trim(), createdTs: Date.now(), openTs, opened: false, reply: null };
         setList(prev => { const n = [entry, ...prev]; save(n); return n; });
         props.toast && props.toast(char.name + " 好像也悄悄埋了一颗…到期才能拆");
-      } catch (e) {/* 静默：反向失败不影响正向 */}
+      } catch (e) { props.toast && props.toast(char.name + " 想回埋一颗但没成：" + (e.message || "稍后重试")); }
     };
     const bury = (target, text, openTs) => {
       const c = target === "self" ? null : charOf(target);

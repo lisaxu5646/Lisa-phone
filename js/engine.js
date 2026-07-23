@@ -312,6 +312,9 @@ async function callAI(p, system, messages, opts) {
   const maxTokens = opts.maxTokens || 2400;
   if (!p.apiKey && !p.proxyRef) throw new Error("尚未填写密钥，去设置里补上（或填云端代理引用名走保险柜）");
   if (!model) throw new Error("尚未指定模型");
+  // baseUrl 没填对（空/没 http 前缀/残留中文占位或空格）时，浏览器 fetch 会抛天书 DOMException
+  // 「the string did not match the expected pattern」——这里提前拦成看得懂的话，指到具体线路。
+  if (!p.proxyRef && !/^https?:\/\/\S+$/i.test(base)) throw new Error("这条线路的接口地址填得不对：「" + (p.baseUrl || "（空）") + "」——去设置·API 检查【" + (p.name || model || "该线路") + "】的 baseUrl（要以 http(s):// 开头，别留空格或中文占位）");
   // 云端密钥代理（v49.38）：线路填了 proxyRef（如 DZZI/ANTHROPIC）就借道 llm-proxy 函数——
   // 密钥住 Supabase secrets，浏览器一个字不存；函数只认 Lisa 本人登录态+域名白名单
   const viaProxy = p.proxyRef ? (url, bodyObj, xh) => {

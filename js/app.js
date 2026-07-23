@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.30";
+const APP_VERSION = "v50.31";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -4798,6 +4798,25 @@ function App() {
       if (d && d.title) { postCharToForum(char, board, { title: String(d.title), body: String(d.body || "") }, "auto"); notifyApp("forum"); toast(char.name + " 在论坛发了帖"); if (window.Notify) window.Notify.push({ title: char.name + " 在论坛发了帖", body: String(d.title), tag: "forum-" + char.id, charId: char.id }); }
     } catch (e) {}
   };
+  // 角色【主动】给你埋一颗时光胶囊（不必你先埋给 TA）——她要的"自动生成、有了我再点开看"。
+  // 由 tickAmbient 按轮数稀发；封存到 1~7 天后（保留"等一等再拆"的胶囊感，又不至于锁太久）。写 x_capsules，
+  // 下次打开时光胶囊即见；到期主屏图标亮红点（window.capsuleDueCount 读 localStorage）。
+  const autoBuryCapsuleForChar = async char => {
+    if (!active) return;
+    try {
+      const openTs = Date.now() + (1 + Math.floor(Math.random() * 7)) * 86400000;
+      const sys = buildBundle(ctxFor(char)) +
+        "\n\n【任务】此刻你心里一动，想悄悄给 " + (profile.name || "Ta") + " 埋一颗时光胶囊——写下你【此刻】最想对「拆开它那天的 Ta」说的话（2-6 句，第一人称，贴你的人设与此刻心情，可以有没说出口过的话；别客套、别落款）。只输出 JSON：{\"letter\":\"信的正文\"}";
+      const raw = await callAI(apiFor(char.id), sys, [{ role: "user", content: "写吧。" }], { maxTokens: 1200 });
+      const d = extractJSON(raw);
+      if (!d || !d.letter) return;
+      const entry = { id: "cap_" + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36), dir: "fromChar", charId: char.id, charName: char.name, text: String(d.letter).trim(), createdTs: Date.now(), openTs, opened: false, reply: null };
+      const cur = loadJSON("x_capsules", []); const list = Array.isArray(cur) ? cur : [];
+      saveJSON("x_capsules", [entry, ...list]);
+      toast(char.name + " 悄悄给你埋了一颗时光胶囊");
+      if (window.Notify) window.Notify.push({ title: char.name + " 给你埋了一颗时光胶囊", body: "过些天就能拆开", tag: "cap-" + char.id, charId: char.id });
+    } catch (e) {}
+  };
   const forceAmbient = async (char, type) => {
     try {
       if (type === "moment") {
@@ -4810,6 +4829,7 @@ function App() {
       }
       else if (type === "whisper") { await genWhisper(char); notifyApp("whisper"); toast(char.name + " 给你留了句悄悄话"); if (window.Notify) window.Notify.push({ title: char.name + " 给你留了句悄悄话", body: "点开看看", tag: "wh-" + char.id, charId: char.id }); }
       else if (type === "forum") { await autoForumForChar(char); }
+      else if (type === "capsule") { await autoBuryCapsuleForChar(char); }
     } catch (e) {}
   };
   // 每轮私聊回复后调用：三类动态计数 + 到阈值强制发一条（posted=这条回复已自发的类型，就不重复强制）
@@ -4818,18 +4838,21 @@ function App() {
     if (!char) return;
     posted = posted || {};
     const isCouple = couples[charId] && couples[charId].status === "together";
-    const cur = ambientCountRef.current[charId] || { moment: 0, whisper: 0, forum: 0, lastForumTs: Date.now() };
+    const cur = ambientCountRef.current[charId] || { moment: 0, whisper: 0, forum: 0, capsule: 0, lastForumTs: Date.now() };
     const n = {
       moment: posted.moment ? 0 : (cur.moment || 0) + 1,
       whisper: posted.whisper ? 0 : (cur.whisper || 0) + 1,
       forum: posted.forum ? 0 : (cur.forum || 0) + 1,
+      capsule: posted.capsule ? 0 : (cur.capsule || 0) + 1,
       lastForumTs: posted.forum ? Date.now() : (cur.lastForumTs || Date.now())
     };
     const due = [];
     if (isCouple && n.whisper >= 15) due.push("whisper");
     if (n.moment >= 30) due.push("moment");
     if ((n.forum >= 50 || Date.now() - (n.lastForumTs || Date.now()) >= 3 * 86400000) && !(forumOffRef.current || []).includes(charId)) due.push("forum");
-    due.forEach(k => { if (k === "whisper") n.whisper = 0; else if (k === "moment") n.moment = 0; else { n.forum = 0; n.lastForumTs = Date.now(); } });
+    // 时光胶囊：恋人间稀发（≥40 轮），角色主动埋一颗给你（她要的"自动生成、有了再点开看"）
+    if (isCouple && n.capsule >= 40) due.push("capsule");
+    due.forEach(k => { if (k === "whisper") n.whisper = 0; else if (k === "moment") n.moment = 0; else if (k === "capsule") n.capsule = 0; else { n.forum = 0; n.lastForumTs = Date.now(); } });
     const np = { ...ambientCountRef.current, [charId]: n };
     ambientCountRef.current = np; setAmbientCount(np); saveJSON("x_ambientCount", np);
     due.forEach(k => forceAmbient(char, k));
