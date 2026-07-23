@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.32";
+const APP_VERSION = "v50.33";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -770,6 +770,23 @@ function App() {
         saveJSON("x_chat:" + y.id, result.messages);
         chatsRef.current = { ...chatsRef.current, [y.id]: result.messages };
         if (!dead) setChats(p => ({ ...p, [y.id]: result.messages }));
+        // CC 原话已验真并落入共同账本后，才旁路喂人格观察层；message_key:revision 本地幂等，
+        // 刷新/重拉不会重复加情绪。证据只是 A 的固定词典输入，不是 CC 自己写十维状态。
+        try {
+          const appliedKey = "cc_personality_applied_v1";
+          const oldApplied = JSON.parse(localStorage.getItem(appliedKey) || "[]");
+          const applied = new Set(Array.isArray(oldApplied) ? oldApplied : []);
+          const freshEvents = (result.personalityEvents || []).filter(ev => ev && ev.eventKey && !applied.has(ev.eventKey));
+          freshEvents.filter(ev => ev.speaker === "lisa" && ev.content).forEach(ev => noteTidalUser(ev.content, ev.ts));
+          freshEvents.filter(ev => ev.speaker === "character" && ev.evidence).forEach(ev => {
+            observeEmotionAShadow(y.id, Number(ev.evidence.affinity_delta) || 0, String(ev.evidence.mood_label || ""));
+          });
+          if (freshEvents.length && window.InnerLifeETidalShadow) {
+            window.InnerLifeETidalShadow.scheduleAfterglow(y.id, result.messages, moods[y.id], Date.now());
+          }
+          freshEvents.forEach(ev => applied.add(ev.eventKey));
+          localStorage.setItem(appliedKey, JSON.stringify(Array.from(applied).slice(-1000)));
+        } catch (e) {}
         localStorage.setItem(key, JSON.stringify({ owner_id: owner, char_id: String(y.id), cursor, last_success_at: new Date().toISOString(), imported: Number(before.imported || 0) + result.added, updated: Number(before.updated || 0) + result.updated, deleted: Number(before.deleted || 0) + result.deleted }));
         const newUnread = rows.filter(r => r && !r.deleted_at && r.speaker_type === "character").filter(r => !current.some(m => m && m.ledgerKey === r.message_key)).length;
         const viewing = viewRef.current.screen === "thread" && String(viewRef.current.charId) === String(y.id);

@@ -96,7 +96,8 @@ async function sendJob(job) {
       excerpted: job.excerpted,
       sync_kind: segment.sync_kind,
       segment_side: side,
-      segment_index: index
+      segment_index: index,
+      ...(side === "yanqiu" && index === 0 && job.personality_evidence ? { personality_evidence: job.personality_evidence } : {})
     }
   }));
   const rows = [
@@ -157,7 +158,8 @@ try {
     occurred_at: turn.occurredAt,
     excerpted: result.excerpted,
     lisa_segments: result.lisa_segments,
-    yanqiu_segments: result.yanqiu_segments
+    yanqiu_segments: result.yanqiu_segments,
+    personality_evidence: result.personality_evidence || null
   };
   if (result.automatic) {
     try {

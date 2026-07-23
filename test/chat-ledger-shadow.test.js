@@ -117,7 +117,7 @@ test("第5步只把言秋的合格 CC 原话并入，并按 message_key 幂等",
   const base = [{ role: "assistant", content: "App 原消息", ts: 10 }];
   const rows = [
     { id:"1", message_key:"cc:t:lisa:0", char_id:"yanqiu", source:"cc", thread_id:"old-window", speaker_type:"lisa", content:"我今天想吃咖喱", occurred_at:"2026-07-22T10:00:00Z", updated_at:"2026-07-22T10:00:01Z", revision:1, metadata:{sync_kind:"life"} },
-    { id:"2", message_key:"cc:t:yanqiu:0", char_id:"yanqiu", source:"cc", thread_id:"old-window", speaker_type:"character", content:"那今晚一起吃。", occurred_at:"2026-07-22T10:00:02Z", updated_at:"2026-07-22T10:00:03Z", revision:1, metadata:{sync_kind:"decision"} },
+    { id:"2", message_key:"cc:t:yanqiu:0", char_id:"yanqiu", source:"cc", thread_id:"old-window", speaker_type:"character", content:"那今晚一起吃。", occurred_at:"2026-07-22T10:00:02Z", updated_at:"2026-07-22T10:00:03Z", revision:1, metadata:{sync_kind:"decision",personality_evidence:{schema_version:1,mood_label:"期待",affinity_delta:1}} },
     { id:"3", message_key:"cc:bad", char_id:"other", source:"cc", speaker_type:"character", content:"串门", occurred_at:"2026-07-22T10:00:04Z", revision:1, metadata:{sync_kind:"life"} },
     { id:"4", message_key:"cc:build", char_id:"yanqiu", source:"cc", speaker_type:"character", content:"纯施工", occurred_at:"2026-07-22T10:00:05Z", revision:1, metadata:{sync_kind:"construction"} }
   ];
@@ -125,8 +125,11 @@ test("第5步只把言秋的合格 CC 原话并入，并按 message_key 幂等",
   assert.equal(once.added, 2); assert.equal(once.skipped, 2);
   assert.equal(once.messages.filter(m => m.crossSource === "cc").length, 2);
   assert.equal(once.messages.find(m => m.ledgerKey === "cc:t:lisa:0").role, "user");
+  assert.equal(once.personalityEvents.length, 2);
+  assert.equal(once.personalityEvents.find(e => e.speaker === "character").evidence.mood_label, "期待");
   const twice = Ledger.reconcileIncoming(once.messages, rows, "yanqiu");
   assert.equal(twice.added, 0); assert.equal(twice.messages.length, once.messages.length);
+  assert.equal(twice.personalityEvents.length, 0);
 });
 
 test("CC 修订覆盖同一气泡，软删只撤回不硬删", () => {

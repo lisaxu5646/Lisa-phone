@@ -139,6 +139,7 @@
     const byKey = new Map();
     list.forEach((m, index) => { if (m && m.ledgerKey) byKey.set(String(m.ledgerKey), index); });
     let added = 0, updated = 0, deleted = 0, skipped = 0;
+    const personalityEvents = [];
     asArray(incoming).forEach(row => {
       const meta = row && row.metadata && typeof row.metadata === "object" ? row.metadata : {};
       const key = text(row && row.message_key), source = text(row && row.source);
@@ -156,6 +157,11 @@
       };
       if (!byKey.has(key)) {
         list.push(next); byKey.set(key, list.length - 1); added++; if (isDeleted) deleted++;
+        if (!isDeleted) personalityEvents.push({
+          eventKey:key + ":" + revision, messageKey:key, speaker,
+          content:next.content, ts:safeTs,
+          evidence:meta.personality_evidence && typeof meta.personality_evidence === "object" ? meta.personality_evidence : null
+        });
         return;
       }
       const index = byKey.get(key), prev = list[index] || {};
@@ -164,7 +170,7 @@
       updated++; if (isDeleted && !prev.recalled) deleted++;
     });
     list.sort((a, b) => Number(a && a.ts || 0) - Number(b && b.ts || 0));
-    return { messages: list, added, updated, deleted, skipped };
+    return { messages: list, added, updated, deleted, skipped, personalityEvents };
   }
 
   function createManager(options) {

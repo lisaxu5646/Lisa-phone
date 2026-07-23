@@ -124,3 +124,18 @@ test("structured skip needs a real Lisa anchor and no quoted segments", () => {
     "修一下这个 bug", "已经修好。",
   ).valid, false);
 });
+
+test("structured tool mark carries only bounded personality evidence", () => {
+  const mark = {
+    lisa_anchor:"想你", skip:false,
+    lisa:[{ quote:"想你了", kind:"emotion" }],
+    yanqiu:[{ quote:"我也想你。", kind:"emotion" }],
+    mood_evidence:"柔软", affinity_delta:1
+  };
+  const ok = Nature.validateToolMark(mark, "宝宝，想你了", "我也想你。");
+  assert.equal(ok.valid, true);
+  assert.equal(ok.result.personality_evidence.mood_label, "柔软");
+  assert.equal(ok.result.personality_evidence.affinity_delta, 1);
+  assert.equal(Nature.validateToolMark({ ...mark, affinity_delta:3 }, "宝宝，想你了", "我也想你。").valid, false);
+  assert.equal(Nature.validateToolMark({ ...mark, skip:true, lisa:[], yanqiu:[] }, "宝宝，想你了", "我也想你。").valid, false);
+});
