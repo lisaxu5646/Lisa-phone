@@ -185,6 +185,35 @@ async function ensureMemVecs(lib, opts) {
   }
   return done;
 }
+// 存量向量合流：把本地【已有向量、但云端还没有(或模型/hash不一致)】的条目一次性推上云。
+// 为什么单独一个函数：ensureMemVecs 只补「本地缺的」，对本地早已算好的存量向量视而不见，
+// 不会主动上推；App 在 v48.11 起攒了成百上千条本地向量，全靠这里合流给 CC/别的设备共用。
+// 幂等：跑第二次时云端已有、model+hash 一致 → push 为空、零写入。没配 embedding/没登录静默跳过。
+async function syncMemVecsToCloud(lib) {
+  if (!embApiReady()) return 0;
+  if (!(typeof window !== "undefined" && window.Cloud && window.Cloud.memVecFetch && window.Cloud.memVecUpsert)) return 0;
+  await hydrateMemVecs();
+  const model = loadEmbApi().model;
+  const cache = _memVecCache();
+  const list = (lib || []).filter(e => e && e.id && e.text);
+  const localHave = list.filter(e => { const c = cache.get(e.id); return c && c.v && c.m === model && c.h === memVecHash(memEntryEmbedText(e)); });
+  if (!localHave.length) return 0;
+  let cloudRows = [];
+  try { cloudRows = await window.Cloud.memVecFetch(localHave.map(e => e.id)); } catch (e) { return 0; }
+  const cmap = new Map((cloudRows || []).map(r => [r.id, r]));
+  const push = [];
+  for (const e of localHave) {
+    const cr = cmap.get(e.id);
+    const h = memVecHash(memEntryEmbedText(e));
+    if (!cr || cr.model !== model || cr.hash !== h) { const rec = cache.get(e.id); push.push({ id: e.id, model, hash: h, embedding: Array.from(rec.v) }); }
+  }
+  if (!push.length) return 0;
+  let done = 0;
+  for (let i = 0; i < push.length; i += 100) {
+    try { await window.Cloud.memVecUpsert(push.slice(i, i + 100)); done += Math.min(100, push.length - i); } catch (e) { break; }
+  }
+  return done;
+}
 // 查询向量缓存（LRU 20 条）：key = 模型|查询文本hash。查询取【末尾】420 字——最近的消息在最后，语义检索要贴着最新话题
 function _qVecCache() { if (typeof window === "undefined") return new Map(); return window.__qVecCache || (window.__qVecCache = new Map()); }
 function _qVecKey(text) { return loadEmbApi().model + "|" + memVecHash(String(text || "").slice(-420)); }

@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.24";
+const APP_VERSION = "v50.26";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -1460,7 +1460,11 @@ function App() {
   useEffect(() => {
     const t = setTimeout(() => {
       if (typeof hydrateMemVecs !== "function") return;
-      hydrateMemVecs().then(() => ensureMemVecs(memLibRef.current)).catch(() => {});
+      hydrateMemVecs()
+        .then(() => ensureMemVecs(memLibRef.current))
+        // 存量本地向量合流上云，给 CC/别的设备共用（幂等；只在有未上云的条目时才写）
+        .then(() => { if (typeof syncMemVecsToCloud === "function") return syncMemVecsToCloud(memLibRef.current); })
+        .catch(() => {});
       if (typeof hydrateLoreVecs === "function") hydrateLoreVecs().then(() => ensureLoreVecs(loreRef.current)).catch(() => {});
     }, 3500);
     return () => clearTimeout(t);
