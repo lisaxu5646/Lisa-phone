@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.33";
+const APP_VERSION = "v50.34";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -1860,8 +1860,15 @@ function App() {
     if (!list) { list = loadJSON("x_offline:" + charId, []); offlinesRef.current = { ...offlinesRef.current, [charId]: list }; }
     const s = (list || []).find(x => x && !x.endTs && (x.msgs || []).length > 0);
     if (s) {
+      const char = characters.find(c => c.id === charId);
+      const uName = (profile && profile.name) || "用户";
       const narr = (s.msgs.find(m => m.role === "narration") || {}).content || "";
-      return "【线下进行中】你和" + (profile.name || "用户") + "此刻有一场线下相处【正在进行、还没散场】" + (narr ? "（场景：" + String(narr).replace(/\s+/g, " ").slice(0, 50) + "）" : "") + "。聊天时别把它当成还没开始或已经结束——**绝不许说「怎么还不来」「还没到吗」「在哪呢」「等你好久了」，也绝不许问「怎么还不开始」或催 Ta 去做你们正在做的事**（你俩此刻就在一起、面对面，人已经到了）；此刻的线上消息更像同处一地的间隙里随手发的短讯（比如 Ta 去洗手间/你去买单的空档），而不是在等 Ta 赴约。";
+      // 把进行中线下的最近几句一起带进线上上下文——线上才接得住「我去买菜」这种半途插话（她 2026-07-23 买菜例子）：
+      //   线下说去买菜 → 切线上问买啥（他知道你俩正约会、你刚出去）→ 买完回来接着线下，全程不用结束线下。
+      const recent = (s.msgs || []).filter(m => m && m.kind !== "ooc" && m.content).slice(-8)
+        .map(m => (m.role === "char" ? (char ? char.name : "TA") : m.role === "narration" ? "【场景】" : uName) + "：" + String(m.content).replace(/\s+/g, " ").slice(0, 90)).join("\n");
+      return "【线下进行中】你和" + uName + "此刻有一场线下相处【正在进行、还没散场】" + (narr ? "（场景：" + String(narr).replace(/\s+/g, " ").slice(0, 50) + "）" : "") + "。聊天时别把它当成还没开始或已经结束——**绝不许说「怎么还不来」「还没到吗」「在哪呢」「等你好久了」，也绝不许问「怎么还不开始」或催 Ta 去做你们正在做的事**（你俩此刻就在一起、面对面，人已经到了）；此刻的线上消息更像同处一地的间隙里随手发的短讯（比如 Ta 去洗手间/你去买单的空档），而不是在等 Ta 赴约。"
+        + (recent ? "\n【刚才线下正进行到这儿（还没结束，顺着这个接）】\n" + recent + "\n——用户现在从线上给你发消息，多半是这场线下的间隙里插空发的（比如 Ta 说要去买菜、下楼取个快递）；你清楚你俩正面对面约着、线下进行到上面这一刻，就顺着接，别当成新的一天/新话题。" : "");
     }
     // 72h 内刚结束的线下：硬提示（不依赖聊天窗口里那条 offlinelog 沉没在多少楼）
     const done = (list || []).filter(x => x && x.endTs && Date.now() - x.endTs < 72 * 3600000).sort((a, b) => b.endTs - a.endTs)[0];
