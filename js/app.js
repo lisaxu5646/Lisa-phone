@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.37";
+const APP_VERSION = "v50.38";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2145,7 +2145,8 @@ function App() {
       if (!msgs.length) return;
       let sinceUser = 0; for (let i = msgs.length - 1; i >= 0; i--) { if (msgs[i].role === "user") break; sinceUser++; }
       if (sinceUser >= 20) return; // 自发轮数封顶，等用户再开口（按次计费防跑飞）
-      if (Date.now() - (msgs[msgs.length - 1].ts || 0) >= mins * 60000) replyGroup(gid);
+      const gap = mins * 60000 * (1 + Math.random() * 0.5); // 抖动 1~1.5×，别死板每 N 分钟一次
+      if (Date.now() - (msgs[msgs.length - 1].ts || 0) >= gap) replyGroup(gid);
     }, 20000);
     return () => clearInterval(timer);
   }, [screen, activeGroup, groupSettings, sending, offlineGroup]);

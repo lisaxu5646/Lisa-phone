@@ -6812,6 +6812,8 @@ function GroupSettingsSheet({ gs, group, characters, directives, onRemoveDirecti
   const [timeSec, setTimeSec] = useState(!!gs.timeSec);
   const [showRead, setShowRead] = useState(!!gs.showRead);
   const [chatBg, setChatBg] = useState(gs.chatBg || "");
+  const [autoChat, setAutoChat] = useState(gs.autoChat !== false);
+  const [autoChatMin, setAutoChatMin] = useState(gs.autoChatMin || 3);
   const bgFileRef = useRef(null);
   const [addOpen, setAddOpen] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -6843,7 +6845,7 @@ function GroupSettingsSheet({ gs, group, characters, directives, onRemoveDirecti
   return h(Sheet, { onClose: onClose, tall: true },
     h("div", { className: "flex items-center justify-between mb-1" },
       h("span", { style: { fontFamily: F_DISPLAY, fontSize: 22, color: t.ink } }, "群聊设置"),
-      h("button", { onClick: () => { onSave({ memoryInterop: interop, privateCtxN: privN, preJoinN: preJoinN, ctxN: ctxN, sumThresh: sumThresh, sumBuffer: sumBuffer, selfP: selfP, userP: userP, describeMe: describeMe, showMyAvatar: showMyAvatar, showTime: showTime, timeSec: timeSec, showRead: showRead, chatBg: chatBg }); onClose(); } }, h(ICheck, { size: 19, color: t.ink }))),
+      h("button", { onClick: () => { onSave({ memoryInterop: interop, privateCtxN: privN, preJoinN: preJoinN, ctxN: ctxN, sumThresh: sumThresh, sumBuffer: sumBuffer, selfP: selfP, userP: userP, describeMe: describeMe, showMyAvatar: showMyAvatar, showTime: showTime, timeSec: timeSec, showRead: showRead, chatBg: chatBg, autoChat: autoChat, autoChatMin: autoChatMin }); onClose(); } }, h(ICheck, { size: 19, color: t.ink }))),
 
     // 成员管理
     h("div", { className: "pt-5" },
@@ -6868,6 +6870,8 @@ function GroupSettingsSheet({ gs, group, characters, directives, onRemoveDirecti
     interop
       ? sliderRow("带入私聊条数", "互通时，每位成员最近多少条私聊会被实时带进群聊上下文（0＝只带长期记忆）。", privN, setPrivN, 0, 30, 2, " 条")
       : sliderRow("入群前上文条数", "封闭群的前情提要：抓每位成员『入群前』和你的私聊各最近多少条当背景（0＝不带）。开了记忆互通就用不上、自动让位给实时抽取。", preJoinN, setPreJoinN, 0, 20, 1, " 条"),
+    interop && row("群里自己聊起来", "开互通后，你晾着不说话时群成员会自己顺着往下聊（不必 cue 你，互相接梗/抬杠也行）。只在你正看着这个群时；距你上次发言自发够多轮会自动歇、等你再开口。", autoChat, setAutoChat),
+    interop && autoChat && sliderRow("自发间隔", "晾多久没人说话，群里就自己接上一轮（带点随机、不死板）。", autoChatMin, setAutoChatMin, 1, 15, 1, " 分钟"),
 
     // 记忆库
     h("div", { className: "pt-7", style: { borderTop: "1px solid " + t.line, marginTop: 20 } },
