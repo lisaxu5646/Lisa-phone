@@ -29,7 +29,7 @@ create table if not exists public.memory_embeddings (
 );
 
 comment on table public.memory_embeddings is
-  'CC/MCP-side semantic vectors for public.memories. Independent of the App''s local IndexedDB vectors; App never reads or writes this table. Populated lazily by the MCP server.';
+  'Shared semantic vectors for public.memories, used by BOTH the App (authenticated, write-through from its IndexedDB cache) and the MCP server (service_role). One row per (user_id,id); model+hash let both sides reuse each other''s vectors when configured with the same embedding model. IndexedDB stays as the App''s fast local cache.';
 
 create index if not exists memory_embeddings_user_idx
   on public.memory_embeddings (user_id, id);
@@ -53,8 +53,27 @@ create trigger memories_embeddings_gc
 after update of deleted on public.memories
 for each row execute function public.memory_embeddings_gc();
 
--- 安全：只给 service_role 用（MCP 直连）。App 的 authenticated 角色完全不碰这张表。
--- service_role 自带 bypassrls，force RLS 下仍可读写；authenticated/anon 无任何授权。
+-- 安全：App（authenticated 登录态）与 MCP（service_role 直连）共用这张表、共享同一份向量。
+-- 前提：两侧配同一个 embedding 模型 —— 行里存了 model+hash，模型/正文一致时两边互认、不重算；
+-- 若模型不同则各自按 (model,hash) 判定为过期、会来回重嵌，务必保持一致。
+-- authenticated 只能读写自己 user_id 的行；service_role 自带 bypassrls 照常读写。
 alter table public.memory_embeddings enable row level security;
 alter table public.memory_embeddings force row level security;
 revoke all on table public.memory_embeddings from anon, authenticated;
+grant select, insert, update on table public.memory_embeddings to authenticated;
+
+drop policy if exists memory_embeddings_select_own on public.memory_embeddings;
+create policy memory_embeddings_select_own
+on public.memory_embeddings for select to authenticated
+using ((select auth.uid()) = user_id);
+
+drop policy if exists memory_embeddings_insert_own on public.memory_embeddings;
+create policy memory_embeddings_insert_own
+on public.memory_embeddings for insert to authenticated
+with check ((select auth.uid()) = user_id);
+
+drop policy if exists memory_embeddings_update_own on public.memory_embeddings;
+create policy memory_embeddings_update_own
+on public.memory_embeddings for update to authenticated
+using ((select auth.uid()) = user_id)
+with check ((select auth.uid()) = user_id);

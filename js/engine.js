@@ -142,21 +142,46 @@ async function ensureMemVecs(lib, opts) {
   const liveIds = new Set(list.map(e => e.id));
   for (const k of Array.from(cache.keys())) { if (!liveIds.has(k)) { cache.delete(k); idbVecDel(k); } }
   if (!todo.length) { if (opts.onProgress) opts.onProgress(0, 0); return 0; }
+  // 先问云端：CC/别的设备可能已经算好这条向量（同模型 + 同文本 hash 就直接采用，省一次 API）。
+  // memory_embeddings 是 App 与 MCP 共用的同一张表；两侧配同一个 embedding 模型时互认互不重算。
+  let remaining = todo;
+  if (typeof window !== "undefined" && window.Cloud && window.Cloud.memVecFetch) {
+    try {
+      const cloudRows = await window.Cloud.memVecFetch(todo.map(e => e.id));
+      const cmap = new Map((cloudRows || []).map(r => [r.id, r]));
+      const stillTodo = [];
+      for (const e of todo) {
+        const cr = cmap.get(e.id);
+        if (cr && cr.model === model && cr.hash === memVecHash(memEntryEmbedText(e)) && Array.isArray(cr.embedding) && cr.embedding.length) {
+          const rec = { h: cr.hash, m: model, v: Float32Array.from(cr.embedding) };
+          cache.set(e.id, rec);
+          await idbVecPut(e.id, rec);
+        } else stillTodo.push(e);
+      }
+      remaining = stillTodo;
+    } catch (e) { remaining = todo; }
+  }
+  if (!remaining.length) { if (opts.onProgress) opts.onProgress(0, 0); return 0; }
   const BATCH = 16;
   let done = 0;
-  if (opts.onProgress) opts.onProgress(0, todo.length);
-  for (let i = 0; i < todo.length; i += BATCH) {
-    const batch = todo.slice(i, i + BATCH);
+  if (opts.onProgress) opts.onProgress(0, remaining.length);
+  for (let i = 0; i < remaining.length; i += BATCH) {
+    const batch = remaining.slice(i, i + BATCH);
     const vecs = await embedTexts(batch.map(memEntryEmbedText));
     if (!vecs) return done;
+    const cloudPush = [];
     for (let j = 0; j < batch.length; j++) {
-      const rec = { h: memVecHash(memEntryEmbedText(batch[j])), m: model, v: vecs[j] };
+      const h = memVecHash(memEntryEmbedText(batch[j]));
+      const rec = { h, m: model, v: vecs[j] };
       cache.set(batch[j].id, rec);
       await idbVecPut(batch[j].id, rec);
+      cloudPush.push({ id: batch[j].id, model, hash: h, embedding: Array.from(vecs[j]) });
     }
+    // 写回云端，让 CC/别的设备共用同一份（best-effort，失败不影响本地检索）
+    try { if (typeof window !== "undefined" && window.Cloud && window.Cloud.memVecUpsert) await window.Cloud.memVecUpsert(cloudPush); } catch (e) {}
     done += batch.length;
-    if (opts.onProgress) opts.onProgress(done, todo.length);
-    if (i + BATCH < todo.length) await new Promise(res => setTimeout(res, 300));
+    if (opts.onProgress) opts.onProgress(done, remaining.length);
+    if (i + BATCH < remaining.length) await new Promise(res => setTimeout(res, 300));
   }
   return done;
 }

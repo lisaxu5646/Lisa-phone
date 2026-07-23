@@ -419,6 +419,43 @@
       }
       return all;
     },
+    // ---- 记忆向量（与 CC/MCP 共用 memory_embeddings 表，两侧同一份）----
+    // 按 id 批量取云端已存向量：返回 [{id,model,hash,dim,embedding[]}]。未登录/未就绪静默返回 []。
+    async memVecFetch(ids) {
+      if (!client) return [];
+      const user = await this.getUser().catch(() => null);
+      if (!user) return [];
+      const clean = [...new Set((ids || []).map(String).filter(Boolean))];
+      if (!clean.length) return [];
+      const out = [];
+      for (let i = 0; i < clean.length; i += 200) {
+        const chunk = clean.slice(i, i + 200);
+        const { data, error } = await client.from("memory_embeddings")
+          .select("id,model,hash,dim,embedding")
+          .eq("user_id", user.id)
+          .in("id", chunk);
+        if (error) throw error;
+        out.push(...(data || []));
+      }
+      return out;
+    },
+    // 写回向量（幂等 upsert 主键 user_id,id）。records: [{id,model,hash,embedding:number[]}]
+    async memVecUpsert(records) {
+      if (!client) return 0;
+      const user = await this.getUser().catch(() => null);
+      if (!user) return 0;
+      const rows = (records || []).filter(r => r && r.id && Array.isArray(r.embedding) && r.embedding.length).map(r => ({
+        user_id: user.id, id: String(r.id), model: String(r.model || ""),
+        hash: String(r.hash || ""), dim: r.embedding.length, embedding: r.embedding,
+        updated_at: new Date().toISOString(),
+      }));
+      if (!rows.length) return 0;
+      for (let i = 0; i < rows.length; i += 200) {
+        const { error } = await client.from("memory_embeddings").upsert(rows.slice(i, i + 200), { onConflict: "user_id,id" });
+        if (error) throw error;
+      }
+      return rows.length;
+    },
     async memoryApplyMutation(op) {
       if (!client) throw new Error("云服务未就绪");
       const user = await this.getUser();
