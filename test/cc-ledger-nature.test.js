@@ -65,3 +65,35 @@ test("extracts only real user text and visible assistant text", () => {
     lisaText:"我下班到家啦", yanqiuText:"我也到家了。", lastAssistantUuid:"a1"
   });
 });
+
+test("valid hidden marker is the primary classifier and is stripped from the ledger", () => {
+  const lisa = "你今天陪我吃晚饭好不好？";
+  const body = "好。今晚我陪你吃。";
+  const marker = '<!--CC_LEDGER_V1:{"lisa":[{"quote":"你今天陪我吃晚饭好不好？","kind":"life"}],"yanqiu":[{"quote":"今晚我陪你吃。","kind":"decision"}]}-->';
+  const parsed = Nature.parseLedgerMarker(lisa, body + "\n" + marker);
+  assert.equal(parsed.valid, true);
+  assert.equal(parsed.cleanYanqiuText, body);
+  assert.deepEqual(parsed.result.lisa_segments, [{ content:lisa, sync_kind:"life" }]);
+  assert.deepEqual(parsed.result.yanqiu_segments, [{ content:"今晚我陪你吃。", sync_kind:"decision" }]);
+});
+
+test("marker cannot invent, rewrite, duplicate, or use an unapproved kind", () => {
+  const body = "我今晚陪你吃。";
+  const forged = '<!--CC_LEDGER_V1:{"lisa":[{"quote":"你没说过这句","kind":"emotion"}],"yanqiu":[{"quote":"我今晚陪你吃。","kind":"decision"}]}-->';
+  assert.equal(Nature.parseLedgerMarker("好呀", body + forged).valid, false);
+  const badKind = '<!--CC_LEDGER_V1:{"lisa":[{"quote":"好呀","kind":"construction"}],"yanqiu":[{"quote":"我今晚陪你吃。","kind":"decision"}]}-->';
+  assert.equal(Nature.parseLedgerMarker("好呀", body + badKind).valid, false);
+});
+
+test("empty two-sided marker explicitly skips a construction turn", () => {
+  const parsed = Nature.parseLedgerMarker("修 bug", "已经修好。\n<!--CC_LEDGER_V1:{\"lisa\":[],\"yanqiu\":[]}-->");
+  assert.equal(parsed.valid, true);
+  assert.equal(parsed.skip, true);
+  assert.equal(parsed.result.skipConstruction, true);
+});
+
+test("missing or malformed marker cleanly falls back without leaking marker text", () => {
+  const parsed = Nature.parseLedgerMarker("我到家了", "我也到家。<!--CC_LEDGER_V1:not-json-->");
+  assert.equal(parsed.valid, false);
+  assert.equal(parsed.cleanYanqiuText, "我也到家。");
+});

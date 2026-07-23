@@ -5,7 +5,7 @@ import { createHash } from "crypto";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
-const { classifyTurn, extractLastTurn } = require("./cc-ledger-nature.cjs");
+const { classifyTurn, extractLastTurn, parseLedgerMarker } = require("./cc-ledger-nature.cjs");
 
 const input = await new Promise(resolve => {
   let body = "";
@@ -125,7 +125,9 @@ try {
   if (!transcriptPath || !existsSync(transcriptPath)) throw new Error("transcript missing");
   const turn = extractLastTurn(readFileSync(transcriptPath, "utf8").split("\n").filter(Boolean));
   if (!turn || !turn.sessionId || !turn.turnId) throw new Error("complete visible turn missing");
-  const result = classifyTurn(turn.lisaText, turn.yanqiuText);
+  const marker = parseLedgerMarker(turn.lisaText, turn.yanqiuText);
+  const result = marker.valid ? marker.result : classifyTurn(turn.lisaText, marker.cleanYanqiuText);
+  const decisionSource = marker.valid ? "yanqiu_marker" : "mechanical_fallback";
   const job = {
     session_id: turn.sessionId,
     turn_id: turn.turnId,
@@ -137,29 +139,35 @@ try {
   if (result.automatic) {
     try {
       await sendJob(job);
-      log(diagnosticPath, { turn_id: turn.turnId, outcome: "synced", rows: job.lisa_segments.length + job.yanqiu_segments.length });
+      log(diagnosticPath, { turn_id: turn.turnId, outcome: "synced", decision_source: decisionSource, rows: job.lisa_segments.length + job.yanqiu_segments.length });
     } catch (error) {
       const queued = readJSONL(outboxPath);
       if (!queued.some(x => x.session_id === job.session_id && x.turn_id === job.turn_id)) {
         appendFileSync(outboxPath, JSON.stringify(job) + "\n");
       }
-      log(diagnosticPath, { turn_id: turn.turnId, outcome: "queued_offline", error: String(error.message || error).slice(0, 160) });
+      log(diagnosticPath, { turn_id: turn.turnId, outcome: "queued_offline", decision_source: decisionSource, error: String(error.message || error).slice(0, 160) });
     }
   } else if (result.skipConstruction) {
-    log(diagnosticPath, { turn_id: turn.turnId, outcome: "skipped_construction" });
+    log(diagnosticPath, { turn_id: turn.turnId, outcome: marker.valid ? "skipped_by_marker" : "skipped_construction", decision_source: decisionSource });
   } else {
     const candidates = readJSONL(candidatePath);
     if (!candidates.some(x => x.session_id === turn.sessionId && x.turn_id === turn.turnId)) {
       log(candidatePath, {
         ...job,
         lisa_original: turn.lisaText.slice(0, 16000),
-        yanqiu_original: turn.yanqiuText.slice(0, 16000),
-        local_excerpted: turn.lisaText.length > 16000 || turn.yanqiuText.length > 16000,
+        yanqiu_original: marker.cleanYanqiuText.slice(0, 16000),
+        local_excerpted: turn.lisaText.length > 16000 || marker.cleanYanqiuText.length > 16000,
         reasons: result.reasons,
         status: "candidate"
       });
     }
-    log(diagnosticPath, { turn_id: turn.turnId, outcome: "candidate", reasons: result.reasons });
+    log(diagnosticPath, {
+      turn_id: turn.turnId,
+      outcome: "candidate",
+      decision_source: decisionSource,
+      marker_error: marker.present && !marker.valid ? marker.reason : undefined,
+      reasons: result.reasons
+    });
   }
 } catch (error) {
   log(diagnosticPath, { outcome: "ignored", error: String(error.message || error).slice(0, 160) });
