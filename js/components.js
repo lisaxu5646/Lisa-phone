@@ -3026,7 +3026,7 @@ function ChatThread({
     const v = input.trim();
     setInput("");
     if (chatMode === "narr") sendRich({
-      role: "user",
+      role: "narration",
       kind: "narration",
       content: v,
       read: true
@@ -3041,7 +3041,7 @@ function ChatThread({
     setInput("");
     if (chatMode === "narr") {
       if (pending) sendRich({
-        role: "user",
+        role: "narration",
         kind: "narration",
         content: pending,
         read: true
@@ -3163,9 +3163,9 @@ function ChatThread({
         color: t.fog
       }
     }, m.content));
-    if (m.kind === "narration") return h("div", {
+    if (m.kind === "narration" || m.role === "narration") return h("div", {
       key: i,
-      className: "text-center my-3 px-6"
+      className: "flex items-start justify-center gap-2 my-3 px-6"
     }, h("span", {
       style: {
         fontFamily: F_BODY,
@@ -3174,7 +3174,12 @@ function ChatThread({
         lineHeight: 1.7,
         color: t.fog
       }
-    }, m.content));
+    }, m.content), onDeleteMessages ? h("button", {
+      onClick: () => window.confirm("删除这条旁白记录？") && onDeleteMessages([i]),
+      className: "active:opacity-50 shrink-0",
+      style: { fontFamily: F_BODY, fontSize: 13, color: t.fog, opacity: 0.6, padding: "1px 2px" },
+      title: "删除旁白"
+    }, "✕") : null);
     if (m.kind === "ooc") return h("div", {
       key: i,
       className: "flex justify-end my-2 items-start gap-1.5"
@@ -6105,9 +6110,9 @@ function GroupThread({
     if (m.kind === "offlinelog") return h("div", {
       key: i, className: "my-3 mx-6"
     }, h(OfflineLogCard, { m: m, t: t }));
-    if (m.role === "narration") return h("div", {
+    if (m.role === "narration" || m.kind === "narration") return h("div", {
       key: i,
-      className: "flex justify-center py-1"
+      className: "flex justify-center items-start gap-2 py-1"
     }, h("span", {
       style: {
         fontFamily: F_BODY,
@@ -6118,7 +6123,12 @@ function GroupThread({
         maxWidth: "82%",
         lineHeight: 1.5
       }
-    }, "— " + m.content + " —"));
+    }, "— " + m.content + " —"), onDeleteMessages ? h("button", {
+      onClick: () => window.confirm("删除这条旁白记录？") && onDeleteMessages([i]),
+      className: "active:opacity-50 shrink-0",
+      style: { fontFamily: F_BODY, fontSize: 13, color: t.fog, opacity: 0.6, padding: "0 2px" },
+      title: "删除旁白"
+    }, "✕") : null);
     if (m.kind === "callend") return h(CallEndPill, { key: i, m, chars: characters });
     if (m.role === "system") return h("div", {
       key: i,
