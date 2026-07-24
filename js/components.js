@@ -5567,7 +5567,7 @@ function OffCard({ m, t, char, meProfile, members, onEdit, onReroll, onDelete, e
   return h("div", { className: "my-2.5" },
     h("div", { style: { background: t.bg2, borderRadius: 16, padding: "14px 16px", border: `1px solid ${t.line}` } },
       h("div", { className: "flex items-center gap-2.5 mb-2.5" },
-        isUser ? h(Avatar, { character: meChar, size: 28, radius: 14 }) : (spk ? (onOpenState ? h("button", { onClick: onOpenState, className: "active:opacity-60 shrink-0", title: "看 " + (spk.name || "TA") + " 的心声/状态" }, h(Avatar, { character: spk, size: 28, radius: 14 })) : h(Avatar, { character: spk, size: 28, radius: 14 })) : null),
+        isUser ? h(Avatar, { character: meChar, size: 28, radius: 14 }) : (spk ? (onOpenState ? h("button", { onClick: () => onOpenState(spk), className: "active:opacity-60 shrink-0", title: "看 " + (spk.name || "TA") + " 的心声/状态" }, h(Avatar, { character: spk, size: 28, radius: 14 })) : h(Avatar, { character: spk, size: 28, radius: 14 })) : null),
         h("span", { className: "flex-1", style: { fontFamily: F_DISPLAY, fontSize: 13.5, color: isUser ? t.accent : t.sub } }, isUser ? meChar.name : (m.senderName || (spk && spk.name) || "")),
         (!isUser && spk && offSpeech) ? h(TtsDot, { k: "off" + (m.id || ""), text: offSpeech, spk, tp }) : null,
         timeEl,
@@ -5622,11 +5622,14 @@ function GroupOfflineMode({
   onEnd,
   onClose,
   settings,
-  onSaveSettings
+  onSaveSettings,
+  onOpenMemberState
 }) {
   const t = useTheme();
   const kbLift = useKbLift(); // iOS 键盘弹起时把底部输入栏顶上来（v47.91）
   const gName = group.name;
+  // 群线下：点成员头像看心声（和线上群一样，由 app 决定开不开互通时才传 onOpenMemberState）
+  const offOpenState = onOpenMemberState ? (sp => sp && onOpenMemberState(sp.id)) : undefined;
   const os = settings || {};
   const [setOpen, setSetOpen] = useState(false);
   const [sBg, setSBg] = useState(os.bg || "");
@@ -5645,6 +5648,8 @@ function GroupOfflineMode({
   const [note, setNote] = useState("");
   const [endConfirm, setEndConfirm] = useState(false);
   const [readView, setReadView] = useState(null);
+  const [modeOpen, setModeOpen] = useState(false); // 顶栏下拉：切回线上/往期
+  const [pastOpen, setPastOpen] = useState(false); // 往期场次选择
   const [customStyles, setCustomStyles] = useState(() => loadJSON("x_offlineStyles", []));
   const [styleSheet, setStyleSheet] = useState(false);
   const [custOpen, setCustOpen] = useState(false);
@@ -5744,7 +5749,7 @@ function GroupOfflineMode({
           h("div", { style: { fontFamily: F_BODY, fontSize: 10.5, letterSpacing: 1, color: t.fog, marginBottom: 6 } }, "当时的短期导演便签"),
           (readView.customNotes || []).map((n, i) => h("div", { key: (n && n.id) || i, style: { fontFamily: F_BODY, fontSize: 12.5, lineHeight: 1.65, color: t.sub, marginTop: i ? 5 : 0 } }, "· " + (typeof n === "string" ? n : n.text))),
         ),
-        (readView.msgs || []).map((m, i) => h(OffCard, { key: m.id || i, m: m, t: t, members: members, meProfile: profile, editable: false }))));
+        (readView.msgs || []).map((m, i) => h(OffCard, { key: m.id || i, m: m, t: t, members: members, meProfile: profile, editable: false, onOpenState: offOpenState }))));
   }
 
   // ---- setup ----
@@ -5842,17 +5847,27 @@ function GroupOfflineMode({
   return h("div", { className: "absolute inset-0 z-20 flex flex-col", style: os.bg ? { backgroundImage: "url(\"" + resolveImg(os.bg) + "\")", backgroundSize: "cover", backgroundPosition: "center", backgroundRepeat: "no-repeat", paddingTop: "env(safe-area-inset-top)" } : { background: t.bg, paddingTop: "env(safe-area-inset-top)" } },
     h("div", { className: "flex items-center gap-3 px-4 py-3 shrink-0", style: { borderBottom: `1px solid ${t.line}`, background: os.bg ? "rgba(255,255,255,0.5)" : t.bg2, backdropFilter: os.bg ? "blur(8px)" : "none", WebkitBackdropFilter: os.bg ? "blur(8px)" : "none" } },
       h("button", { onClick: onClose, className: "active:opacity-50 flex items-center gap-1" }, h(IArrow, { size: 20, color: t.ink }), h("span", { style: { fontFamily: F_BODY, fontSize: 13, color: t.ink } }, "离开")),
-      h("div", { className: "flex-1 text-center" },
-        h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, gName),
-        h("div", { style: { fontFamily: F_BODY, fontSize: 10, letterSpacing: 1, color: t.fog } }, "OFFLINE · 多人线下")),
+      h("button", { onClick: () => setModeOpen(true), className: "flex-1 text-center active:opacity-60" },
+        h("div", { style: { fontFamily: F_DISPLAY, fontSize: 16, color: t.ink } }, gName + " ⌄"),
+        h("div", { style: { fontFamily: F_BODY, fontSize: 10, letterSpacing: 1, color: t.fog } }, "OFFLINE · 多人线下 · 轻触切换")),
       h("button", { onClick: () => setNoteOpen(true), className: "active:opacity-50", title: "给他们一个提示" }, h(IPlus, { size: 20, color: t.fog })),
       onSaveSettings && h("button", { onClick: () => setSetOpen(true), className: "active:opacity-50", title: "线下设置" }, h(GConfig, { size: 19, color: t.fog })),
       h("button", { onClick: () => setEndConfirm(true), className: "active:opacity-60 px-2 py-1", style: { fontFamily: F_BODY, fontSize: 12, color: t.accent } }, "结束")),
     gBgSheet,
+    modeOpen && sheet("切换", h("div", { className: "space-y-1" },
+      h("button", { onClick: () => { setModeOpen(false); onClose(); }, className: "w-full text-left py-3 px-2 active:opacity-60", style: { fontFamily: F_BODY, fontSize: 14.5, color: t.ink } }, "💬 群聊（回到线上群）"),
+      h("div", { className: "w-full py-3 px-2", style: { fontFamily: F_BODY, fontSize: 14.5, color: t.tint, background: t.bg, borderRadius: 10 } }, "🎬 多人线下（当前）✓"),
+      h("button", { onClick: () => { setModeOpen(false); setPastOpen(true); }, className: "w-full text-left py-3 px-2 active:opacity-60", style: { fontFamily: F_BODY, fontSize: 14.5, color: t.ink } }, "🗂 往期线下记录"))),
+    pastOpen && sheet("往期线下记录", h("div", { className: "space-y-2", style: { maxHeight: "52vh", overflowY: "auto" } },
+      (sessions || []).filter(s => s.endTs).length === 0
+        ? h("div", { style: { fontFamily: F_BODY, fontSize: 13, color: t.fog, textAlign: "center", padding: "24px 0" } }, "还没有已结束的线下记录。")
+        : (sessions || []).filter(s => s.endTs).sort((a, b) => (b.startTs || 0) - (a.startTs || 0)).map(s => h("button", { key: s.id, onClick: () => { setPastOpen(false); setReadView(s); }, className: "w-full text-left active:opacity-70", style: { padding: "12px 13px", borderRadius: 12, background: t.bg2, border: "1px solid " + t.line, display: "block" } },
+            h("div", { style: { fontFamily: F_DISPLAY, fontSize: 13.5, color: t.ink } }, (s.startTs ? new Date(s.startTs).toLocaleDateString() : "线下记录")),
+            h("div", { style: { fontFamily: F_BODY, fontSize: 11.5, color: t.fog, marginTop: 3, lineHeight: 1.5 } }, String(s.summary || (s.msgs && s.msgs.length ? s.msgs.length + " 段" : "")).replace(/\s+/g, " ").slice(0, 60) || "点开回看"))))),
     directorNotes,
     h("div", { ref: scroller, className: "flex-1 overflow-y-auto px-4 py-3" },
       msgs.length === 0 && !sending && h("div", { className: "text-center mt-10", style: { fontFamily: F_BODY, fontSize: 12.5, color: t.fog } }, "场景已布置好，说点什么或让他们先开口。"),
-      msgs.map((m, i) => h(OffCard, { key: m.id || i, m: m, t: t, members: members, meProfile: profile, editable: true, sending: sending, onEdit: onEditMsg, onReroll: onRerollMsg, onDelete: onDelMsg })),
+      msgs.map((m, i) => h(OffCard, { key: m.id || i, m: m, t: t, members: members, meProfile: profile, editable: true, sending: sending, onEdit: onEditMsg, onReroll: onRerollMsg, onDelete: onDelMsg, onOpenState: offOpenState })),
       sending && h("div", { className: "flex gap-1 mt-3 justify-center" }, [0, 1, 2].map(i => h("span", { key: i, className: "w-1.5 h-1.5 rounded-full animate-pulse", style: { background: t.fog, animationDelay: i * 0.15 + "s" } })))),
     h("div", { className: "flex items-center gap-2 px-3 py-2 shrink-0", style: { background: t.bg2, borderTop: `1px solid ${t.line}`, paddingBottom: "calc(env(safe-area-inset-bottom) * 0.4 + 4px)", marginBottom: kbLift, transition: "margin-bottom .18s ease" } },
       onOOC && h("button", { onClick: () => setOocMode(v => !v), title: "OOC · 越过角色直接和模型说", className: "active:opacity-60 shrink-0", style: { fontFamily: F_BODY, fontSize: 11, letterSpacing: 0.5, padding: "6px 9px", borderRadius: 999, border: "1px solid " + (oocMode ? t.accent : t.line), color: oocMode ? t.accent : t.fog, background: oocMode ? "rgba(194,90,74,0.08)" : "transparent" } }, "OOC"),

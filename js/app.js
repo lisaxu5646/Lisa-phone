@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.60";
+const APP_VERSION = "v50.62";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -9342,7 +9342,9 @@ function App() {
     onEnd: () => endGroupOffline(offlineGroup.id),
     onClose: () => setOfflineGroup(null),
     settings: osFor("g_" + offlineGroup.id),
-    onSaveSettings: patch => saveOfflineSettings("g_" + offlineGroup.id, patch)
+    onSaveSettings: patch => saveOfflineSettings("g_" + offlineGroup.id, patch),
+    // 群线下点头像看心声：和线上群一样，只有开了互通(states 才共享/会变)才可点
+    onOpenMemberState: gsFor(offlineGroup.id).memoryInterop ? (memberId => { const c = characters.find(x => x.id === memberId); if (c) { setStateCardChar(c); setStateCardGroup(true); setStateCardOpen(true); } }) : undefined
   }), /*#__PURE__*/React.createElement(Toast, {
     msg: toastMsg
   })));
