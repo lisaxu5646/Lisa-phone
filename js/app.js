@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.54";
+const APP_VERSION = "v50.55";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -826,7 +826,19 @@ function App() {
   // 本体执笔·便宜池版（v48.37）：设了专线的角色（如小克接 fable）用专线亲笔写；没设专线的【照旧走便宜后台池】不涨成本。
   // 专用于原本走 bgActive 的「本体文本」（欲望盒子全链）——把灵魂级落笔从 flash 代笔还给本人，其余角色零变化。
   const bgApiFor = id => { const s = chatSettings[id] || {}; return (s.apiId && apiProfiles.find(p => p.id === s.apiId)) || bgActive; };
-  const unreadTotal = Object.values(unreadMap).reduce((a, b) => a + b, 0);
+  // 只算【还存在的角色/群】的未读——防幽灵红点（未读挂在已删角色/群等列表里看不到的 key 上，加进总数却清不掉，她 2026-07-23 报）
+  const unreadTotal = Object.entries(unreadMap).reduce((a, kv) => a + ((characters.some(c => c.id === kv[0]) || groups.some(g => g.id === kv[0])) ? (kv[1] || 0) : 0), 0);
+  // 顺手把孤儿未读 key 从存档里清掉（角色/群删了但未读残留），让幽灵红点彻底消失
+  useEffect(() => {
+    if (!loaded) return;
+    const valid = new Set([...characters.map(c => c.id), ...groups.map(g => g.id)]);
+    setUnreadMap(p => {
+      const orphans = Object.keys(p).filter(id => (p[id] || 0) > 0 && !valid.has(id));
+      if (!orphans.length) return p;
+      const n = { ...p }; orphans.forEach(id => { delete n[id]; });
+      saveJSON("x_unread", n); return n;
+    });
+  }, [loaded, characters.length, groups.length]);
   const pC = u => setCharacters(p => {
     const n = typeof u === "function" ? u(p) : u;
     saveJSON("x_characters", n);
