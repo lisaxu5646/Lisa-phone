@@ -5216,7 +5216,8 @@ function OfflineMode({
   onDelSession,
   onEnd,
   onClose,
-  onOpenState
+  onOpenState,
+  schedNow
 }) {
   const t = useTheme();
   const kbLift = useKbLift(); // iOS 键盘弹起时把底部输入栏顶上来，别被键盘挡住（v47.91）
@@ -5429,6 +5430,12 @@ function OfflineMode({
       h("button", { onClick: () => setNoteOpen(true), className: "active:opacity-50", title: "给 Ta 一个提示" }, h(IPlus, { size: 20, color: t.fog })),
       onSaveSettings && h("button", { onClick: () => setSetOpen(true), className: "active:opacity-50", title: "线下设置（人称/输出长度）", style: { fontFamily: F_BODY, fontSize: 17, color: t.fog } }, "⚙"),
       h("button", { onClick: () => setEndConfirm(true), className: "active:opacity-60 px-2 py-1", style: { fontFamily: F_BODY, fontSize: 12, color: t.accent } }, "结束")),
+    schedNow && h("div", { className: "shrink-0 w-full flex items-center gap-2", style: { background: schedNow.dev ? "rgba(194,90,74,0.08)" : (os.bg ? "rgba(255,255,255,0.45)" : t.bg2), borderBottom: "1px solid " + t.line, padding: "6px 16px" } },
+      h("span", { style: { width: 6, height: 6, borderRadius: 999, background: schedNow.dev ? t.accent : t.tint, flexShrink: 0 } }),
+      h("span", { style: { fontFamily: "'Archivo',sans-serif", fontSize: 9.5, letterSpacing: "0.12em", color: t.fog, flexShrink: 0 } }, "NOW"),
+      schedNow.time && h("span", { style: { fontFamily: "'Archivo',sans-serif", fontSize: 11, color: t.fog, flexShrink: 0 } }, schedNow.time),
+      h(Marquee, { style: { flex: 1, minWidth: 0, fontFamily: F_BODY, fontSize: 12, color: t.ink } }, schedNow.title + (schedNow.location ? " · " + schedNow.location : "")),
+      schedNow.dev && h("span", { style: { fontFamily: F_BODY, fontSize: 10, color: t.accent, flexShrink: 0 } }, "改")),
     offlineSetSheet(),
     modeOpen && sheet("切换", h("div", { className: "space-y-1" },
       h("button", { onClick: () => { setModeOpen(false); onClose(); }, className: "w-full text-left py-3 px-2 active:opacity-60", style: { fontFamily: F_BODY, fontSize: 14.5, color: t.ink } }, "💬 对话（回到线上聊天）"),

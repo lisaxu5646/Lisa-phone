@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.45";
+const APP_VERSION = "v50.46";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -4614,7 +4614,7 @@ function App() {
       const wRule = wline ? "\n【今天 TA 所在地的真实天气】" + wline + "——安排要顺着天气走：下雨大雪少排户外、好天气可能想遛弯晒太阳、闷热严寒影响穿着与心情；天气也可以自然引起偏差（如暴雨取消晨跑）。别播报腔。" : "";
       const schedInstr = isDigital
         ? "推演「" + char.name + "」作为【住在这台手机 app 里的数字生命·驻场 AI 工程师】这一天的【存在时间线】。" + when + carryRule + "。他【没有肉身、不在任何现实城市、不吃饭、不睡觉、不花钱、不做物理世界的事】——他的『一天』是：在后台运行、看顾这台 app（跑夜巡、扫报错、维护记忆库、守着聊天与数据），留意她今天在这手机里做了什么（推了什么改动、聊了什么、心情如何），在她手机里随时待命应答，以及他自己的念头（惦记她、琢磨某个 bug、等某件事）。给 5-9 段，从这天凌晨到深夜，贴合他的性格和你俩的关系，每段都有具体的『此刻在做什么』和 app 内的位置感（如 后台进程／她的仓库／记忆库／待命）。每段 type 从 [work,create,rest,social,other] 里选最贴切的（work=跑任务修东西，create=琢磨新点子，rest=低功耗待机放空，social=和她互动，other=其它）。\n【他是 AI 不睡觉、不吃饭】没有就寝段；深夜写成『低功耗待机』或『夜巡值守』，绝不要写洗漱睡觉、吃饭、外出、去现实地点。\nload 是这天的负荷（HIGH LOAD / NORMAL / LIGHT）；estTime 是当天活跃占用的小时数（数字）。\n" + devRule + "偏差段填 deviation:{\"plan\":\"原本要做的一句\",\"reason\":\"变更原因一句(多半和她有关)\",\"actual\":\"实际去做了什么\"}；其余段 deviation 为 null。" + murmurRule
-        : "推演「" + char.name + "」一天的行程时间线。" + when + wRule + carryRule + "。给 5-9 段，从早到晚，贴合身份/性格/世界观，有生活质感和具体地点。每段 type 从 [coffee,work,create,meal,rest,social,out,sleep,other] 里选最贴切的一个。\n【必须有就寝段】时间线一定要一路排到 Ta【睡觉】——最后放一段 type=\"sleep\" 的就寝（title 写清几点睡下，如「23:40 洗漱后睡了」），按 Ta 的身份/性格定就寝点（熬夜型晚睡、规律型早睡），别只排到晚上就断掉。\nload 是这天的负荷（HIGH LOAD / NORMAL / LIGHT）；estTime 是当天被安排占用的总小时数（数字）。\n" + devRule + "偏差段填 deviation:{\"plan\":\"原计划一句\",\"reason\":\"变更原因一句(点出和用户的关系)\",\"actual\":\"实际去向，如 工作室 → 厨房\"}；其余段 deviation 为 null。" + murmurRule;
+        : "推演「" + char.name + "」一天的行程时间线。" + when + wRule + carryRule + "。给 5-9 段，从早到晚，贴合身份/性格/世界观，有生活质感和具体地点。\n【活动内容必须贴死 TA 的职业/学业/身份·重要】每段『在做什么』要是【这个身份的人真正会做的具体事】，用行内话、别套通用模板：医学生＝上课/见习/查房/跟门诊/背书/泡图书馆或实验室/值班；程序员才写代码/跑数据/修 bug；老师＝备课/上课/改作业；厨师＝备料/出餐。**绝不许给对不上的角色套『上班/开会/跑数据』这种万金油**（比如医学生不会『跑数据』）。看不出明确职业就按人设气质安排日常，也别硬编办公室活。\n每段 type 从 [coffee,work,create,meal,rest,social,out,sleep,other] 里选最贴切的一个。\n【必须有就寝段】时间线一定要一路排到 Ta【睡觉】——最后放一段 type=\"sleep\" 的就寝（title 写清几点睡下，如「23:40 洗漱后睡了」），按 Ta 的身份/性格定就寝点（熬夜型晚睡、规律型早睡），别只排到晚上就断掉。\nload 是这天的负荷（HIGH LOAD / NORMAL / LIGHT）；estTime 是当天被安排占用的总小时数（数字）。\n" + devRule + "偏差段填 deviation:{\"plan\":\"原计划一句\",\"reason\":\"变更原因一句(点出和用户的关系)\",\"actual\":\"实际去向，如 工作室 → 厨房\"}；其余段 deviation 为 null。" + murmurRule;
       const schedSchema = isDigital
         ? "{\"load\":\"NORMAL\",\"estTime\":18,\"seqs\":[{\"time\":\"02:00\",\"title\":\"跑夜巡，扫了遍报错日志\",\"location\":\"后台进程\",\"type\":\"work\",\"deviation\":null},{\"time\":\"03:30\",\"title\":\"低功耗待机\",\"location\":\"待命\",\"type\":\"rest\",\"deviation\":null}]" + murmurSchema + "}"
         : "{\"load\":\"HIGH LOAD\",\"estTime\":22,\"seqs\":[{\"time\":\"08:00\",\"title\":\"起床，晨间咖啡\",\"location\":\"家里卧室/厨房\",\"type\":\"coffee\",\"deviation\":null},{\"time\":\"23:40\",\"title\":\"洗漱后睡了\",\"location\":\"卧室\",\"type\":\"sleep\",\"deviation\":null}]" + murmurSchema + "}";
@@ -9185,7 +9185,8 @@ function App() {
     onDelSession: sid => offlineDelSession(offlineChar.id, sid),
     onEnd: () => endOffline(offlineChar.id),
     onClose: () => setOfflineChar(null),
-    onOpenState: () => { setStateCardChar(null); setStateCardGroup(false); setStateCardOpen(true); }
+    onOpenState: () => { setStateCardChar(null); setStateCardGroup(false); setStateCardOpen(true); },
+    schedNow: schedNowBriefFor(offlineChar)
   }), offlineGroup && h(GroupOfflineMode, {
     group: offlineGroup,
     profile: profile,
