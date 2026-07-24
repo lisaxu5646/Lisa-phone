@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.48";
+const APP_VERSION = "v50.49";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2155,9 +2155,11 @@ function App() {
       if (Date.now() - (msgs[msgs.length - 1].ts || 0) < gap) return;
       // ⭐人格/欲望驱动起聊（她 2026-07-23：角色根据人格盒子突然想聊）：载了 jiwen 的成员里得有人此刻「想联系/想聊」
       //   (jiwen contact 触发)才起一段——不是干等计时。没有任何成员载 jiwen，就退回纯闲置触发（保证没配 jiwen 的群也自发）。
-      const gm = (activeGroup.memberIds || []).map(id => characters.find(c => c.id === id)).filter(Boolean);
-      // 有成员此刻正和用户在【线下面对面】进行中 → 别让群自发把 TA 拽到群里分身两处（她 2026-07-23 报：顾朝正线下购物，群里却"煮了鸡汤"）
-      if (gm.some(c => (offlinesRef.current[c.id] || []).some(s => s && !s.endTs && Date.now() - (s.startTs || 0) < 8 * 3600000))) return;
+      const gmAll = (activeGroup.memberIds || []).map(id => characters.find(c => c.id === id)).filter(Boolean);
+      // 正和用户线下面对面进行中的成员算「忙」——群自发只让【没忙线下】的成员聊（她 2026-07-23 更正：你和A线下、B没线下，群里该让B照发，只是别拽A分身）。
+      // 全员都在忙线下时才整个跳过（没人能聊）。忙的成员由 replyGroup 的 gBusyHint 排除、别分身。
+      const gm = gmAll.filter(c => !(offlinesRef.current[c.id] || []).some(s => s && !s.endTs && Date.now() - (s.startTs || 0) < 8 * 3600000));
+      if (!gm.length) return;
       let anyJiwen = false; const urgeChars = [];
       gm.forEach(c => { const jw = typeof window !== "undefined" && window.__jiwen && window.__jiwen[c.id]; if (jw) { anyJiwen = true; if (jw.triggers && jw.triggers.some(tr => tr.action === "contact")) urgeChars.push(c); } });
       if (anyJiwen && !urgeChars.length) return; // 有 jiwen 但此刻没人动念 → 不硬起，等谁真想聊
@@ -3904,7 +3906,7 @@ function App() {
       // 自发轮：这一轮条数上限 = 剩余总预算（50-已发x，跨轮递减），不超过自然上限
       if (rgOpts.auto && rgOpts.msgBudget) nMax = Math.max(1, Math.min(nMax, rgOpts.msgBudget));
       const nMin = Math.min(Math.min(3, members.length), nMax);
-      const common = "\n\n【很重要】角色不是轮流回答用户的话，而是会顺着彼此刚说的话发散、接梗、跑题、互相调侃或反驳，像真实群聊那样你一言我一语。不是每人每轮都要说话，按情境选合适的人发言，一次产出 " + nMin + "~" + nMax + " 条；现在群里在场 " + members.length + " 人，人多就多聊几个来回、让在场的人都有戏，别三两句就收场。";
+      const common = "\n\n【很重要】角色不是轮流回答用户的话，而是会顺着彼此刚说的话发散、接梗、跑题、互相调侃或反驳，像真实群聊那样你一言我一语。不是每人每轮都要说话，按情境选合适的人发言，一次产出 " + nMin + "~" + nMax + " 条；现在群里在场 " + members.length + " 人，人多就多聊几个来回、让在场的人都有戏，别三两句就收场。\n【对话连贯·别否认自己说过的话】每个成员都要认清【自己在上文里说过什么、提过什么要求】——别把自己说过的话当成别人凭空冒出来的，更别反问『什么X？』装不知道（那是自己说的）；用户或别的成员顺着你上一句接话时，先认账、别打自己脸。";
       const gEmotes = emotesForGroup(group.memberIds);
       const gEmoteHint = gEmotes.length ? "\n【表情包】每个成员各自延续已经形成的聊天习惯：本来爱发的人可以常发或兴头上连发，本来很少发或从不发的人不要因为列表可用、也不要模仿别的成员或历史表情突然开始发；不存在全群统一频率。可用关键词：" + gEmotes.map(e => e.keyword).join(" / ") + "。要发就在该成员那条发言对象里加 emote 字段填一个关键词（与列出的完全一致），否则省略。" : "";
       // 群自拍：只有配了图像API且成员填了外貌/参考照才开放（按需注入，平时零 token）

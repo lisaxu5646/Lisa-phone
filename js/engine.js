@@ -766,6 +766,7 @@ function buildBundle(ctx, opts) {
   if (ctx.memoNote && ctx.memoNote.trim()) parts.push("【" + uName + " 备忘录里、特意让你能看到的提醒/记事】（可自然关心、临近时提醒一句、或问起弄了没，别生硬报清单、别越界、别每句都念）\n" + ctx.memoNote.trim());
   if (ctx.financeNote && ctx.financeNote.trim()) parts.push("【" + uName + " 允许你看到的记账动态】（这是 " + uName + " 真实的个人开销与收入，Ta 特意让你能看到。可按你的人设自然反应——心疼 Ta 乱花、调侃、陪 Ta 心疼氪金、或体贴地不点破；别报流水账、别说教、别越界。这钱是 " + uName + " 自己的、与你无关，只是让你知道并能有反应）\n" + ctx.financeNote.trim());
   if (recentChat && recentChat.trim()) parts.push("【最近对话】\n" + recentChat.trim());
+  if (!(opts && opts.ooc) && recentChat && recentChat.trim()) parts.push("【对话连贯·别否认自己说过的话】" + (profile && profile.name || "用户") + " 这一句多半是【顺着你自己上一句、或你俩最近聊的】接下来的。回应前先认清【你自己刚说过什么、提过什么要求或建议】——绝不许把你自己说过的话/提过的要求当成对方凭空冒出来的，更别反问『什么X？』『我什么时候说的』来装不知道（那多半是你自己刚说的）。真记不清就顺着圆过去，别当场否认、打自己脸。");
   // 珊瑚岛 Experience Gate shadow：只看每块的标题/来源类别/长度和真假宣称风险，原 bundle 一个字不改。
   try { window.ExperienceGateShadow && window.ExperienceGateShadow.observeBundle({ charId: char && char.id, parts }); } catch (e) {}
   // Persona Hub 统一候选预算 shadow：复用同一份 parts 只量大小，不裁剪、不新增模型请求。
