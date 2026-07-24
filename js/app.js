@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.42";
+const APP_VERSION = "v50.43";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2131,7 +2131,8 @@ function App() {
   }, [screen, activeChar, chatSettings, sending, offlineChar]);
   // ---- 群聊自发（她 2026-07-23）：开了「记忆互通」的群，正看着它且闲置到间隔，成员自己顺着往下聊——
   //   不必 cue 你、互相接话/抬杠也行。replyGroup 空输入本就会自发续聊（喂「请群成员顺着上面的对话自然继续聊」）。
-  //   防跑飞：距最后一条【你发的】消息后自发太多轮(≥20)就歇着、等你再开口；只在前台看着这个群时跑，不烧后台。
+  //   防跑飞：自主生成到「自发轮数上限」(gs.autoChatRounds，拉条)就歇；你发消息 或 按黑色回复键 重置轮数。只前台跑。
+  const autoChatRoundsRef = useRef({}); // 每群：距上次你开口/按回复键以来，已自主生成了几轮
   useEffect(() => {
     if (screen !== "gthread" || !activeGroup) return;
     const gs = gsFor(activeGroup.id);
@@ -2143,10 +2144,11 @@ function App() {
       if (offlineGroup && offlineGroup.id === gid) return;
       const msgs = (groupChatsRef.current[gid] || []).filter(m => m && !m.recalled && m.kind !== "ooc" && m.kind !== "system");
       if (!msgs.length) return;
-      let sinceUser = 0; for (let i = msgs.length - 1; i >= 0; i--) { if (msgs[i].role === "user") break; sinceUser++; }
-      if (sinceUser >= 20) return; // 自发轮数封顶，等用户再开口（按次计费防跑飞）
+      if (msgs[msgs.length - 1].role === "user") autoChatRoundsRef.current[gid] = 0; // 你刚发过话 → 重置自主轮数
+      const rounds = autoChatRoundsRef.current[gid] || 0;
+      if (rounds >= Math.max(1, gs.autoChatRounds || 5)) return; // 到自发轮数上限就歇，等你发消息/按回复键重置
       const gap = mins * 60000 * (1 + Math.random() * 0.5); // 抖动 1~1.5×，别死板每 N 分钟一次
-      if (Date.now() - (msgs[msgs.length - 1].ts || 0) >= gap) replyGroup(gid);
+      if (Date.now() - (msgs[msgs.length - 1].ts || 0) >= gap) { autoChatRoundsRef.current[gid] = rounds + 1; replyGroup(gid, { auto: true }); }
     }, 20000);
     return () => clearInterval(timer);
   }, [screen, activeGroup, groupSettings, sending, offlineGroup]);
@@ -3813,8 +3815,9 @@ function App() {
     }]);
   };
   // 让群成员基于当前全部记录回应一次（不新增我的输入）
-  const replyGroup = async groupId => {
+  const replyGroup = async (groupId, rgOpts = {}) => {
     if (laneBusy("g:" + groupId)) return;
+    if (!rgOpts.auto) autoChatRoundsRef.current[groupId] = 0; // 你按黑色回复键/让他们继续 = 重置自主轮数，给一段新预算
     const group = groups.find(g => g.id === groupId);
     const members = group.memberIds.map(id => characters.find(c => c.id === id)).filter(Boolean);
     const gs = gsFor(groupId);
@@ -3879,8 +3882,11 @@ function App() {
       let dir;
       if (asPrivate) dir = "这是「" + members[0].name + "」和「" + members[1].name + "」之间的私下对话（不是群聊，他们也不知道有任何外人在旁观）。用户以【旁白】推动场景。让两人自然地你来我往、多轮对话。";else if (gs.spectate) dir = "这是一个群聊，成员们并不知道有任何外人在旁观。用户以【旁白】推动剧情。让成员们围绕旁白与彼此的关系自然互动。";else dir = "你在导演一个群聊，用户也是群里的一员。";
       // 一轮的条数随人数放宽：人少几条就够，人多（拉了一堆人）要多聊几个来回、别草草收场
-      const nMin = Math.min(3, members.length);
-      const nMax = Math.min(14, Math.max(5, members.length * 2));
+      const _gsAuto = gsFor(groupId);
+      let nMax = Math.min(14, Math.max(5, members.length * 2));
+      // 自发轮：用群设置里「每轮最多条」拉条封顶（她要放宽/收紧一轮总条数）
+      if (rgOpts.auto && _gsAuto.autoChatMaxMsg) nMax = Math.max(1, _gsAuto.autoChatMaxMsg);
+      const nMin = Math.min(Math.min(3, members.length), nMax);
       const common = "\n\n【很重要】角色不是轮流回答用户的话，而是会顺着彼此刚说的话发散、接梗、跑题、互相调侃或反驳，像真实群聊那样你一言我一语。不是每人每轮都要说话，按情境选合适的人发言，一次产出 " + nMin + "~" + nMax + " 条；现在群里在场 " + members.length + " 人，人多就多聊几个来回、让在场的人都有戏，别三两句就收场。";
       const gEmotes = emotesForGroup(group.memberIds);
       const gEmoteHint = gEmotes.length ? "\n【表情包】每个成员各自延续已经形成的聊天习惯：本来爱发的人可以常发或兴头上连发，本来很少发或从不发的人不要因为列表可用、也不要模仿别的成员或历史表情突然开始发；不存在全群统一频率。可用关键词：" + gEmotes.map(e => e.keyword).join(" / ") + "。要发就在该成员那条发言对象里加 emote 字段填一个关键词（与列出的完全一致），否则省略。" : "";

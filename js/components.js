@@ -2832,6 +2832,16 @@ function VoiceEarComposer({ onSend, onClose, senderName, ownerKey, toast }) {
 }
 
 // ---- chat thread (single) ----
+// 线下经过卡：默认显示短总结（当分隔），点「看完整经过」展开逐条 transcript。
+// 澄清她的疑问：卡片短≠细节丢——喂给模型的一直是完整 transcript（app.js 注入），这里只是让她也能翻看。
+function OfflineLogCard({ m, t, sel }) {
+  const [open, setOpen] = useState(false);
+  return h("div", { style: { fontFamily: F_BODY, fontSize: 12.5, lineHeight: 1.7, color: t.sub, background: t.bg2, border: "1px dashed " + t.line, borderRadius: 12, padding: "10px 13px", whiteSpace: "pre-wrap", outline: sel ? `2px solid ${t.tint}` : "none", outlineOffset: 2 } },
+    h("div", { style: { fontFamily: "'Archivo',sans-serif", fontSize: 9, letterSpacing: "0.18em", color: t.fog, marginBottom: 5 } }, "线下经过 · OFFLINE"),
+    m.content,
+    m.transcript ? h("button", { onClick: e => { e.stopPropagation(); setOpen(o => !o); }, className: "active:opacity-60", style: { display: "block", marginTop: 8, fontFamily: F_BODY, fontSize: 11, color: t.tint } }, open ? "▾ 收起完整经过" : "▸ 看完整经过（" + Math.round(String(m.transcript).length / 100) / 10 + "k 字）") : null,
+    (open && m.transcript) ? h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px dashed " + t.line, fontSize: 12, color: t.fog, whiteSpace: "pre-wrap", lineHeight: 1.75 } }, m.transcript) : null);
+}
 function ChatThread({
   character,
   characters,
@@ -3192,16 +3202,7 @@ function ChatThread({
       onMouseDown: selMode ? undefined : () => startPress(i), onMouseUp: endPress, onMouseLeave: endPress,
       onClick: selMode ? () => toggleSel(i) : undefined,
       className: "my-4 mx-6"
-    }, h("div", {
-      style: {
-        fontFamily: F_BODY, fontSize: 12.5, lineHeight: 1.7, color: t.sub,
-        background: t.bg2, border: "1px dashed " + t.line, borderRadius: 12,
-        padding: "10px 13px", whiteSpace: "pre-wrap",
-        outline: selMode && selIds.includes(i) ? `2px solid ${t.tint}` : "none", outlineOffset: 2
-      }
-    }, h("div", {
-      style: { fontFamily: "'Archivo',sans-serif", fontSize: 9, letterSpacing: "0.18em", color: t.fog, marginBottom: 5 }
-    }, "线下经过 · OFFLINE"), m.content));
+    }, h(OfflineLogCard, { m: m, t: t, sel: selMode && selIds.includes(i) }));
     if (m.kind === "system") return h("div", {
       key: i,
       className: "text-center my-4 px-6"
@@ -6096,15 +6097,7 @@ function GroupThread({
     }, "OOC · " + m.content));
     if (m.kind === "offlinelog") return h("div", {
       key: i, className: "my-3 mx-6"
-    }, h("div", {
-      style: {
-        fontFamily: F_BODY, fontSize: 12.5, lineHeight: 1.7, color: t.sub,
-        background: t.bg2, border: "1px dashed " + t.line, borderRadius: 12,
-        padding: "10px 13px", whiteSpace: "pre-wrap"
-      }
-    }, h("div", {
-      style: { fontFamily: "'Archivo',sans-serif", fontSize: 9, letterSpacing: "0.18em", color: t.fog, marginBottom: 5 }
-    }, "线下经过 · OFFLINE"), m.content));
+    }, h(OfflineLogCard, { m: m, t: t }));
     if (m.role === "narration") return h("div", {
       key: i,
       className: "flex justify-center py-1"
@@ -6827,6 +6820,8 @@ function GroupSettingsSheet({ gs, group, characters, directives, onRemoveDirecti
   const [chatBg, setChatBg] = useState(gs.chatBg || "");
   const [autoChat, setAutoChat] = useState(gs.autoChat !== false);
   const [autoChatMin, setAutoChatMin] = useState(gs.autoChatMin || 3);
+  const [autoChatRounds, setAutoChatRounds] = useState(gs.autoChatRounds || 5);
+  const [autoChatMaxMsg, setAutoChatMaxMsg] = useState(gs.autoChatMaxMsg || 0);
   const bgFileRef = useRef(null);
   const [addOpen, setAddOpen] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -6858,7 +6853,7 @@ function GroupSettingsSheet({ gs, group, characters, directives, onRemoveDirecti
   return h(Sheet, { onClose: onClose, tall: true },
     h("div", { className: "flex items-center justify-between mb-1" },
       h("span", { style: { fontFamily: F_DISPLAY, fontSize: 22, color: t.ink } }, "群聊设置"),
-      h("button", { onClick: () => { onSave({ memoryInterop: interop, privateCtxN: privN, preJoinN: preJoinN, ctxN: ctxN, sumThresh: sumThresh, sumBuffer: sumBuffer, selfP: selfP, userP: userP, describeMe: describeMe, showMyAvatar: showMyAvatar, showTime: showTime, timeSec: timeSec, showRead: showRead, chatBg: chatBg, autoChat: autoChat, autoChatMin: autoChatMin }); onClose(); } }, h(ICheck, { size: 19, color: t.ink }))),
+      h("button", { onClick: () => { onSave({ memoryInterop: interop, privateCtxN: privN, preJoinN: preJoinN, ctxN: ctxN, sumThresh: sumThresh, sumBuffer: sumBuffer, selfP: selfP, userP: userP, describeMe: describeMe, showMyAvatar: showMyAvatar, showTime: showTime, timeSec: timeSec, showRead: showRead, chatBg: chatBg, autoChat: autoChat, autoChatMin: autoChatMin, autoChatRounds: autoChatRounds, autoChatMaxMsg: autoChatMaxMsg }); onClose(); } }, h(ICheck, { size: 19, color: t.ink }))),
 
     // 成员管理
     h("div", { className: "pt-5" },
@@ -6885,6 +6880,8 @@ function GroupSettingsSheet({ gs, group, characters, directives, onRemoveDirecti
       : sliderRow("入群前上文条数", "封闭群的前情提要：抓每位成员『入群前』和你的私聊各最近多少条当背景（0＝不带）。开了记忆互通就用不上、自动让位给实时抽取。", preJoinN, setPreJoinN, 0, 20, 1, " 条"),
     interop && row("群里自己聊起来", "开互通后，你晾着不说话时群成员会自己顺着往下聊（不必 cue 你，互相接梗/抬杠也行）。只在你正看着这个群时；距你上次发言自发够多轮会自动歇、等你再开口。", autoChat, setAutoChat),
     interop && autoChat && sliderRow("自发间隔", "晾多久没人说话，群里就自己接上一轮（带点随机、不死板）。", autoChatMin, setAutoChatMin, 1, 15, 1, " 分钟"),
+    interop && autoChat && sliderRow("自发轮数上限", "你不出声，群里最多自己聊几轮就停下等你——按黑色回复键或你发消息会重置，给一段新预算。", autoChatRounds, setAutoChatRounds, 1, 30, 1, " 轮"),
+    interop && autoChat && sliderRow("每轮最多条", "每一轮自发最多生成几条（0＝按人数自动）。想让他们一轮多聊几句就往上拉。", autoChatMaxMsg, setAutoChatMaxMsg, 0, 30, 1, autoChatMaxMsg === 0 ? "（自动）" : " 条"),
 
     // 记忆库
     h("div", { className: "pt-7", style: { borderTop: "1px solid " + t.line, marginTop: 20 } },
