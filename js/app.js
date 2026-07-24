@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.66";
+const APP_VERSION = "v50.67";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2844,17 +2844,18 @@ function App() {
   //   供群线下(每成员各注入自己那份、守 own-chat-only 隐私)等场景衔接刚在别处发生的细节。
   const crossRecentFor = (charId, opts = {}) => {
     const budget = opts.budget || 640;
+    const surfaces = opts.surfaces || ["online", "offline"]; // 可只取某个场景（群线上已单独有单聊私聊，那里只补 offline 免重复）
     const sinceMs = opts.sinceHours ? Date.now() - opts.sinceHours * 3600000 : 0;
     const char = characters.find(c => c.id === charId);
     const cName = char ? char.name : "TA";
     const uName = (profile && profile.name) || "用户";
     const beats = [];
-    (chatsRef.current[charId] || []).forEach(m => {
+    if (surfaces.includes("online")) (chatsRef.current[charId] || []).forEach(m => {
       if (!m || m.recalled || !m.content || isOocMsg(m) || m.kind === "offlinelog" || m.role === "system") return;
       if (sinceMs && (m.ts || 0) < sinceMs) return;
       beats.push({ ts: m.ts || 0, surface: "线上私聊", who: m.role === "user" ? uName : cName, text: String(m.content) });
     });
-    (offlinesRef.current[charId] || []).forEach(s => ((s && s.msgs) || []).forEach(m => {
+    if (surfaces.includes("offline")) (offlinesRef.current[charId] || []).forEach(s => ((s && s.msgs) || []).forEach(m => {
       if (!m || m.kind === "ooc" || !m.content) return;
       if (sinceMs && (m.ts || 0) < sinceMs) return;
       beats.push({ ts: m.ts || 0, surface: "单人线下", who: m.role === "user" ? uName : m.role === "narration" ? "【场景】" : cName, text: String(m.content) });
@@ -4109,7 +4110,9 @@ function App() {
         const memLines = members.map(c => {
           const mem = memories[c.id];
           const priv = gs.privateCtxN > 0 ? (chatsRef.current[c.id] || []).filter(m => !m.recalled && !isOocMsg(m)).slice(-gs.privateCtxN).map(m => "[" + fmtStampAI(m.ts) + "] " + (m.role === "user" ? profile.name || "用户" : c.name) + ": " + m.content + (m.role === "user" && window.TemporalAnchor ? " " + window.TemporalAnchor.anchor(m.content, m.ts) : "")).join("\n") : "";
-          const seg = [mem && "长期记忆：" + mem, priv && "最近私聊（带时间，请和群聊记录一起按真实时间先后理解发生顺序）：\n" + priv].filter(Boolean).join("\n");
+          // 单人线下（跨情境近况，v50.66）：这个成员最近和用户单独线下相处的片段，带时间戳，让群线上接得上（own-scoped，仍在本人隐私段里）
+          const offBeats = gs.privateCtxN > 0 ? crossRecentFor(c.id, { surfaces: ["offline"], budget: 400, sinceHours: 72 }) : "";
+          const seg = [mem && "长期记忆：" + mem, priv && "最近私聊（带时间，请和群聊记录一起按真实时间先后理解发生顺序）：\n" + priv, offBeats && "最近单人线下（带时间，和上面私聊/群聊一起按真实先后理解）：\n" + offBeats].filter(Boolean).join("\n");
           return seg ? "『" + c.name + "』〔以下只有 " + c.name + " 本人知道，别的成员并不知情〕\n" + seg : "";
         }).filter(Boolean).join("\n\n");
         if (typeof primeQueryVec === "function") await primeQueryVec(hist); // 向量记忆预热（失败自动纯关键词）
