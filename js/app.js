@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.65";
+const APP_VERSION = "v50.66";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2112,6 +2112,17 @@ function App() {
       const lines = msgs.slice(-14).map(m => "[" + fmtStampAI(m.ts) + "] " + (m.role === "narration" ? "【旁白】" : (m.role === "user" ? (profile.name || "用户") : (m.senderName || "某人")) + "：") + String(m.content).replace(/\s+/g, " ").slice(0, 60) + ((m.role === "user" || m.role === "narration") && window.TemporalAnchor ? " " + window.TemporalAnchor.anchor(m.content, m.ts) : "")).join("\n");
       return "『群「" + g.name + "」" + (others.length ? "（群里还有 " + others.join("、") + "）" : "") + " 最近聊的（带时间，和你俩私聊按真实先后顺序理解）』\n" + lines;
     }).filter(Boolean).slice(0, 2).join("\n\n"),
+    // 群线下回显（v50.66）：这个角色参加过的群线下(大家面对面)最近片段，带时间戳，让单聊接得上"刚一起线下相处过"。
+    //   只互通群 + 该角色在场；群线下是共同经历、非私密，无需 own-scope 遮蔽。
+    groupOfflineEcho: (groups || []).filter(g => gsFor(g.id).memoryInterop && (g.memberIds || []).includes(char.id)).map(g => {
+      const msgs = [];
+      (groupOfflinesRef.current[g.id] || []).forEach(s => ((s && s.msgs) || []).forEach(m => { if (m && m.kind !== "ooc" && m.content && m.role !== "system") msgs.push(m); }));
+      if (!msgs.length) return "";
+      msgs.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+      const others = (g.memberIds || []).filter(id => id !== char.id).map(id => { const c = characters.find(x => x.id === id); return c ? c.name : null; }).filter(Boolean);
+      const lines = msgs.slice(-10).map(m => "[" + fmtStampAI(m.ts) + "] " + (m.role === "narration" ? "【场景】" : (m.role === "user" ? (profile.name || "用户") : (m.senderName || "某人")) + "：") + String(m.content).replace(/\s+/g, " ").slice(0, 70)).join("\n");
+      return "『群「" + g.name + "」多人线下" + (others.length ? "（在场还有 " + others.join("、") + "）" : "") + "』\n" + lines;
+    }).filter(Boolean).slice(0, 2).join("\n\n"),
     // 短期原文窗 = 最近 ctxN 条 ∪ 最近 recentDays 天（消死区：只要是这几天说的一定带上）
     // 封顶用【字符预算】而非条数：长消息少带几条、短消息多带几条 → 成本可控，且高频用户不会每轮都顶着上百条原文（按次计费的核心 prompt）
     recentChat: (() => {
@@ -2828,6 +2839,37 @@ function App() {
       .slice(-n)
       .map(m => ({ role: m.role, senderId: m.senderId || null, senderName: m.senderName || null, content: String(m.content), ts: m.ts || 0 }));
   };
+  // 统一「跨情境近况流」(v50.66，她要四个情境带时间戳互看、按真实顺序衔接)：某角色最近在【单聊线上 + 单人线下】
+  //   发生的原话 beats，合并→每条打 [时间·场景]→按真实 ts 排序→字符预算封顶（从近往回收）。
+  //   供群线下(每成员各注入自己那份、守 own-chat-only 隐私)等场景衔接刚在别处发生的细节。
+  const crossRecentFor = (charId, opts = {}) => {
+    const budget = opts.budget || 640;
+    const sinceMs = opts.sinceHours ? Date.now() - opts.sinceHours * 3600000 : 0;
+    const char = characters.find(c => c.id === charId);
+    const cName = char ? char.name : "TA";
+    const uName = (profile && profile.name) || "用户";
+    const beats = [];
+    (chatsRef.current[charId] || []).forEach(m => {
+      if (!m || m.recalled || !m.content || isOocMsg(m) || m.kind === "offlinelog" || m.role === "system") return;
+      if (sinceMs && (m.ts || 0) < sinceMs) return;
+      beats.push({ ts: m.ts || 0, surface: "线上私聊", who: m.role === "user" ? uName : cName, text: String(m.content) });
+    });
+    (offlinesRef.current[charId] || []).forEach(s => ((s && s.msgs) || []).forEach(m => {
+      if (!m || m.kind === "ooc" || !m.content) return;
+      if (sinceMs && (m.ts || 0) < sinceMs) return;
+      beats.push({ ts: m.ts || 0, surface: "单人线下", who: m.role === "user" ? uName : m.role === "narration" ? "【场景】" : cName, text: String(m.content) });
+    }));
+    if (!beats.length) return "";
+    beats.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    const picked = []; let used = 0;
+    for (let i = beats.length - 1; i >= 0; i--) {
+      const b = beats[i];
+      const line = "[" + (typeof fmtStampAI === "function" ? fmtStampAI(b.ts) : "") + "·" + b.surface + "] " + b.who + "：" + b.text.replace(/\s+/g, " ").slice(0, 80);
+      if (used + line.length > budget && picked.length) break;
+      used += line.length + 1; picked.push(line);
+    }
+    return picked.reverse().join("\n");
+  };
   const ctxForGroupOffline = group => ({
     members: groupMembers(group),
     profile,
@@ -2837,6 +2879,14 @@ function App() {
     timeAware: prefs.timeAware,
     // 群 OOC 立的长期规矩（directives[groupId]）线下也要遵守——线上 replyGroup 早就注入了，线下之前漏了
     directives: directives[group.id] || [],
+    // 跨情境近况（v50.66）：每个成员各自最近在【单聊线上 + 单人线下】和用户之间发生的事，带时间戳，
+    //   让群线下接得上刚在别处聊过的细节。own-chat-only：只带该成员自己那份，engine 侧再加隐私铁律(别的成员不知情)。
+    memberRecent: (group.memberIds || []).map(id => {
+      const c = characters.find(x => x.id === id);
+      if (!c) return null;
+      const lines = crossRecentFor(id, { budget: 480, sinceHours: 72 });
+      return lines ? { name: c.name, lines } : null;
+    }).filter(Boolean),
     // 记忆分区：不互通的群是封闭空间，线下也不读全局记忆库（不让外部记忆流入）。
     // 互通群也【只召回相关 topK】，绝不把整个记忆库全量灌进 prompt（v48.41 修：预算炸弹 + 和 v48.20 同类的线上筛/线下裸灌触审不对称，对齐线上 replyGroup 的 retrieveMemories）。
     memLib: (() => {
@@ -4989,7 +5039,7 @@ function App() {
       // 上一篇日记（目标日之前最近的一篇）——喂给模型当「别重复」参照
       const prevD = (diariesRef.current[charId] || []).filter(e => (e.ts || 0) < targetTs).sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
       const prevDiary = prevD ? ((prevD.titleZh || prevD.titleEn || "") + "｜" + (prevD.paras || []).map(p => p.text).join(" ").slice(0, 220)) : "";
-      const ctx = { ...ctxFor(char), moodLabel: mood && (mood.label || mood) || null, worldbook: loreFor(char, "diary"), recentChat: dayChatText, memory: "", groupEcho: "", offlineNow: "", schedNow: "" };
+      const ctx = { ...ctxFor(char), moodLabel: mood && (mood.label || mood) || null, worldbook: loreFor(char, "diary"), recentChat: dayChatText, memory: "", groupEcho: "", groupOfflineEcho: "", offlineNow: "", schedNow: "" };
       const dateStr = new Date(targetTs).toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" });
       // 当天钱包流水（日常购物/转账/礼物）喂给日记当素材——日程/钱包/日记三联动的最后一环
       const wRec = charWalletRef.current[charId];
