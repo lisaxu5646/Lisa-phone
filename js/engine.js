@@ -1573,6 +1573,7 @@ async function generateOffline(p, ctx, session) {
     (session.minWords ? "\n【篇幅要求·硬性，优先级高于「简短」的一般习惯】scene 正文至少写 " + session.minWords + " 字，务必写足——宁可多不可少，把这一刻的动作、心理、环境、对话都展开写透。" : "") +
     (notes.length ? "\n【临时导演提示（务必遵循）】" + notes.join("；") : "") +
     (ctx.curWear ? "\n【着装连贯】你现在穿着：" + ctx.curWear + "。除非场景变了、过了很久、或你明确换/脱了衣服，否则 wearing 保持这套；一旦场景真的换了（如从外面进了家、下了雨淋湿、换了衣服）就据实更新。" : "") +
+    (session.priorSummary ? "\n【这场线下的前情提要（早先发生的、已浓缩进记忆，接着往下演，别倒回去逐句重复复述）】\n" + session.priorSummary : "") +
     toyHint +
     "\n【输出】只输出一个 JSON，不要代码块：\n{" + cotJsonField(cotT) + "\"scene\":\"这一刻的叙事正文（含动作/心理/旁白/对话）\",\"thought\":\"角色此刻没说出口的真实心声（一句；情绪复杂时可稍长）\",\"mood\":{\"label\":\"此刻中文心情词（禁止英文内部标签）\"},\"wearing\":\"你此刻的穿着一句（随场景/剧情如实变化，别每段乱换）\",\"action\":\"你此刻正在做的动作一句（贴合这一段场景、【每段都据实更新】、别照抄上一段）\",\"affinityDelta\":整数(-5到5，这次面对面相处让你对对方的好感如何变化：亲近/被打动/被冒犯/失望，通常小幅，没什么波动就0)" + toyField + "}";
   const hist = offlineHistory(session.msgs, userName, char.name);

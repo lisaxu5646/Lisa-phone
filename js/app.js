@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.39";
+const APP_VERSION = "v50.40";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2477,6 +2477,38 @@ function App() {
     offlinesRef.current = { ...offlinesRef.current, [char.id]: list };
     setOfflineChar(char);
   };
+  // 线下滚动总结（她 2026-07-23 报的长线下失忆隐患）：一轮线下长期不结束时，早段既会掉出模型上下文、
+  //   又不像线上有 maybeSummarize / 自动抽取 → 永久丢失。这里仿线上 maybeSummarize：攒够 OFF_SUM_THRESH 段就把
+  //   最早那批浓缩进【记忆库】(addMemEntry) + 累进 session.summary 当前情提要，并推进 lastSummarizedCount（喂模型时
+  //   只喂前情提要+近窗明细，见 genOfflineFrom）。结束时的整场总结照旧，两者各司其职。
+  const OFF_SUM_THRESH = 50, OFF_SUM_BUFFER = 15;
+  const offSumBusyRef = useRef({});
+  const maybeSummarizeOffline = async charId => {
+    if (!active || offSumBusyRef.current[charId]) return;
+    const char = characters.find(c => c.id === charId);
+    if (!char) return;
+    const sess = (offlinesRef.current[charId] || []).find(s => s && !s.endTs);
+    if (!sess) return;
+    const all = sess.msgs || [];
+    const lastSum = Math.min(sess.lastSummarizedCount || 0, all.length);
+    if (all.length - lastSum < OFF_SUM_THRESH) return;
+    const block = all.slice(lastSum, all.length - OFF_SUM_BUFFER).filter(m => m && m.kind !== "ooc");
+    if (block.length < 4) return;
+    offSumBusyRef.current[charId] = true;
+    try {
+      const r = await summarizeOffline(active, ctxFor(char), { ...sess, msgs: block });
+      const summ = (r && r.summary || "").trim();
+      if (summ) {
+        const d = new Date();
+        const seg = "【" + (d.getMonth() + 1) + "月" + d.getDate() + "日·线下】" + summ;
+        addMemEntry({ text: summ, tags: ["线下"], charIds: [charId], source: "auto" });
+        (r.details || []).forEach(dt => addMemEntry({ text: dt, tags: ["线下", "细节"], charIds: [charId], source: "auto" }));
+        (r.open || []).forEach(op => addMemEntry({ text: op, tags: ["线下", "约定"], charIds: [charId], source: "auto", open: true }));
+        pOffline(charId, list => list.map(s => s.id === sess.id ? { ...s, summary: ((s.summary ? s.summary + "\n" : "") + seg).slice(-4000), lastSummarizedCount: all.length - OFF_SUM_BUFFER } : s));
+      }
+    } catch (e) {/* 静默：滚动总结失败下轮再试 */ }
+    finally { offSumBusyRef.current[charId] = false; }
+  };
   const genOfflineFrom = async (charId, workSess) => {
     const char = characters.find(c => c.id === charId);
     if (!active) {
@@ -2502,7 +2534,10 @@ function App() {
       const offToyOn = !!(typeof toyReady === "function" && toyReady() && toyArmedRef.current && toyArmedForRef.current === charId
         && settingsFor(charId) && settingsFor(charId).toyEnabled
         && (() => { try { return localStorage.getItem("x_toyUnlocked") === "1"; } catch (e) { return false; } })());
-      const res = await generateOffline(apiFor(charId), oCtx, { ...workSess, narr: osNarr(charId), maxTokens: osFor(charId).maxTokens, minWords: osFor(charId).minWords, toyOn: offToyOn });
+      // 长线下防失忆：已滚动总结的早段不再逐条喂模型，只喂「前情提要 + 近窗明细」，早段内容早已入记忆库（maybeSummarizeOffline）
+      const _lastSum = Math.min(workSess.lastSummarizedCount || 0, (workSess.msgs || []).length);
+      const _windowMsgs = _lastSum > 0 ? (workSess.msgs || []).slice(_lastSum) : (workSess.msgs || []);
+      const res = await generateOffline(apiFor(charId), oCtx, { ...workSess, msgs: _windowMsgs, priorSummary: workSess.summary || "", narr: osNarr(charId), maxTokens: osFor(charId).maxTokens, minWords: osFor(charId).minWords, toyOn: offToyOn });
       const offTurnId = "ot_" + Date.now(), affinityBefore = affOf(charId);
       pushOffMsg(charId, {
         id: "c_" + Date.now(),
@@ -2529,6 +2564,7 @@ function App() {
       if (res.action) ost.action = res.action;
       if (res.thought) ost.thought = res.thought;
       if (Object.keys(ost).length) { const liveState = statesRef.current[charId] || {}; const ns = { ...liveState, ...ost, mood: res.mood && res.mood.label ? res.mood.label : liveState.mood, ts: Date.now(), turnId: offTurnId, affinityBefore }; setStateFor(charId, ns); pushStateHist(charId, ns); }
+      setTimeout(() => maybeSummarizeOffline(charId), 120); // 长线下防失忆：攒够就把早段滚动总结进记忆库（仿线上）
     } catch (e) {
       toast("生成失败：" + (e.message || "重试"));
     } finally {
