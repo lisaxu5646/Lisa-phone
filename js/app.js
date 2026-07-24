@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.53";
+const APP_VERSION = "v50.54";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2218,6 +2218,20 @@ function App() {
     openOffline(activeChar);
     if (!hasActive) startOffline(cid, {});
   }, [screen, activeChar]);
+  // ---- 群「默认进线下」（她 2026-07-23，同处一室/常聚的群）：点进开了的群，直接进群线下；随时离开跳回线上。同单聊，进入触发一次。----
+  const autoGOfflineRef = useRef(null);
+  useEffect(() => {
+    if (screen !== "gthread" || !activeGroup) { autoGOfflineRef.current = null; return; }
+    const gid = activeGroup.id;
+    if (autoGOfflineRef.current === gid) return;
+    autoGOfflineRef.current = gid;
+    if (!gsFor(gid).defaultOffline) return;
+    if (offlineChar || offlineGroup) return;
+    const list = groupOfflinesRef.current[gid] || loadJSON("x_goffline:" + gid, []);
+    const hasActive = (list || []).some(s => s && !s.endTs);
+    openGroupOffline(activeGroup);
+    if (!hasActive) startGroupOffline(gid, {});
+  }, [screen, activeGroup]);
   // ---- 角色主动早晚安：扫所有【在聊的】角色，到各自作息的早/晚，主动发一句问候，落成未读红点，你随缘回 ----
   // 只在 app 打开时跑（静态站无后台推送）；一次只发一个错峰；一天早/晚各一次；刚聊完/正在看的不打扰。
   // 角色当地"此刻几点几分"（分钟数）——按 tz 偏移，无 tz 用设备本地
