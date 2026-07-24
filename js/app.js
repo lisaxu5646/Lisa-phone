@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.49";
+const APP_VERSION = "v50.50";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2817,6 +2817,38 @@ function App() {
     groupOfflinesRef.current = { ...groupOfflinesRef.current, [group.id]: list };
     setOfflineGroup(group);
   };
+  // 群线下滚动总结（防失忆，镜像单聊 maybeSummarizeOffline）：攒够就把早段浓缩→前情提要喂模型 + 视互通决定进不进全局记忆库。
+  //   ⚠️记忆分区：只有开了 memoryInterop 的群才 addMemEntry 进全局记忆库；不互通的群只累进 session.summary 当本场前情提要（不外泄）。
+  const gOffSumBusyRef = useRef({});
+  const maybeSummarizeGroupOffline = async groupId => {
+    if (!active || gOffSumBusyRef.current[groupId]) return;
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
+    const sess = (groupOfflinesRef.current[groupId] || []).find(s => s && !s.endTs);
+    if (!sess) return;
+    const all = sess.msgs || [];
+    const lastSum = Math.min(sess.lastSummarizedCount || 0, all.length);
+    if (all.length - lastSum < OFF_SUM_THRESH) return;
+    const block = all.slice(lastSum, all.length - OFF_SUM_BUFFER).filter(m => m && m.kind !== "ooc");
+    if (block.length < 4) return;
+    gOffSumBusyRef.current[groupId] = true;
+    try {
+      const r = await summarizeOfflineGroup(active, ctxForGroupOffline(group), { ...sess, msgs: block });
+      const summ = (r && r.summary || "").trim();
+      if (summ) {
+        const d = new Date();
+        const seg = "【" + (d.getMonth() + 1) + "月" + d.getDate() + "日·群线下】" + summ;
+        if (gsFor(groupId).memoryInterop) { // 只有互通群进全局记忆库（记忆分区）
+          const memberIds = (group.memberIds || []).slice();
+          addMemEntry({ text: summ, tags: ["线下", "群聊"], charIds: memberIds, source: "auto" });
+          (r.details || []).forEach(dt => addMemEntry({ text: dt, tags: ["线下", "群聊", "细节"], charIds: memberIds, source: "auto" }));
+          (r.open || []).forEach(op => addMemEntry({ text: op, tags: ["线下", "群聊", "约定"], charIds: memberIds, source: "auto", open: true }));
+        }
+        pGOffline(groupId, list => list.map(s => s.id === sess.id ? { ...s, summary: ((s.summary ? s.summary + "\n" : "") + seg).slice(-4000), lastSummarizedCount: all.length - OFF_SUM_BUFFER } : s)); // 前情提要总累进(防本场失忆)
+      }
+    } catch (e) {/* 静默 */ }
+    finally { gOffSumBusyRef.current[groupId] = false; }
+  };
   const genGroupOfflineFrom = async (group, workSess) => {
     if (!active) {
       toast("请先到设置配置 API");
@@ -2834,7 +2866,9 @@ function App() {
         // 升级前已经进行中的线下也只补抓一次，随后冻结，不能每轮追着线上记录变化。
         pGOffline(group.id, list => list.map(s => s.id === workSess.id ? { ...s, onlinePrelude: effectiveSess.onlinePrelude } : s));
       }
-      const beats = await generateOfflineGroup(active, ctxForGroupOffline(group), { ...effectiveSess, narr: osNarr("g_" + group.id), maxTokens: osFor("g_" + group.id).maxTokens || 3200, minWords: osFor("g_" + group.id).minWords });
+      const _gLastSum = Math.min(effectiveSess.lastSummarizedCount || 0, (effectiveSess.msgs || []).length);
+      const _gWindow = _gLastSum > 0 ? (effectiveSess.msgs || []).slice(_gLastSum) : (effectiveSess.msgs || []); // 长群线下防失忆：早段用前情提要，只喂近窗明细
+      const beats = await generateOfflineGroup(active, ctxForGroupOffline(group), { ...effectiveSess, msgs: _gWindow, priorSummary: effectiveSess.summary || "", narr: osNarr("g_" + group.id), maxTokens: osFor("g_" + group.id).maxTokens || 3200, minWords: osFor("g_" + group.id).minWords });
       const _spoke = new Set(); // 群线下也给开口的成员计动态保底（她 2026-07-13 点名）
       for (let i = 0; i < beats.length; i++) {
         const b = beats[i];
@@ -2874,6 +2908,7 @@ function App() {
         toast(left ? "导演便签已落实 · 还剩 " + left + " 轮" : "导演便签已结束 · 下轮不再注入");
       }
       _spoke.forEach(id => tickAmbient(id, {}));
+      setTimeout(() => maybeSummarizeGroupOffline(group.id), 120); // 群线下防失忆：攒够就滚动总结
     } catch (e) {
       toast("生成失败：" + (e.message || "重试"));
     } finally {

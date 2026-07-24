@@ -1733,6 +1733,7 @@ async function generateOfflineGroup(p, ctx, session) {
     (ctx.worldbook && ctx.worldbook.trim() ? "\n\n【世界书】\n" + ctx.worldbook.trim() : "") +
     (memLibText && memLibText.trim() ? "\n\n【记忆库·相关条目（请自然记住并保持一致）】\n" + memLibText.trim() : "") +
     (onlinePrelude ? "\n\n【刚刚在线上群聊的最后几句·入场衔接】\n" + onlinePrelude + "\n现在大家从线上转到线下面对面。上面的话真实发生过、所有在场成员都知道；从它自然接入当前场景，但不要逐句复述，也不要假装这些话刚在线下又说了一遍。" : "") +
+    (session.priorSummary ? "\n\n【这场群线下的前情提要（早先发生的、已浓缩，接着往下演，别倒回去逐句重复复述）】\n" + session.priorSummary : "") +
     "\n\n【当前场景：线下面对面 · 多人同处】用户和上述角色此刻身处同一个地方，面对面相处（不是隔着手机的群聊）。以沉浸的第三人称叙事推进这一刻：融合【动作描写】【神态与心理】【环境旁白】与【对话】。多个角色会自然地行动、开口、互相接话、跑题调侃或起冲突，像真实的多人相处那样，不是轮流回答用户。称用户为『你』。对话用引号包住。自然推进、不出戏、不提前跳到未发生的剧情。" +
     (styleText ? "\n【文风要求】" + styleText : "") +
     narrativeDirective(session.narr) +
