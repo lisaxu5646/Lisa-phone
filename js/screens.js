@@ -5307,7 +5307,7 @@ function MemoryLib({
 // 召回设置：自动抽取开关 + top-k + 抽取间隔 + 短期窗天数（消死区）
 function MemCfgSheet({ cfg, onSave, onClose, onPurgeWithered, witheredCount }) {
   const t = useTheme();
-  const [c, setC] = useState(Object.assign({ topK: 5, autoExtract: true, extractInterval: 1, recentDays: 3, recentBudget: 8000 }, cfg || {}));
+  const [c, setC] = useState(Object.assign({ topK: 5, autoExtract: true, extractInterval: 1, recentDays: 3, recentBudget: 8000, crossHours: 72, crossBudget: 480 }, cfg || {}));
   const [confirmPurge, setConfirmPurge] = useState(false);
   const set = patch => setC(p => Object.assign({}, p, patch));
   const toggle = (label, sub, val, onT) => h("div", { className: "flex items-center justify-between", style: { padding: "12px 0", borderTop: "1px solid " + t.line } },
@@ -5330,6 +5330,8 @@ function MemCfgSheet({ cfg, onSave, onClose, onPurgeWithered, witheredCount }) {
     slider("自动抽取间隔", c.extractInterval || 1, 1, 5, 1, " 轮", v => set({ extractInterval: v }), (c.extractInterval || 1) > 1 ? "每 " + c.extractInterval + " 轮抽一次，省抽取 API。" : "每轮都抽，记得最全、最费 API。日常设 2~3 轮够用。"),
     slider("短期窗覆盖天数", c.recentDays || 3, 1, 7, 1, " 天", v => set({ recentDays: v }), "最近这些天说的话一定带进上下文（消死区，不忘最近几天）。"),
     slider("短期窗字符预算", c.recentBudget || 8000, 3000, 16000, 1000, " 字", v => set({ recentBudget: v }), "上面那些原文最多带这么多字进上下文——长消息少带几条、短消息多带几条，token 有上限。调大记得更全、更费；调小更省。超出的老内容由自动抽取+摘要兜底。"),
+    slider("跨情境回看时间窗", c.crossHours != null ? c.crossHours : 72, 12, 168, 12, " 小时", v => set({ crossHours: v }), "四个情境（单聊线上/线下·群聊线上/线下）互相衔接时，往回看多久内在别处发生的事。调大接得上更早的细节、更费；调小只带最近的。"),
+    slider("跨情境每段字符预算", c.crossBudget != null ? c.crossBudget : 480, 200, 1200, 40, " 字", v => set({ crossBudget: v }), "上面那些跨情境的近况，每一段最多带这么多字。调大衔接更全、更费 token；调小更省。"),
     h("button", { onClick: () => { onSave(c); onClose(); }, className: "w-full active:opacity-80", style: { marginTop: 18, fontFamily: F_BODY, fontSize: 14.5, fontWeight: 700, color: t.bg2, background: t.ink, borderRadius: 12, padding: "12px" } }, "保存"),
     // 清理落灰记忆（v48.41 #4）：库越攒越大，一键删掉久无人问津的低情绪旧事——约定/心事/置顶都留着
     onPurgeWithered ? h("div", { style: { marginTop: 16, paddingTop: 14, borderTop: "1px dashed " + t.line } },

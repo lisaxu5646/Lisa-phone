@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.67";
+const APP_VERSION = "v50.68";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -154,7 +154,7 @@ function App() {
   const [memTableMode, setMemTableMode] = useState(memoryTableAuthorityOn); // 每账号/设备单独验收后才开，不波及其他用户
   const memExtractInflightRef = useRef({}); // 每角色抽取进行中标志，防并发重复抽取
   // 记忆库设置：topK 每轮召回条数；autoExtract 每轮后台自动抽取；extractInterval 每几轮抽一次；recentDays 短期窗至少覆盖最近几天（消死区）
-  const MEM_CFG_DEFAULT = { topK: 5, autoExtract: true, extractInterval: 1, recentDays: 3, recentBudget: 8000 };
+  const MEM_CFG_DEFAULT = { topK: 5, autoExtract: true, extractInterval: 1, recentDays: 3, recentBudget: 8000, crossHours: 72, crossBudget: 480 };
   const [memCfg, setMemCfg] = useState(MEM_CFG_DEFAULT);
   const memCfgRef = useRef(memCfg); memCfgRef.current = memCfg;
   const memExtractCtrRef = useRef({}); // 每角色自动抽取轮次计数
@@ -2115,13 +2115,17 @@ function App() {
     // 群线下回显（v50.66）：这个角色参加过的群线下(大家面对面)最近片段，带时间戳，让单聊接得上"刚一起线下相处过"。
     //   只互通群 + 该角色在场；群线下是共同经历、非私密，无需 own-scope 遮蔽。
     groupOfflineEcho: (groups || []).filter(g => gsFor(g.id).memoryInterop && (g.memberIds || []).includes(char.id)).map(g => {
+      const crossMs = (memCfgRef.current.crossHours || 72) * 3600000;
+      const cutoff = Date.now() - crossMs;
       const msgs = [];
-      (groupOfflinesRef.current[g.id] || []).forEach(s => ((s && s.msgs) || []).forEach(m => { if (m && m.kind !== "ooc" && m.content && m.role !== "system") msgs.push(m); }));
+      (groupOfflinesRef.current[g.id] || []).forEach(s => ((s && s.msgs) || []).forEach(m => { if (m && m.kind !== "ooc" && m.content && m.role !== "system" && (m.ts || 0) >= cutoff) msgs.push(m); }));
       if (!msgs.length) return "";
       msgs.sort((a, b) => (a.ts || 0) - (b.ts || 0));
       const others = (g.memberIds || []).filter(id => id !== char.id).map(id => { const c = characters.find(x => x.id === id); return c ? c.name : null; }).filter(Boolean);
-      const lines = msgs.slice(-10).map(m => "[" + fmtStampAI(m.ts) + "] " + (m.role === "narration" ? "【场景】" : (m.role === "user" ? (profile.name || "用户") : (m.senderName || "某人")) + "：") + String(m.content).replace(/\s+/g, " ").slice(0, 70)).join("\n");
-      return "『群「" + g.name + "」多人线下" + (others.length ? "（在场还有 " + others.join("、") + "）" : "") + "』\n" + lines;
+      // 字符预算封顶（走 crossBudget 拉条）：从近往回收
+      const budget = memCfgRef.current.crossBudget || 480; const picked = []; let used = 0;
+      for (let i = msgs.length - 1; i >= 0; i--) { const m = msgs[i]; const ln = "[" + fmtStampAI(m.ts) + "] " + (m.role === "narration" ? "【场景】" : (m.role === "user" ? (profile.name || "用户") : (m.senderName || "某人")) + "：") + String(m.content).replace(/\s+/g, " ").slice(0, 70); if (used + ln.length > budget && picked.length) break; used += ln.length + 1; picked.push(ln); }
+      return "『群「" + g.name + "」多人线下" + (others.length ? "（在场还有 " + others.join("、") + "）" : "") + "』\n" + picked.reverse().join("\n");
     }).filter(Boolean).slice(0, 2).join("\n\n"),
     // 短期原文窗 = 最近 ctxN 条 ∪ 最近 recentDays 天（消死区：只要是这几天说的一定带上）
     // 封顶用【字符预算】而非条数：长消息少带几条、短消息多带几条 → 成本可控，且高频用户不会每轮都顶着上百条原文（按次计费的核心 prompt）
@@ -2843,9 +2847,11 @@ function App() {
   //   发生的原话 beats，合并→每条打 [时间·场景]→按真实 ts 排序→字符预算封顶（从近往回收）。
   //   供群线下(每成员各注入自己那份、守 own-chat-only 隐私)等场景衔接刚在别处发生的细节。
   const crossRecentFor = (charId, opts = {}) => {
-    const budget = opts.budget || 640;
+    // 时间窗 + 字符预算走召回设置的拉条（crossHours / crossBudget），调用处不再写死；opts 仍可覆盖
+    const budget = opts.budget || (memCfgRef.current.crossBudget || 480);
     const surfaces = opts.surfaces || ["online", "offline"]; // 可只取某个场景（群线上已单独有单聊私聊，那里只补 offline 免重复）
-    const sinceMs = opts.sinceHours ? Date.now() - opts.sinceHours * 3600000 : 0;
+    const sinceHours = opts.sinceHours != null ? opts.sinceHours : (memCfgRef.current.crossHours || 72);
+    const sinceMs = sinceHours ? Date.now() - sinceHours * 3600000 : 0;
     const char = characters.find(c => c.id === charId);
     const cName = char ? char.name : "TA";
     const uName = (profile && profile.name) || "用户";
@@ -2885,7 +2891,7 @@ function App() {
     memberRecent: (group.memberIds || []).map(id => {
       const c = characters.find(x => x.id === id);
       if (!c) return null;
-      const lines = crossRecentFor(id, { budget: 480, sinceHours: 72 });
+      const lines = crossRecentFor(id); // 时间窗/预算走召回设置拉条
       return lines ? { name: c.name, lines } : null;
     }).filter(Boolean),
     // 记忆分区：不互通的群是封闭空间，线下也不读全局记忆库（不让外部记忆流入）。
@@ -4111,7 +4117,7 @@ function App() {
           const mem = memories[c.id];
           const priv = gs.privateCtxN > 0 ? (chatsRef.current[c.id] || []).filter(m => !m.recalled && !isOocMsg(m)).slice(-gs.privateCtxN).map(m => "[" + fmtStampAI(m.ts) + "] " + (m.role === "user" ? profile.name || "用户" : c.name) + ": " + m.content + (m.role === "user" && window.TemporalAnchor ? " " + window.TemporalAnchor.anchor(m.content, m.ts) : "")).join("\n") : "";
           // 单人线下（跨情境近况，v50.66）：这个成员最近和用户单独线下相处的片段，带时间戳，让群线上接得上（own-scoped，仍在本人隐私段里）
-          const offBeats = gs.privateCtxN > 0 ? crossRecentFor(c.id, { surfaces: ["offline"], budget: 400, sinceHours: 72 }) : "";
+          const offBeats = gs.privateCtxN > 0 ? crossRecentFor(c.id, { surfaces: ["offline"] }) : "";
           const seg = [mem && "长期记忆：" + mem, priv && "最近私聊（带时间，请和群聊记录一起按真实时间先后理解发生顺序）：\n" + priv, offBeats && "最近单人线下（带时间，和上面私聊/群聊一起按真实先后理解）：\n" + offBeats].filter(Boolean).join("\n");
           return seg ? "『" + c.name + "』〔以下只有 " + c.name + " 本人知道，别的成员并不知情〕\n" + seg : "";
         }).filter(Boolean).join("\n\n");
