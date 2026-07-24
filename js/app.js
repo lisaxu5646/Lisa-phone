@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.69";
+const APP_VERSION = "v50.70";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -339,6 +339,10 @@ function App() {
   const [offlineGroup, setOfflineGroup] = useState(null);
   const [groupOfflines, setGroupOfflines] = useState({}); // groupId -> [session,...] newest-first
   const groupOfflinesRef = useRef({});
+  // 线下「最后一条时间」的开机种子（id->ts）：offlines/groupOfflines state 是懒加载的（开对应聊天才灌），
+  //   重开后为空→聊天列表拿不到群/单人线下时间→掉回按线上排。开机从 localStorage 一次性扫全部线下场次算末条时间兜底。
+  const offlineTsRef = useRef({});
+  const [offlineTsSeed, setOfflineTsSeed] = useState(0); // 触发一次重排（种子算好后）
   const [anon, setAnon] = useState({});
   const [anonChar, setAnonChar] = useState(null);
   const [anonBusy, setAnonBusy] = useState(false);
@@ -428,6 +432,22 @@ function App() {
     setMemCfg(Object.assign({}, MEM_CFG_DEFAULT, loadJSON("x_memCfg", {})));
     setChatSettings(loadJSON("x_chatSettings", {}));
     setChatArch(loadJSON("x_chatArch", {}));
+    // 线下末条时间种子：扫 x_offline:*/x_goffline:* 各取所有场次里最新一条 ts，供聊天列表重开后仍按线下时间排
+    (() => {
+      const seed = {};
+      try {
+        Object.keys(localStorage).forEach(k => {
+          const isOff = k.indexOf("x_offline:") === 0, isGOff = k.indexOf("x_goffline:") === 0;
+          if (!isOff && !isGOff) return;
+          const id = k.slice(isOff ? "x_offline:".length : "x_goffline:".length);
+          let t = 0;
+          (loadJSON(k, []) || []).forEach(s => { const ms = (s && s.msgs) || []; const lt = ms.length ? (ms[ms.length - 1].ts || 0) : 0; if (lt > t) t = lt; });
+          if (t) seed[id] = t;
+        });
+      } catch (e) {}
+      offlineTsRef.current = seed;
+      setOfflineTsSeed(x => x + 1);
+    })();
     // 迁移：早期角色自动发帖存的是「吐槽/日常/求助」短名，不在 FORUM_BOARDS，会导致版块/关注页筛不到 → 补成正式吧名
     (() => {
       const bmap = { "吐槽": "吐槽吧", "日常": "日常吧", "求助": "求助吧", "匿名": "匿名吧" };
@@ -8599,7 +8619,7 @@ function App() {
     moments: moments,
     profile: profile,
     unreadMap: unreadMap,
-    offlineLastTs: (() => { const m = {}; const scan = store => { Object.keys(store || {}).forEach(id => { let t = 0; (store[id] || []).forEach(s => { const ms = s.msgs || []; const lt = ms.length ? (ms[ms.length - 1].ts || 0) : 0; if (lt > t) t = lt; }); if (t) m[id] = t; }); }; scan(offlines); scan(groupOfflines); return m; })(), // 线下最后一条时间(每场取末条)，供聊天列表排序（线下冒泡也顶上来）
+    offlineLastTs: (() => { const m = { ...offlineTsRef.current }; const scan = store => { Object.keys(store || {}).forEach(id => { let t = 0; (store[id] || []).forEach(s => { const ms = s.msgs || []; const lt = ms.length ? (ms[ms.length - 1].ts || 0) : 0; if (lt > t) t = lt; }); m[id] = t; }); }; scan(offlines); scan(groupOfflines); return m; })(), // 线下最后一条时间(每场取末条)，供聊天列表排序（线下冒泡也顶上来）。base=开机种子(兜懒加载没灌的)，state 扫描覆盖已打开的（含删空→0）
     tab: msgTab,
     onTab: setMsgTab,
     onBack: goHome,
