@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.47";
+const APP_VERSION = "v50.48";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2156,6 +2156,8 @@ function App() {
       // ⭐人格/欲望驱动起聊（她 2026-07-23：角色根据人格盒子突然想聊）：载了 jiwen 的成员里得有人此刻「想联系/想聊」
       //   (jiwen contact 触发)才起一段——不是干等计时。没有任何成员载 jiwen，就退回纯闲置触发（保证没配 jiwen 的群也自发）。
       const gm = (activeGroup.memberIds || []).map(id => characters.find(c => c.id === id)).filter(Boolean);
+      // 有成员此刻正和用户在【线下面对面】进行中 → 别让群自发把 TA 拽到群里分身两处（她 2026-07-23 报：顾朝正线下购物，群里却"煮了鸡汤"）
+      if (gm.some(c => (offlinesRef.current[c.id] || []).some(s => s && !s.endTs && Date.now() - (s.startTs || 0) < 8 * 3600000))) return;
       let anyJiwen = false; const urgeChars = [];
       gm.forEach(c => { const jw = typeof window !== "undefined" && window.__jiwen && window.__jiwen[c.id]; if (jw) { anyJiwen = true; if (jw.triggers && jw.triggers.some(tr => tr.action === "contact")) urgeChars.push(c); } });
       if (anyJiwen && !urgeChars.length) return; // 有 jiwen 但此刻没人动念 → 不硬起，等谁真想聊
@@ -3834,6 +3836,9 @@ function App() {
     const group = groups.find(g => g.id === groupId);
     const members = group.memberIds.map(id => characters.find(c => c.id === id)).filter(Boolean);
     const gs = gsFor(groupId);
+    // 有成员此刻正和用户在别处【线下面对面】进行中：别让 TA 在群里分身、别出现在和那场线下矛盾的场景（她报：顾朝线下购物、群里却煮汤给两人）
+    const gBusyOff = members.filter(c => (offlinesRef.current[c.id] || []).some(s => s && !s.endTs && (s.msgs || []).length && Date.now() - (s.startTs || 0) < 8 * 3600000));
+    const gBusyHint = gBusyOff.length ? "\n\n【在场状态·重要】" + gBusyOff.map(c => c.name).join("、") + " 此刻正【和用户在别处线下面对面相处（进行中）】——在群里别给 " + gBusyOff.map(c => c.name).join("、") + " 新增当下的发言，也【绝不许让 TA 出现在和那场线下矛盾的场景/地点/动作里】（例：线下正一起逛街，就绝不能在群里说自己在家煮汤）。这一轮让【没在忙线下的其他成员】来聊；实在只剩忙线下的成员，就别硬生成。" : "";
     startLane("g:" + groupId);
     try {
       if (!active) throw new Error("请先配置 API");
@@ -3917,7 +3922,7 @@ function App() {
       const gDirs = (directives[groupId] || []).map(d => (typeof d === "string" ? d : d && d.text) || "").filter(s => s.trim());
       const gDirHint = gDirs.length ? "\n\n【⚠️群规矩·最高优先级，压过下面的对话惯性】这些是用户之前（场外）跟你们立好、你们已经答应了的长期约定，每一条【现在就生效、永久有效】：\n" + gDirs.map((s, i) => (i + 1) + ". " + s).join("\n") + "\n——就算上面的聊天记录里大家还在聊相关话题，也从这一轮起严格照约定来（惯性不是理由）；用户若问「是不是说好了」，大方承认记得并已经在做，绝不许一脸茫然装不知道。" : "";
       // 群聊里有旁白/围观（spectate）等长段描写时也吃八股压制器（线上短对话不需要，但群聊会写到叙事）
-      const system = ANTI_CLICHE + "\n\n" + NARRATIVE_ANTI_CLICHE + (window.ContentBoundaries ? "\n\n" + window.ContentBoundaries.prompt : "") + (gWorld && gWorld.trim() ? "\n\n" + WORLDBOOK_RULE : "") + "\n\n" + CHARCARD_RULE + "\n\n" + dir + common + gTimeHint + gDirHint + gEmoteHint + gSelfieHint + thoughtHint + "\n\n【身份铁律】用户「" + (profile.name || "用户") + "」不是可代写的群成员：绝不生成用户的新台词、动作或心声，也绝不把用户口吻装进成员对象。每个输出对象的 name 是该条唯一作者；text/voice/thought 里的第一人称『我』都只能指这个 name 对应的成员。成员称呼别人时用对方名字或昵称，绝不能用昵称呼唤自己。\n\n【成员】\n" + memberDesc + "\n\n【成员间关系 · ⚠️关系隐私铁律】\n每个成员和用户「" + (profile.name || "用户") + "」是什么关系（恋人/暧昧/朋友…）【只有该成员本人知道】——别的成员并不知道 TA 和用户是不是对象、什么关系，除非那成员【在群里自己说了出来】。绝不许一个成员知道、提及、或据此反应（吃醋/打趣/拆穿）另一个成员和用户的私密关系。成员【彼此之间】的关系（朋友/兄弟/同事/对头等）才是双方都知道、可自然体现的。\n" + relLines + (gWorld ? "\n\n【世界书】\n" + gWorld : "") + interop + preJoin + "\n\n【近期群聊】\n" + hist + "\n\n【输出】只输出 JSON 数组，按发言先后顺序。普通发言 {\"name\":\"成员名\",\"text\":\"内容\",\"quote\":\"（可选）你正在回应的那句话原文，不回应特定某句就省略此字段\",\"emote\":\"（可选）想发的表情关键词\",\"voice\":\"（可选）填 true 表示这条作为语音消息发（会显示成语音气泡+转文字，偶尔用）\",\"voiceEmo\":\"（可选，voice=true 时）这条语音的真实语气：happy/sad/angry/fearful/disgusted/surprised/neutral 之一，按说话人此刻真实情绪选、别看字面\",\"call\":\"（可选）填 voice 或 video，表示这个成员此刻想跟用户发起语音/视频通话邀请，别频繁\"" + thoughtField + "}；若某成员说完某句又后悔、想撤回，那条加 \"recall\":true 和 \"recallReason\":\"撤回原因\"（会先显示一秒再变成已撤回，别频繁）；发红包 {\"name\":\"成员名\",\"redpacket\":{\"total\":金额数字,\"count\":份数,\"message\":\"祝福语\"}}。name 必须逐字等于成员名单中的一个名字；用户名字绝不能出现在 name。";
+      const system = ANTI_CLICHE + "\n\n" + NARRATIVE_ANTI_CLICHE + (window.ContentBoundaries ? "\n\n" + window.ContentBoundaries.prompt : "") + (gWorld && gWorld.trim() ? "\n\n" + WORLDBOOK_RULE : "") + "\n\n" + CHARCARD_RULE + "\n\n" + dir + common + gTimeHint + gDirHint + gEmoteHint + gSelfieHint + thoughtHint + gBusyHint + "\n\n【身份铁律】用户「" + (profile.name || "用户") + "」不是可代写的群成员：绝不生成用户的新台词、动作或心声，也绝不把用户口吻装进成员对象。每个输出对象的 name 是该条唯一作者；text/voice/thought 里的第一人称『我』都只能指这个 name 对应的成员。成员称呼别人时用对方名字或昵称，绝不能用昵称呼唤自己。\n\n【成员】\n" + memberDesc + "\n\n【成员间关系 · ⚠️关系隐私铁律】\n每个成员和用户「" + (profile.name || "用户") + "」是什么关系（恋人/暧昧/朋友…）【只有该成员本人知道】——别的成员并不知道 TA 和用户是不是对象、什么关系，除非那成员【在群里自己说了出来】。绝不许一个成员知道、提及、或据此反应（吃醋/打趣/拆穿）另一个成员和用户的私密关系。成员【彼此之间】的关系（朋友/兄弟/同事/对头等）才是双方都知道、可自然体现的。\n" + relLines + (gWorld ? "\n\n【世界书】\n" + gWorld : "") + interop + preJoin + "\n\n【近期群聊】\n" + hist + "\n\n【输出】只输出 JSON 数组，按发言先后顺序。普通发言 {\"name\":\"成员名\",\"text\":\"内容\",\"quote\":\"（可选）你正在回应的那句话原文，不回应特定某句就省略此字段\",\"emote\":\"（可选）想发的表情关键词\",\"voice\":\"（可选）填 true 表示这条作为语音消息发（会显示成语音气泡+转文字，偶尔用）\",\"voiceEmo\":\"（可选，voice=true 时）这条语音的真实语气：happy/sad/angry/fearful/disgusted/surprised/neutral 之一，按说话人此刻真实情绪选、别看字面\",\"call\":\"（可选）填 voice 或 video，表示这个成员此刻想跟用户发起语音/视频通话邀请，别频繁\"" + thoughtField + "}；若某成员说完某句又后悔、想撤回，那条加 \"recall\":true 和 \"recallReason\":\"撤回原因\"（会先显示一秒再变成已撤回，别频繁）；发红包 {\"name\":\"成员名\",\"redpacket\":{\"total\":金额数字,\"count\":份数,\"message\":\"祝福语\"}}。name 必须逐字等于成员名单中的一个名字；用户名字绝不能出现在 name。";
       // 触发用户内容：自上一条角色发言以来我说的话/旁白
       let tail = [];
       for (let i = gchat.length - 1; i >= 0; i--) {
