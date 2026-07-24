@@ -1795,6 +1795,7 @@ function Messages({
   moments,
   profile,
   unreadMap,
+  offlineLastTs,
   pinned,
   onTogglePin,
   onBack,
@@ -1849,9 +1850,11 @@ function Messages({
   }), NP("M5 21v-1a7 7 0 0114 0v1")]]];
   // 聊天列表：群+角色合并，置顶的排最前，其余按最后一条消息时间倒序（最近的在上）
   const pinnedSet = new Set(pinned || []);
+  const offLast = offlineLastTs || {};
+  // 排序时间取【线上最后一条】和【线下最后一条】里更晚的——线下角色自己冒泡也会把这个聊天顶上来（她 2026-07-23）
   const chatItems = [
-    ...groups.map(g => { const msgs = groupChats[g.id] || []; const last = msgs[msgs.length - 1]; return { key: "g_" + g.id, id: g.id, type: "group", g: g, last: last, ts: last ? (last.ts || 0) : 0 }; }),
-    ...characters.map(c => { const msgs = chats[c.id] || []; const last = msgs[msgs.length - 1]; return { key: "c_" + c.id, id: c.id, type: "char", c: c, last: last, ts: last ? (last.ts || 0) : 0 }; })
+    ...groups.map(g => { const msgs = groupChats[g.id] || []; const last = msgs[msgs.length - 1]; return { key: "g_" + g.id, id: g.id, type: "group", g: g, last: last, ts: Math.max(last ? (last.ts || 0) : 0, offLast[g.id] || 0) }; }),
+    ...characters.map(c => { const msgs = chats[c.id] || []; const last = msgs[msgs.length - 1]; return { key: "c_" + c.id, id: c.id, type: "char", c: c, last: last, ts: Math.max(last ? (last.ts || 0) : 0, offLast[c.id] || 0) }; })
   ];
   chatItems.sort((a, b) => { const pa = pinnedSet.has(a.id), pb = pinnedSet.has(b.id); if (pa !== pb) return pa ? -1 : 1; return b.ts - a.ts; });
   // 长按置顶：按住 ~0.5s 触发 onTogglePin，并拦掉随后的点击（避免误进聊天）

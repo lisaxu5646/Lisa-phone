@@ -2,7 +2,7 @@
 // ROOT
 // ============================================================
 // 版本号：跟 index.html 的 ?v=NN 同步 bump。左上角小徽标显示它，方便肉眼确认缓存刷没刷新（做完可去掉）。
-const APP_VERSION = "v50.58";
+const APP_VERSION = "v50.59";
 const MEMORY_TABLE_AUTHORITY_KEY = "memory_table_authority_v1";
 const memoryTableAuthorityOn = () => { try { return localStorage.getItem(MEMORY_TABLE_AUTHORITY_KEY) === "1"; } catch (e) { return false; } };
 const memoryRowFromCloud = r => ({
@@ -2675,6 +2675,8 @@ function App() {
       if (res.action) ost.action = res.action;
       if (res.thought) ost.thought = res.thought;
       if (Object.keys(ost).length) { const liveState = statesRef.current[charId] || {}; const ns = { ...liveState, ...ost, mood: res.mood && res.mood.label ? res.mood.label : liveState.mood, ts: Date.now(), turnId: offTurnId, affinityBefore }; setStateFor(charId, ns); pushStateHist(charId, ns); }
+      // 线下角色自己冒泡（如 jiwen 自发）时，若你没在看这个角色的线下，挂个未读红点，聊天列表也顶上来（她 2026-07-23）
+      if (!(offlineChar && offlineChar.id === charId) && viewRef.current.charId !== charId) bumpUnread(charId, 1);
       setTimeout(() => maybeSummarizeOffline(charId), 120); // 长线下防失忆：攒够就把早段滚动总结进记忆库（仿线上）
       setTimeout(() => maybeAutoExtractOffline(charId), 200); // 线下也自动抽取离散记忆（她 2026-07-23）
     } catch (e) {
@@ -2975,6 +2977,9 @@ function App() {
         toast(left ? "导演便签已落实 · 还剩 " + left + " 轮" : "导演便签已结束 · 下轮不再注入");
       }
       _spoke.forEach(id => tickAmbient(id, {}));
+      // 群线下成员自己冒泡时，若你没在看这个群的线下，挂未读红点+顶上来
+      const _gCharBeats = (beats || []).filter(b => b && b.senderId).length;
+      if (_gCharBeats && !(offlineGroup && offlineGroup.id === group.id) && viewRef.current.charId !== group.id) bumpUnread(group.id, _gCharBeats);
       setTimeout(() => maybeSummarizeGroupOffline(group.id), 120); // 群线下防失忆：攒够就滚动总结
     } catch (e) {
       toast("生成失败：" + (e.message || "重试"));
@@ -8478,6 +8483,7 @@ function App() {
     moments: moments,
     profile: profile,
     unreadMap: unreadMap,
+    offlineLastTs: (() => { const m = {}; const scan = store => { Object.keys(store || {}).forEach(id => { let t = 0; (store[id] || []).forEach(s => { const ms = s.msgs || []; const lt = ms.length ? (ms[ms.length - 1].ts || 0) : 0; if (lt > t) t = lt; }); if (t) m[id] = t; }); }; scan(offlines); scan(groupOfflines); return m; })(), // 线下最后一条时间(每场取末条)，供聊天列表排序（线下冒泡也顶上来）
     tab: msgTab,
     onTab: setMsgTab,
     onBack: goHome,
